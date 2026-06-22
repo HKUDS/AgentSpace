@@ -11,5 +11,5 @@ export async function connectSandbox(options: SandboxConnectOptions): Promise<Sa
     return CubeSandbox.connect(options);
   }
 
-  return new LocalSandbox(options.workDir, options.runtimeId);
+  return new LocalSandbox(options.workDir, options.runtimeId, options.policy);
 }
