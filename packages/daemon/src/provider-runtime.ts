@@ -2132,6 +2132,7 @@ function extractProviderText(value: unknown): string | undefined {
     "answer",
     "assistant",
     "messages",
+    "part",
     "parts",
   ];
   for (const key of prioritizedKeys) {
