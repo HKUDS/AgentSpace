@@ -13,6 +13,7 @@ import {
   type AgentRouterEvent,
   type AgentRouterHarness,
 } from "./agent-router/index.ts";
+import { buildRedactions, redactText } from "./agent-router/utils.ts";
 import { clearTaskOutputArtifacts } from "./bundle.ts";
 import { readGoogleWorkspaceReadiness } from "./google-workspace-readiness.ts";
 import { buildOpenClawProviderHealthSnapshot, inspectOpenClawDaemonAuthHealth } from "./openclaw-health.ts";
@@ -1619,13 +1620,16 @@ async function runGeminiProviderTask(
   let finalOutput = "";
   let stderr = "";
   let stdoutBuffer = "";
+  const providerEnv = buildProviderEnv(runtime, options.contextEnv);
+  const redactions = buildProviderRedactions(providerEnv);
   const result = await sandbox.exec({
     command: runtime.metadata.executablePath,
     args: providerArgs,
     timeoutMs: taskTimeoutMs,
-    env: buildProviderEnv(runtime, options.contextEnv),
+    env: providerEnv,
     onStdout: (chunk) => {
-      stdoutBuffer += chunk;
+      const value = redactText(chunk, redactions);
+      stdoutBuffer += value;
       const lines = stdoutBuffer.split(/\r?\n/);
       stdoutBuffer = lines.pop() ?? "";
 
@@ -1651,7 +1655,7 @@ async function runGeminiProviderTask(
       }
     },
     onStderr: (chunk) => {
-      stderr += chunk;
+      stderr += redactText(chunk, redactions);
     },
   });
 
@@ -1989,6 +1993,20 @@ function buildProviderEnv(runtime: ProviderRuntimeRecord, extra?: NodeJS.Process
   return env;
 }
 
+// Builds value-based redaction patterns for every secret-named entry in the
+// provider env, mirroring the agent-router path (see buildRedactions). Used to
+// scrub secret values from provider stdout/stderr before they are stored,
+// streamed to clients, or surfaced in error diagnostics.
+function buildProviderRedactions(env: NodeJS.ProcessEnv) {
+  const stringEnv: Record<string, string> = {};
+  for (const [key, value] of Object.entries(env)) {
+    if (typeof value === "string") {
+      stringEnv[key] = value;
+    }
+  }
+  return buildRedactions(stringEnv);
+}
+
 function buildClaudeEnv(runtime: ProviderRuntimeRecord, extra?: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   const env = buildProviderEnv(runtime, extra);
   for (const [key, value] of Object.entries(process.env)) {
@@ -2031,20 +2049,24 @@ async function execProviderCommand(
     workDir,
   });
 
+  const providerEnv = buildProviderEnv(runtime, env);
+  const redactions = buildProviderRedactions(providerEnv);
   let stdout = "";
   let stderr = "";
   const result = await sandbox.exec({
     command: runtime.metadata.executablePath,
     args,
     timeoutMs,
-    env: buildProviderEnv(runtime, env),
+    env: providerEnv,
     onStdout: (chunk) => {
-      stdout += chunk;
-      callbacks?.onStdout?.(chunk);
+      const value = redactText(chunk, redactions);
+      stdout += value;
+      callbacks?.onStdout?.(value);
     },
     onStderr: (chunk) => {
-      stderr += chunk;
-      callbacks?.onStderr?.(chunk);
+      const value = redactText(chunk, redactions);
+      stderr += value;
+      callbacks?.onStderr?.(value);
     },
   });
 

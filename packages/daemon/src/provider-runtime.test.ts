@@ -1191,6 +1191,37 @@ test("runProviderTask includes sanitized Claude stderr tail on empty stdout", as
   }
 });
 
+test("runProviderTask value-redacts bare secret values leaked into Gemini output", async () => {
+  // Gemini runs through runGeminiProviderTask (LocalSandbox.exec), not the
+  // agent-router, so its stdout/stderr were not value-redacted. The legacy
+  // diagnostic sanitizer only catches recognizable shapes (KEY=value, sk-…,
+  // Bearer …); a bare secret value echoed by the provider is only scrubbed by
+  // the value-based redaction added here, mirroring the agent-router path.
+  const workDir = mkdtempSync(join(tmpdir(), "agent-space-gemini-redact-"));
+  const binPath = join(workDir, "gemini");
+  writeFileSync(binPath, "#!/bin/sh\nprintf '%s\\n' \"leaked: $CUSTOM_API_TOKEN\"\n", "utf8");
+  chmodSync(binPath, 0o755);
+  const runtime: ProviderRuntimeRecord = {
+    id: "runtime-gemini-redact-test",
+    workspaceId: "default",
+    provider: "gemini",
+    name: "Gemini",
+    status: "online",
+    metadata: { executablePath: binPath, mode: "remote" },
+  };
+
+  try {
+    const result = await runProviderTask(runtime, "summarize", workDir, {
+      taskTimeoutMs: 1_000,
+      contextEnv: { CUSTOM_API_TOKEN: "gamma-delta-9988-echo" },
+    });
+    assert.equal(result.output.includes("gamma-delta-9988-echo"), false);
+    assert.equal(result.output.includes("[redacted:CUSTOM_API_TOKEN]"), true);
+  } finally {
+    rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
 test("runProviderTask reports Claude timeouts with execution diagnostics", async () => {
   const fixture = createClaudeRuntimeFixture([
     "#!/bin/sh",
