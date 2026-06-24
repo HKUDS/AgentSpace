@@ -1,0 +1,114 @@
+name: Deploy Production
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: agentspace-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    if: github.repository == 'HKUDS/AgentSpace' && (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main')
+    runs-on:
+      - self-hosted
+      - Linux
+      - X64
+      - agentspace-prod
+    timeout-minutes: 45
+    env:
+      DEPLOY_DIR: /home/AgentSpace
+      SERVICE_NAME: agentspace
+      HEALTHCHECK_URL: http://127.0.0.1:1455/api/health
+      BACKUP_DIR: /home/AgentSpace/data/backups/deployments
+    steps:
+      - name: Deploy from main
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          cd "$DEPLOY_DIR"
+
+          run_systemctl() {
+            if [ "$(id -u)" -eq 0 ]; then
+              systemctl "$@"
+            else
+              sudo systemctl "$@"
+            fi
+          }
+
+          healthcheck() {
+            for attempt in {1..30}; do
+              if curl -fsS "$HEALTHCHECK_URL" >/dev/null; then
+                echo "Health check passed."
+                return 0
+              fi
+              echo "Waiting for service health ($attempt/30)..."
+              sleep 2
+            done
+            return 1
+          }
+
+          rollback() {
+            local target_commit="$1"
+
+            echo "Rolling back to $target_commit"
+            git reset --hard "$target_commit"
+            npm run setup
+            npm run build
+            run_systemctl restart "$SERVICE_NAME"
+            healthcheck
+          }
+
+          if ! git diff --quiet || ! git diff --cached --quiet; then
+            echo "Tracked worktree changes detected; refusing to deploy."
+            git status --short
+            exit 1
+          fi
+
+          remote="origin"
+          if git remote get-url hku >/dev/null 2>&1; then
+            remote="hku"
+          fi
+
+          before="$(git rev-parse HEAD)"
+
+          git fetch --prune "$remote" main
+          after="$(git rev-parse FETCH_HEAD)"
+
+          if [ "$before" = "$after" ] && [ "${GITHUB_EVENT_NAME:-}" != "workflow_dispatch" ]; then
+            echo "Already up to date at $after."
+            exit 0
+          fi
+
+          if [ "$before" = "$after" ]; then
+            echo "Manual deployment requested for current commit $after."
+          fi
+
+          mkdir -p "$BACKUP_DIR"
+          if [ -f data/agent-space.sqlite ]; then
+            cp -a data/agent-space.sqlite "$BACKUP_DIR/agent-space.sqlite.$(date -u +%Y%m%dT%H%M%SZ)"
+          fi
+
+          git reset --hard "$after"
+          npm run setup
+
+          if ! npm run build; then
+            rollback "$before"
+            exit 1
+          fi
+
+          run_systemctl restart "$SERVICE_NAME"
+
+          if ! healthcheck; then
+            rollback "$before"
+            exit 1
+          fi
+
+          echo "Deployed $after."
