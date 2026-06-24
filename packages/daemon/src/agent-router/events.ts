@@ -1,5 +1,5 @@
 import type { AgentRouterEvent } from "./types.ts";
-import { extractText, extractUsage, readStringAtPaths } from "./utils.ts";
+import { extractSessionId, extractText, extractUsage, readNumberAtPaths, readStringAtPaths, readValueAtPaths } from "./utils.ts";
 
 export function mapClaudeNativeEvent(event: Record<string, unknown>): AgentRouterEvent[] {
   const type = typeof event.type === "string" ? event.type : "";
@@ -198,6 +198,74 @@ export function mapOpenClawNativeEvent(event: Record<string, unknown>): AgentRou
   return result;
 }
 
+export function mapOpenCodeNativeEvent(event: Record<string, unknown>): AgentRouterEvent[] {
+  const result: AgentRouterEvent[] = [];
+  const sessionId = extractSessionId(event);
+  if (sessionId) {
+    result.push({ type: "session_updated", sessionId });
+  }
+
+  const type = typeof event.type === "string" ? event.type : "";
+  const eventName = typeof event.event === "string" ? event.event : "";
+  const part = event.part && typeof event.part === "object" ? event.part as Record<string, unknown> : undefined;
+  const combinedType = `${type} ${eventName} ${typeof part?.type === "string" ? part.type : ""}`;
+
+  const toolName = readOpenCodeToolName(event);
+  if (toolName && /tool|command|exec|function/i.test(combinedType)) {
+    if (/start|started|call|calling|tool_use/i.test(combinedType)) {
+      result.push({
+        type: "tool_started",
+        tool: toolName,
+        title: toolName,
+        input: readOpenCodeToolInput(event),
+      });
+    } else if (/finish|finished|result|output|complete|completed|failed|error/i.test(combinedType)) {
+      const output = extractText(event.output ?? event.result ?? part?.output ?? part?.result ?? event.content ?? event.message);
+      result.push({ type: "tool_output", tool: toolName, output });
+      result.push({
+        type: "tool_finished",
+        tool: toolName,
+        status: /fail|error|denied/i.test(combinedType) ? "failed" : "completed",
+      });
+    }
+  }
+
+  const usage = extractOpenCodeUsage(event);
+  if (usage) {
+    result.push({
+      type: "tool_output",
+      tool: "usage",
+      metadata: {
+        input_tokens: usage.inputTokens,
+        output_tokens: usage.outputTokens,
+      },
+    });
+  }
+
+  if (type === "text" || type === "message") {
+    const text = extractOpenCodeFinalText(event);
+    if (text) {
+      result.push({ type: "text_delta", text });
+    }
+    return result;
+  }
+
+  if (type === "step_start" || type === "step" || type === "status") {
+    const text = extractOpenCodeStepText(event);
+    if (text) {
+      result.push({ type: "thought_delta", text });
+    }
+    return result;
+  }
+
+  const finalText = extractOpenCodeFinalText(event);
+  if (finalText && !/step_finish|usage|debug/i.test(combinedType)) {
+    result.push({ type: "text_delta", text: finalText });
+  }
+
+  return result;
+}
+
 export function extractClaudeFallbackText(event: Record<string, unknown>): string | undefined {
   if (event.type === "result" && typeof event.result === "string") {
     return event.result.trim() || undefined;
@@ -229,6 +297,26 @@ export function extractCodexFinalText(event: Record<string, unknown>): string | 
   return undefined;
 }
 
+export function extractOpenCodeFinalText(event: Record<string, unknown>): string | undefined {
+  const type = typeof event.type === "string" ? event.type : "";
+  if (type === "step_start" || type === "step" || type === "status" || type === "step_finish" || type === "usage" || type === "debug") {
+    return undefined;
+  }
+
+  return extractText(
+    readValueAtPaths(event, [
+      ["part", "text"],
+      ["part", "content"],
+      ["part", "message"],
+      ["text"],
+      ["content"],
+      ["message"],
+      ["result", "text"],
+      ["result", "content"],
+    ]),
+  );
+}
+
 function normalizeCodexItemType(value: unknown): string {
   if (value === "commandExecution" || value === "command_execution") {
     return "command_execution";
@@ -255,6 +343,66 @@ function extractTextFromOpenClawEvent(event: Record<string, unknown>): string | 
     return undefined;
   }
   return extractText(event);
+}
+
+function extractOpenCodeStepText(event: Record<string, unknown>): string | undefined {
+  return extractText(
+    readValueAtPaths(event, [
+      ["part", "title"],
+      ["part", "text"],
+      ["message"],
+      ["content"],
+      ["text"],
+    ]),
+  );
+}
+
+function extractOpenCodeUsage(event: Record<string, unknown>): { inputTokens: number; outputTokens: number } | undefined {
+  const sharedUsage = extractUsage(event);
+  if (sharedUsage) {
+    return sharedUsage;
+  }
+
+  const inputTokens = readNumberAtPaths(event, [
+    ["tokens", "input"],
+    ["tokens", "inputTokens"],
+    ["tokens", "input_tokens"],
+    ["part", "tokens", "input"],
+    ["part", "tokens", "inputTokens"],
+    ["part", "tokens", "input_tokens"],
+  ]) ?? 0;
+  const outputTokens = readNumberAtPaths(event, [
+    ["tokens", "output"],
+    ["tokens", "outputTokens"],
+    ["tokens", "output_tokens"],
+    ["part", "tokens", "output"],
+    ["part", "tokens", "outputTokens"],
+    ["part", "tokens", "output_tokens"],
+  ]) ?? 0;
+
+  if (inputTokens <= 0 && outputTokens <= 0) {
+    return undefined;
+  }
+  return { inputTokens, outputTokens };
+}
+
+function readOpenCodeToolName(event: Record<string, unknown>): string | undefined {
+  return readStringAtPaths(event, [
+    ["tool"],
+    ["toolName"],
+    ["tool_name"],
+    ["name"],
+    ["part", "tool"],
+    ["part", "toolName"],
+    ["part", "tool_name"],
+    ["part", "name"],
+  ]);
+}
+
+function readOpenCodeToolInput(event: Record<string, unknown>): unknown {
+  const part = event.part && typeof event.part === "object" ? event.part as Record<string, unknown> : undefined;
+  return event.input ?? event.args ?? event.arguments ?? event.params ?? event.command
+    ?? part?.input ?? part?.args ?? part?.arguments ?? part?.params ?? part?.command;
 }
 
 function isTerminalTextOpenClawEvent(event: Record<string, unknown>): boolean {

@@ -1,7 +1,7 @@
 import type { RuntimeToolCapability } from "@agent-space/domain";
 import type { ProviderHealthSnapshot } from "@agent-space/domain";
 
-export const AGENT_ROUTER_HARNESSES = ["claude", "codex", "openclaw", "hermes"] as const;
+export const AGENT_ROUTER_HARNESSES = ["claude", "codex", "opencode", "openclaw", "hermes"] as const;
 
 export type AgentRouterHarness = typeof AGENT_ROUTER_HARNESSES[number];
 

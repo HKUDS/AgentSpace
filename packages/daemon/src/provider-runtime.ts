@@ -189,7 +189,7 @@ export async function runProviderTask(
     return runGeminiProviderTask(runtime, prompt, workDir, taskTimeoutMs, options);
   }
   if (runtime.provider === "opencode") {
-    return runOpenCodeProviderTask(runtime, prompt, workDir, taskTimeoutMs, options);
+    return runAgentRouterProviderTask(runtime, prompt, workDir, taskTimeoutMs, options);
   }
   if (runtime.provider === "openclaw") {
     return runAgentRouterProviderTask(runtime, prompt, workDir, taskTimeoutMs, options);
@@ -261,15 +261,20 @@ async function runAgentRouterProviderTask(
   });
 
   if (isMissingResumeSessionResult(runtime.provider, result.diagnostics, sessionId)) {
+    const sessionInvalidMessage = `${formatDaemonProviderLabel(runtime.provider)} session ${sessionId} was not found; starting a new conversation.`;
     options.onEvent?.({
       type: "provider_session_invalid",
-      content: `${formatDaemonProviderLabel(runtime.provider)} session ${sessionId} was not found; starting a new conversation.`,
+      content: sessionInvalidMessage,
       inputJson: {
         provider: runtime.provider,
         runtimeId: runtime.id,
         sessionId,
         code: "provider.session_invalid",
       },
+    });
+    options.onEvent?.({
+      type: "status",
+      content: sessionInvalidMessage,
     });
     clearTaskOutputArtifacts(workDir);
     return runAgentRouterProviderTask(runtime, prompt, workDir, taskTimeoutMs, {
@@ -1677,113 +1682,6 @@ async function runGeminiProviderTask(
   return { output };
 }
 
-async function runOpenCodeProviderTask(
-  runtime: ProviderRuntimeRecord,
-  prompt: string,
-  workDir: string,
-  taskTimeoutMs: number,
-  options: ProviderTaskOptions,
-): Promise<{ output: string; sessionId?: string }> {
-  clearTaskOutputArtifacts(workDir);
-  const outputFile = join(workDir, "last-message.txt");
-  const model = process.env.OPENCODE_MODEL?.trim();
-  let discoveredSessionId = options.sessionId;
-  let finalOutput = "";
-  let stdoutBuffer = "";
-
-  const providerArgs = ["run", "--format", "json"];
-  if (options.sessionId) {
-    providerArgs.push("--session", options.sessionId);
-  }
-  if (model) {
-    providerArgs.push("--model", model);
-  }
-  providerArgs.push(prompt);
-
-  let stderr = "";
-  const result = await execProviderCommand(runtime, providerArgs, workDir, taskTimeoutMs, options.contextEnv, {
-    onStdout: (chunk) => {
-      stdoutBuffer += chunk;
-      const lines = stdoutBuffer.split(/\r?\n/);
-      stdoutBuffer = lines.pop() ?? "";
-
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed) {
-          continue;
-        }
-
-        if (!trimmed.startsWith("{")) {
-          finalOutput = appendOutputLine(finalOutput, trimmed);
-          continue;
-        }
-
-        try {
-          const event = JSON.parse(trimmed) as Record<string, unknown>;
-          discoveredSessionId = extractSessionId(event) ?? discoveredSessionId;
-          for (const mapped of mapOpenCodeEvent(event)) {
-            options.onEvent?.(mapped);
-          }
-          const extractedText = extractProviderText(event);
-          if (extractedText) {
-            finalOutput = extractedText;
-          }
-        } catch {
-          finalOutput = appendOutputLine(finalOutput, trimmed);
-        }
-      }
-    },
-    onStderr: (chunk) => {
-      stderr += chunk;
-    },
-  });
-
-  if (stdoutBuffer.trim()) {
-    const trailing = stdoutBuffer.trim();
-    if (trailing.startsWith("{")) {
-      try {
-        const event = JSON.parse(trailing) as Record<string, unknown>;
-        discoveredSessionId = extractSessionId(event) ?? discoveredSessionId;
-        const extractedText = extractProviderText(event);
-        if (extractedText) {
-          finalOutput = extractedText;
-        }
-      } catch {
-        finalOutput = appendOutputLine(finalOutput, trailing);
-      }
-    } else {
-      finalOutput = appendOutputLine(finalOutput, trailing);
-    }
-  }
-
-  if (result.result.timedOut) {
-    throw new ProviderTaskExecutionError(`opencode timed out after ${taskTimeoutMs}ms.`, {
-      sessionId: discoveredSessionId,
-      workDir,
-    });
-  }
-  if (result.result.exitCode !== 0) {
-    throw new ProviderTaskExecutionError(stderr.trim() || `opencode exited with code ${result.result.exitCode}.`, {
-      sessionId: discoveredSessionId,
-      workDir,
-    });
-  }
-
-  if (finalOutput) {
-    writeFileSync(outputFile, finalOutput, "utf8");
-  }
-
-  const output = finalOutput || (existsSync(outputFile) ? readFileSync(outputFile, "utf8").trim() : "");
-  if (!output) {
-    throw new ProviderTaskExecutionError("opencode returned an empty response.", {
-      sessionId: discoveredSessionId,
-      workDir,
-    });
-  }
-
-  return { output, sessionId: discoveredSessionId };
-}
-
 async function runNanoBotProviderTask(
   runtime: ProviderRuntimeRecord,
   prompt: string,
@@ -1950,22 +1848,6 @@ function mapGeminiEvent(event: Record<string, unknown>): ProviderTaskEvent[] {
   return [];
 }
 
-function mapOpenCodeEvent(event: Record<string, unknown>): ProviderTaskEvent[] {
-  const usage = extractUsage(event);
-  if (usage) {
-    return [{
-      type: "usage",
-      content: `tokens: in=${usage.inputTokens} out=${usage.outputTokens}`,
-      inputJson: {
-        input_tokens: usage.inputTokens,
-        output_tokens: usage.outputTokens,
-      },
-    }];
-  }
-
-  return [];
-}
-
 function truncateToolOutput(value: string): string {
   const trimmed = value.trim();
   if (trimmed.length <= 1200) {
@@ -2100,53 +1982,6 @@ function parseJsonOutput(output: string): Record<string, unknown>[] {
   return [];
 }
 
-function extractProviderText(value: unknown): string | undefined {
-  if (typeof value === "string") {
-    const trimmed = value.trim();
-    return trimmed || undefined;
-  }
-
-  if (Array.isArray(value)) {
-    const parts = value
-      .map((entry) => extractProviderText(entry))
-      .filter((entry): entry is string => Boolean(entry));
-    if (parts.length > 0) {
-      return parts.join("\n");
-    }
-    return undefined;
-  }
-
-  if (!value || typeof value !== "object") {
-    return undefined;
-  }
-
-  const candidate = value as Record<string, unknown>;
-  const prioritizedKeys = [
-    "payload",
-    "result",
-    "output",
-    "response",
-    "message",
-    "content",
-    "text",
-    "answer",
-    "assistant",
-    "messages",
-    "parts",
-  ];
-  for (const key of prioritizedKeys) {
-    if (!(key in candidate)) {
-      continue;
-    }
-    const extracted = extractProviderText(candidate[key]);
-    if (extracted) {
-      return extracted;
-    }
-  }
-
-  return undefined;
-}
-
 function extractSessionId(event: Record<string, unknown>): string | undefined {
   return readStringAtPaths(event, [
     ["sessionId"],
@@ -2158,32 +1993,6 @@ function extractSessionId(event: Record<string, unknown>): string | undefined {
     ["meta", "sessionId"],
     ["meta", "session_id"],
   ]);
-}
-
-function extractUsage(event: Record<string, unknown>): {
-  inputTokens: number;
-  outputTokens: number;
-} | undefined {
-  const usageCandidate = readValueAtPaths(event, [
-    ["usage"],
-    ["lastCallUsage"],
-    ["result", "usage"],
-    ["result", "lastCallUsage"],
-    ["result", "meta", "agentMeta", "lastCallUsage"],
-    ["meta", "agentMeta", "lastCallUsage"],
-  ]);
-  if (!usageCandidate || typeof usageCandidate !== "object") {
-    return undefined;
-  }
-
-  const usage = usageCandidate as Record<string, unknown>;
-  const inputTokens = readNumberAtPaths(usage, [["input_tokens"], ["inputTokens"], ["promptTokens"]]) ?? 0;
-  const outputTokens = readNumberAtPaths(usage, [["output_tokens"], ["outputTokens"], ["completionTokens"]]) ?? 0;
-  if (inputTokens <= 0 && outputTokens <= 0) {
-    return undefined;
-  }
-
-  return { inputTokens, outputTokens };
 }
 
 function readValueAtPaths(value: unknown, paths: string[][]): unknown {
@@ -2207,15 +2016,6 @@ function readValueAtPaths(value: unknown, paths: string[][]): unknown {
 function readStringAtPaths(value: unknown, paths: string[][]): string | undefined {
   const candidate = readValueAtPaths(value, paths);
   return typeof candidate === "string" && candidate.trim() ? candidate.trim() : undefined;
-}
-
-function readNumberAtPaths(value: unknown, paths: string[][]): number | undefined {
-  const candidate = readValueAtPaths(value, paths);
-  return typeof candidate === "number" && Number.isFinite(candidate) ? candidate : undefined;
-}
-
-function appendOutputLine(current: string, next: string): string {
-  return current ? `${current}\n${next}` : next;
 }
 
 export function readProviderTaskFailureMetadata(error: unknown): {

@@ -239,12 +239,17 @@ export function extractText(value: unknown): string | undefined {
 
 export function extractSessionId(event: Record<string, unknown>): string | undefined {
   return readStringAtPaths(event, [
+    ["sessionID"],
     ["sessionId"],
     ["session_id"],
     ["thread_id"],
     ["threadId"],
     ["conversation_id"],
     ["conversationId"],
+    ["session", "id"],
+    ["part", "sessionID"],
+    ["part", "sessionId"],
+    ["part", "session_id"],
     ["result", "sessionId"],
     ["result", "session_id"],
     ["result", "thread_id"],

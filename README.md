@@ -80,7 +80,9 @@ Both modes run the same product — digital employees, AgentRouter scheduling, w
 
 ## News
 
-- **2026-06-22** — AgentRouter now supports Claude Code, Codex, OpenClaw, Hermes, nanobot. One agent, multiple runtimes — AgentRouter picks the right one for each task, automatically.
+- **2026-06-24** — OpenCode has moved onto the AgentRouter execution path. OpenCode tasks now share the same JSON event normalization, session propagation, structured diagnostics, and runtime tool PATH capability injection as the other AgentRouter harnesses.
+
+- **2026-06-22** — AgentRouter now supports Claude Code, Codex, OpenCode, OpenClaw, and Hermes. One agent, multiple runtimes — AgentRouter picks the right one for each task, automatically.
 
 - **2026-06-21** — Initial release: AgentSpace v1.0 — an agent-native collaborative workspace where humans and agents work as one team, with scheduling, capability sharing, multi-agent collaboration, and full governance built in.
 
@@ -307,10 +309,10 @@ AgentRouter is the provider harness normalization layer. It does not replace the
 | --- | --- | --- |
 | Claude Code | AgentRouter | stream-json events, session fallback, tool approval bridge |
 | Codex CLI | AgentRouter | JSON events, session fallback, runtime tool capability diagnostics |
+| OpenCode | AgentRouter | JSON events, session propagation, timeout/nonzero/empty diagnostics |
 | OpenClaw | AgentRouter | health/preflight, auth/profile/model/tool/protocol diagnostics, missing session fallback |
 | Hermes Agent | AgentRouter | text output, executable compatibility checks, timeout and empty-response diagnostics |
 | Gemini CLI | legacy provider-runtime | one-shot CLI |
-| OpenCode | legacy provider-runtime | one-shot JSON CLI |
 | NanoBot | legacy provider-runtime | one-shot CLI |
 
 Smoke test AgentRouter directly:
@@ -320,6 +322,7 @@ agent-router harnesses
 agent-router detect
 agent-router run --harness claude --cwd /workspace/project "summarize this repo"
 agent-router run --harness codex --cwd /workspace/project --model gpt-5.1 "fix tests"
+agent-router run --harness opencode --cwd /workspace/project --model openrouter/openai/gpt-4.1 "summarize this repo"
 agent-router run --harness openclaw --cwd /workspace/project --mode medium "review this diff"
 agent-router run --harness hermes --cwd /workspace/project "summarize this repo"
 ```
@@ -343,10 +346,10 @@ flowchart TD
   Runtime --> Legacy["legacy provider runtime"]
   Router --> Claude["Claude Code"]
   Router --> Codex["Codex CLI"]
+  Router --> OpenCode["OpenCode"]
   Router --> OpenClaw["OpenClaw"]
   Router --> Hermes["Hermes Agent"]
   Legacy --> Gemini["Gemini CLI"]
-  Legacy --> OpenCode["OpenCode"]
   Legacy --> NanoBot["NanoBot"]
   Runtime --> Output["runtime-output / diagnostics / sessions"]
   Output --> Services

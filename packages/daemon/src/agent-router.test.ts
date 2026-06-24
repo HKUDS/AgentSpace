@@ -15,6 +15,7 @@ test("listAgentRouterHarnesses exposes the MVP native harnesses", () => {
   assert.deepEqual(listAgentRouterHarnesses(), [
     { id: "claude", label: "Claude Code" },
     { id: "codex", label: "Codex CLI" },
+    { id: "opencode", label: "OpenCode" },
     { id: "openclaw", label: "OpenClaw" },
     { id: "hermes", label: "Hermes Agent" },
   ]);
@@ -27,6 +28,7 @@ test("detectAgentRouterHarnesses reports available and missing CLIs", async () =
   try {
     writeExecutable(join(binDir, "claude"), "#!/bin/sh\necho claude 1.2.3\n");
     writeExecutable(join(binDir, "codex"), "#!/bin/sh\necho codex 4.5.6\n");
+    writeExecutable(join(binDir, "opencode"), "#!/bin/sh\necho opencode 0.3.0\n");
     writeExecutable(
       join(binDir, "hermes-agent"),
       "#!/bin/sh\nif [ \"$1\" = 'version' ]; then echo hermes 0.2.0; else echo unknown option >&2; exit 2; fi\n",
@@ -39,6 +41,7 @@ test("detectAgentRouterHarnesses reports available and missing CLIs", async () =
       [
         { id: "claude", status: "available", version: "claude 1.2.3" },
         { id: "codex", status: "available", version: "codex 4.5.6" },
+        { id: "opencode", status: "available", version: "opencode 0.3.0" },
         { id: "openclaw", status: "missing", version: undefined },
         { id: "hermes", status: "available", version: "hermes 0.2.0" },
       ],
@@ -330,6 +333,169 @@ test("runAgentRouter handles Codex snake_case events without treating successful
     assert.equal(result.diagnostics.some((diagnostic) => diagnostic.code === "harness.auth_required"), false);
     assert.equal(events.some((event) => event.type === "tool_started" && event.tool === "exec_command"), true);
     assert.equal(events.some((event) => event.type === "tool_output" && event.tool === "exec_command"), true);
+  } finally {
+    process.env.PATH = originalPath;
+    rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
+test("runAgentRouter normalizes OpenCode JSON text, session, usage, and launch args", async () => {
+  const workDir = mkdtempSync(join(tmpdir(), "agent-router-opencode-"));
+  const providerBinDir = join(workDir, "provider-bin");
+  const toolBinDir = join(workDir, "tool-bin");
+  const opencodePath = join(providerBinDir, "opencode");
+  const fakeCliPath = join(toolBinDir, "fake-cli");
+  const argsPath = join(workDir, "opencode-args.txt");
+  const seenPathFile = join(workDir, "seen-path.txt");
+  const originalPath = process.env.PATH;
+
+  try {
+    writeExecutable(
+      opencodePath,
+      [
+        "#!/bin/sh",
+        "printf '%s\\n' \"$@\" > \"$OPENCODE_ARGS_PATH\"",
+        "printf '%s' \"$PATH\" > \"$SEEN_PATH_FILE\"",
+        "if ! command -v fake-cli >/dev/null 2>&1; then",
+        "  printf '%s\\n' 'missing fake cli' >&2",
+        "  exit 3",
+        "fi",
+        "printf '%s\\n' '{\"type\":\"step_start\",\"sessionID\":\"ses_1\",\"part\":{\"text\":\"thinking\"}}'",
+        "printf '%s\\n' '{\"type\":\"text\",\"sessionID\":\"ses_1\",\"part\":{\"text\":\"final answer\"}}'",
+        "printf '%s\\n' '{\"type\":\"step_finish\",\"sessionID\":\"ses_1\",\"part\":{\"tokens\":{\"input\":5,\"output\":7}}}'",
+      ].join("\n"),
+    );
+    writeExecutable(fakeCliPath, "#!/bin/sh\necho fake-cli-ok\n");
+    process.env.PATH = providerBinDir;
+
+    const events: AgentRouterEvent[] = [];
+    const result = await runAgentRouter({
+      version: 1,
+      harness: "opencode",
+      prompt: "hello opencode",
+      cwd: workDir,
+      executablePath: opencodePath,
+      model: "openrouter/openai/gpt-4.1",
+      sessionId: "ses_prev",
+      env: {
+        OPENCODE_ARGS_PATH: argsPath,
+        SEEN_PATH_FILE: seenPathFile,
+      },
+      runtimeToolCapabilities: [{
+        id: "fake-cli",
+        command: "fake-cli",
+        displayName: "Fake CLI",
+        binDir: toolBinDir,
+        allowedShellPatterns: ["fake-cli *"],
+        source: "runtime",
+      }],
+      timeoutMs: 1_000,
+    }, {
+      emit: (event) => events.push(event),
+    });
+    const args = readFileSync(argsPath, "utf8").trim().split(/\r?\n/);
+    const seenPath = readFileSync(seenPathFile, "utf8").split(delimiter);
+
+    assert.equal(result.status, "completed");
+    assert.equal(result.outputText, "final answer");
+    assert.equal(result.sessionId, "ses_1");
+    assert.deepEqual(args, [
+      "run",
+      "--format",
+      "json",
+      "--session",
+      "ses_prev",
+      "--model",
+      "openrouter/openai/gpt-4.1",
+      "hello opencode",
+    ]);
+    assert.equal(seenPath.includes(toolBinDir), true);
+    assert.equal(events.some((event) => event.type === "session_updated" && event.sessionId === "ses_1"), true);
+    assert.equal(events.some((event) => event.type === "thought_delta" && event.text === "thinking"), true);
+    assert.equal(events.some((event) => event.type === "text_delta" && event.text === "final answer"), true);
+    assert.equal(events.some((event) => event.type === "tool_output" && event.tool === "usage"), true);
+  } finally {
+    process.env.PATH = originalPath;
+    rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
+test("runAgentRouter returns structured OpenCode diagnostics for nonzero, empty, and timeout", async () => {
+  const workDir = mkdtempSync(join(tmpdir(), "agent-router-opencode-diagnostics-"));
+  const binDir = join(workDir, "bin");
+  const opencodePath = join(binDir, "opencode");
+  const originalPath = process.env.PATH;
+
+  try {
+    writeExecutable(
+      opencodePath,
+      [
+        "#!/bin/sh",
+        "if [ \"$OPENCODE_SLEEP\" = '1' ]; then",
+        "  sleep 2",
+        "fi",
+        "if [ \"$OPENCODE_EMPTY\" = '1' ]; then",
+        "  exit 0",
+        "fi",
+        "if [ \"$OPENCODE_INVALID_JSON\" = '1' ]; then",
+        "  printf '%s\\n' '{\"type\":\"text\",\"sessionID\":\"ses_partial\",\"part\":{\"text\":\"partial output\"}}'",
+        "  printf '%s\\n' '{not-json'",
+        "  exit 0",
+        "fi",
+        "printf '%s\\n' 'OpenCode auth failed' >&2",
+        "exit 42",
+      ].join("\n"),
+    );
+    process.env.PATH = binDir;
+
+    const failed = await runAgentRouter({
+      version: 1,
+      harness: "opencode",
+      prompt: "fail",
+      cwd: workDir,
+      executablePath: opencodePath,
+      timeoutMs: 1_000,
+    });
+    assert.equal(failed.status, "failed");
+    assert.equal(failed.diagnostics.some((diagnostic) => diagnostic.code === "harness.exited_nonzero"), true);
+    assert.match(failed.diagnostics.find((diagnostic) => diagnostic.code === "harness.exited_nonzero")?.rawProviderMessage ?? "", /OpenCode auth failed/);
+
+    const empty = await runAgentRouter({
+      version: 1,
+      harness: "opencode",
+      prompt: "empty",
+      cwd: workDir,
+      executablePath: opencodePath,
+      env: { OPENCODE_EMPTY: "1" },
+      timeoutMs: 1_000,
+    });
+    assert.equal(empty.status, "failed");
+    assert.equal(empty.diagnostics.some((diagnostic) => diagnostic.code === "harness.empty_response"), true);
+
+    const partialInvalid = await runAgentRouter({
+      version: 1,
+      harness: "opencode",
+      prompt: "partial-invalid",
+      cwd: workDir,
+      executablePath: opencodePath,
+      env: { OPENCODE_INVALID_JSON: "1" },
+      timeoutMs: 1_000,
+    });
+    assert.equal(partialInvalid.status, "completed");
+    assert.equal(partialInvalid.outputText, "partial output");
+    assert.equal(partialInvalid.diagnostics.some((diagnostic) => diagnostic.code === "harness.protocol_parse_failed"), true);
+
+    const timeout = await runAgentRouter({
+      version: 1,
+      harness: "opencode",
+      prompt: "slow",
+      cwd: workDir,
+      executablePath: opencodePath,
+      env: { OPENCODE_SLEEP: "1" },
+      timeoutMs: 50,
+    });
+    assert.equal(timeout.status, "timeout");
+    assert.equal(timeout.diagnostics.some((diagnostic) => diagnostic.code === "harness.timeout"), true);
   } finally {
     process.env.PATH = originalPath;
     rmSync(workDir, { recursive: true, force: true });

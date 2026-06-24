@@ -44,7 +44,7 @@ async function runCommand(args: string[]): Promise<number> {
   const outputFormat: AgentRouterOutputFormat = parsed.flags["json-events"] ? "json-events" : "text";
 
   if (!harness || !isAgentRouterHarness(harness)) {
-    console.error("Usage: agent-router run --harness claude|codex|openclaw|hermes [--cwd <dir>] [--model <id>] [--mode <mode>] [--session-id <id>] [--timeout-ms <ms>] [--json-events] <prompt>");
+    console.error("Usage: agent-router run --harness claude|codex|opencode|openclaw|hermes [--cwd <dir>] [--model <id>] [--mode <mode>] [--session-id <id>] [--timeout-ms <ms>] [--json-events] <prompt>");
     return 1;
   }
   if (!prompt) {
@@ -128,11 +128,12 @@ export function printAgentRouterHelp(): void {
   console.error(`Usage:
   agent-router harnesses
   agent-router detect
-  agent-router run --harness claude|codex|openclaw|hermes [--cwd <dir>] [--model <id>] [--mode <mode>] [--session-id <id>] [--timeout-ms <ms>] [--json-events] <prompt>
+  agent-router run --harness claude|codex|opencode|openclaw|hermes [--cwd <dir>] [--model <id>] [--mode <mode>] [--session-id <id>] [--timeout-ms <ms>] [--json-events] <prompt>
 
 Examples:
   agent-router run --harness claude --cwd /workspace/project "summarize this repo"
   agent-router run --harness codex --cwd /workspace/project --model gpt-5.1 "fix tests"
+  agent-router run --harness opencode --cwd /workspace/project --model openrouter/openai/gpt-4.1 "summarize this repo"
   agent-router run --harness openclaw --cwd /workspace/project --mode medium "review this diff"
   agent-router run --harness hermes --cwd /workspace/project "summarize this repo"
   agent-router run --harness claude --json-events "write a plan"`);
