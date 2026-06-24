@@ -637,7 +637,11 @@ function canReadChannelByLegacyMembership(
   }
   const visibleHumanNames = resolveChannelHumanMemberNames(state, channel);
   if (visibleHumanNames.length === 0) {
-    return true;
+    // A channel that resolves to no human members must default to private
+    // (deny). Returning true here would make memberless channels — e.g. ones
+    // created via `createChannelSync({ name })` with no participants, such as
+    // the CLI `channel create` path — readable by every workspace member.
+    return false;
   }
   return visibleHumanNames.some((candidate) => sameValue(candidate, displayName));
 }

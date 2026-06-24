@@ -2202,7 +2202,9 @@ function canReadChannelByLegacyMembership(
   }
   const visibleHumanNames = resolveChannelHumanMemberNames(state, channel);
   if (visibleHumanNames.length === 0) {
-    return true;
+    // Memberless channels must default to private (deny); see
+    // canReadChannelByLegacyMembership in channel-access.ts.
+    return false;
   }
   return visibleHumanNames.some((candidate) => sameValue(candidate, actor.displayName));
 }

@@ -59,7 +59,9 @@ function canHumanMemberAccessChannel(
 ): boolean {
   const resolvedHumanMemberNames = resolveChannelHumanMemberNames(state, channel);
   if (resolvedHumanMemberNames.length === 0) {
-    return true;
+    // Memberless channels default to private (deny); returning true would make
+    // them readable by every workspace member.
+    return false;
   }
   if (!humanMemberName) {
     return false;

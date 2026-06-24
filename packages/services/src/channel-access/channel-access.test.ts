@@ -14,6 +14,7 @@ import {
 import {
   canReadChannelForActorSync,
   createChannelParticipantsForMembersSync,
+  createChannelSync,
   requestChannelAccessForActorSync,
   readWorkspaceStateSync,
   resetWorkspaceStateSync,
@@ -181,6 +182,46 @@ test("direct channel structured participants can read even when legacy names are
     channelName: "direct-human",
     actor: { userId: participant.id, displayName: participant.displayName, role: "member" },
   }), true);
+});
+
+test("group channel with no members defaults to private and is not workspace-readable", () => {
+  const owner = createUserSync({
+    displayName: "Owner",
+    primaryEmail: "owner@example.com",
+  });
+  const outsider = createUserSync({
+    displayName: "Outsider",
+    primaryEmail: "outsider@example.com",
+  });
+  const workspace = createWorkspaceSync({
+    id: "workspace-memberless-group",
+    slug: "workspace-memberless-group",
+    name: "Memberless Group",
+    createdBy: owner.id,
+  });
+  createWorkspaceMembershipSync({ workspaceId: workspace.id, userId: owner.id, role: "owner" });
+  createWorkspaceMembershipSync({ workspaceId: workspace.id, userId: outsider.id, role: "member" });
+
+  resetWorkspaceStateSync(workspace.id);
+
+  // Mirrors the CLI `channel create --name <name>` path: a group channel with
+  // no human members and no structured participant rows.
+  createChannelSync({ name: "secret-room" }, workspace.id);
+
+  // Admins/owners still see every channel.
+  assert.equal(canReadChannelForActorSync({
+    workspaceId: workspace.id,
+    channelName: "secret-room",
+    actor: { userId: owner.id, displayName: owner.displayName, role: "owner" },
+  }), true);
+
+  // A non-member workspace member must NOT read a memberless channel. Before
+  // the fix this returned true (empty membership was treated as public).
+  assert.equal(canReadChannelForActorSync({
+    workspaceId: workspace.id,
+    channelName: "secret-room",
+    actor: { userId: outsider.id, displayName: outsider.displayName, role: "member" },
+  }), false);
 });
 
 test("requesting channel access notifies workspace managers and posts a channel notice", () => {
