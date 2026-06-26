@@ -536,6 +536,14 @@ export interface FeishuEvidenceReport {
     dataPlaneSatisfiedCount: number;
     workerSatisfiedCount: number;
     failureVisibleCount: number;
+    workspaceBotSatisfied: boolean;
+    workspaceNativeExperienceSatisfied: boolean;
+    workspaceGuestPolicySatisfied: boolean;
+    workspaceDataPlaneSatisfied: boolean;
+    workspaceWorkerSatisfied: boolean;
+    workspaceFailureVisible: boolean;
+    workspaceAllSatisfied: boolean;
+    scopedAllSatisfied: boolean;
   };
   integrations: FeishuIntegrationEvidence[];
 }
@@ -686,6 +694,17 @@ interface BuildFeishuEvidenceReportInput {
   channelBindingsByIntegrationId?: Record<string, ExternalChannelBindingRecord[]>;
   threadBindingsByIntegrationId?: Record<string, ExternalThreadBindingRecord[]>;
   dataOperationsByIntegrationId?: Record<string, ExternalDataOperationRunRecord[]>;
+}
+
+interface FeishuIntegrationEvidenceSource {
+  workspaceId: string;
+  integration: ExternalIntegrationRecord;
+  events: ExternalIntegrationEventRecord[];
+  messageMappings: ExternalMessageMappingRecord[];
+  outbox: ExternalMessageOutboxRecord[];
+  channelBindings: ExternalChannelBindingRecord[];
+  threadBindings: ExternalThreadBindingRecord[];
+  dataOperations: ExternalDataOperationRunRecord[];
 }
 
 interface FeishuExpectedCallbackRouteProof {
@@ -3863,12 +3882,12 @@ export async function runFeishuHealthCheckCli(input: {
 
 export function buildFeishuEvidenceReport(input: BuildFeishuEvidenceReportInput): FeishuEvidenceReport {
   const requiredEvidence = input.requiredEvidence ?? "bot";
-  const integrations = (input.integrations ?? listExternalIntegrationsSync({
+  const sourceIntegrations = input.integrations ?? listExternalIntegrationsSync({
     workspaceId: input.workspaceId,
     provider: FEISHU_PROVIDER_ID,
     includeDisabled: true,
-  })).filter((integration) => !input.integrationId || integration.id === input.integrationId);
-  const evidenceItems = integrations.map((integration) => {
+  });
+  const evidenceSources: FeishuIntegrationEvidenceSource[] = sourceIntegrations.map((integration) => {
     const events = input.eventsByIntegrationId?.[integration.id] ?? listExternalIntegrationEventsSync({
       workspaceId: input.workspaceId,
       integrationId: integration.id,
@@ -3902,7 +3921,7 @@ export function buildFeishuEvidenceReport(input: BuildFeishuEvidenceReportInput)
         integrationId: integration.id,
         limit: 100,
       });
-    return buildFeishuIntegrationEvidence({
+    return {
       workspaceId: input.workspaceId,
       integration,
       events,
@@ -3911,9 +3930,19 @@ export function buildFeishuEvidenceReport(input: BuildFeishuEvidenceReportInput)
       channelBindings,
       threadBindings,
       dataOperations,
-    });
+    };
   });
-  const agentSpaceStrictSatisfied = evidenceItems.some((item) => isFeishuEvidenceSatisfied(item, requiredEvidence));
+  const allEvidenceItems = evidenceSources.map((source) => buildFeishuIntegrationEvidence(source));
+  const evidenceItems = allEvidenceItems.filter((item) => !input.integrationId || item.id === input.integrationId);
+  const workspaceEvidence = buildFeishuWorkspaceEvidenceSatisfaction(allEvidenceItems, evidenceSources, {
+    requiredNativeIntegrationId: input.integrationId,
+  });
+  const agentSpaceStrictSatisfied = isFeishuEvidenceReportStrictSatisfied({
+    requiredEvidence,
+    evidenceItems,
+    workspaceEvidence,
+    scopedIntegrationId: input.integrationId,
+  });
   const expectedCallbackRouteProof = input.integrationId
     ? buildFeishuExpectedCallbackRouteProof({
       workspaceId: input.workspaceId,
@@ -3935,7 +3964,7 @@ export function buildFeishuEvidenceReport(input: BuildFeishuEvidenceReportInput)
   return {
     workspaceId: input.workspaceId,
     requiredEvidence,
-    integrationCount: integrations.length,
+    integrationCount: evidenceItems.length,
     strictSatisfied: agentSpaceStrictSatisfied && (!openApiEvidence || openApiEvidence.valid),
     ...(openApiEvidence ? { openApiEvidence } : {}),
     summary: {
@@ -3945,6 +3974,18 @@ export function buildFeishuEvidenceReport(input: BuildFeishuEvidenceReportInput)
       dataPlaneSatisfiedCount: evidenceItems.filter((item) => item.dataPlane.satisfied).length,
       workerSatisfiedCount: evidenceItems.filter((item) => item.worker.satisfied).length,
       failureVisibleCount: evidenceItems.filter((item) => item.failureVisibility.satisfied).length,
+      workspaceBotSatisfied: workspaceEvidence.botSatisfied,
+      workspaceNativeExperienceSatisfied: workspaceEvidence.nativeExperienceSatisfied,
+      workspaceGuestPolicySatisfied: workspaceEvidence.guestPolicySatisfied,
+      workspaceDataPlaneSatisfied: workspaceEvidence.dataPlaneSatisfied,
+      workspaceWorkerSatisfied: workspaceEvidence.workerSatisfied,
+      workspaceFailureVisible: workspaceEvidence.failureVisibilitySatisfied,
+      workspaceAllSatisfied: workspaceEvidence.allSatisfied,
+      scopedAllSatisfied: buildFeishuScopedAllEvidenceSatisfied({
+        evidenceItems,
+        workspaceEvidence,
+        scopedIntegrationId: input.integrationId,
+      }),
     },
     integrations: evidenceItems,
   };
@@ -4176,6 +4217,14 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
     ...input,
     integrations: sourceIntegrations,
   });
+  const nativeAgentBotReadinessSource = buildFeishuReadinessReport({
+    ...input,
+    integrationId: undefined,
+    agentId: undefined,
+    agentOnly: false,
+    requiredReadiness: "bot",
+    integrations: sourceIntegrations,
+  });
   const botCandidate = selectFeishuReadinessCandidate(readiness.integrations, "bot");
   const dataPlaneCandidate = selectFeishuReadinessCandidate(readiness.integrations, "data-plane");
   const workerCandidate = selectFeishuReadinessCandidate(readiness.integrations, "worker");
@@ -4201,7 +4250,7 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
   const readyForBot = readiness.readyForBotSmokeCount > 0;
   const readyForDataPlane = readiness.readyForDataPlaneSmokeCount > 0;
   const nativeAgentBotReadiness = buildFeishuNativeAgentBotSmokeReadiness({
-    readinessItems: readiness.integrations,
+    readinessItems: nativeAgentBotReadinessSource.integrations,
     integrations: sourceIntegrations,
   });
   const agentBotIntegrationCount = nativeAgentBotReadiness.agentBotBindingCount;
@@ -6790,6 +6839,170 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function readNumber(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+interface FeishuWorkspaceEvidenceSatisfaction {
+  botSatisfied: boolean;
+  nativeExperienceSatisfied: boolean;
+  guestPolicySatisfied: boolean;
+  dataPlaneSatisfied: boolean;
+  workerSatisfied: boolean;
+  failureVisibilitySatisfied: boolean;
+  allSatisfied: boolean;
+}
+
+function buildFeishuWorkspaceEvidenceSatisfaction(
+  items: readonly FeishuIntegrationEvidence[],
+  sources: readonly FeishuIntegrationEvidenceSource[],
+  options: {
+    requiredNativeIntegrationId?: string;
+  } = {},
+): FeishuWorkspaceEvidenceSatisfaction {
+  const botSatisfied = items.some((item) => item.bot.satisfied);
+  const nativeExperienceSatisfied = hasFeishuWorkspaceNativeExperienceEvidence(sources, {
+    requiredIntegrationId: options.requiredNativeIntegrationId,
+  });
+  const guestPolicySatisfied = sumFeishuEvidenceCounts(items, (item) =>
+    item.guestPolicy.externalGuestAllowedEvidence
+  ) > 0 &&
+    sumFeishuEvidenceCounts(items, (item) => item.guestPolicy.externalGuestReplyAllEvidence) > 0 &&
+    sumFeishuEvidenceCounts(items, (item) => item.guestPolicy.externalGuestRequireIdentityEvidence) > 0 &&
+    sumFeishuEvidenceCounts(items, (item) =>
+      item.guestPolicy.externalGuestIdentityBindingNoticeEvidence
+    ) > 0 &&
+    sumFeishuEvidenceCounts(items, (item) => item.guestPolicy.externalGuestIgnoreEvidence) > 0 &&
+    sumFeishuEvidenceCounts(items, (item) => item.guestPolicy.externalGuestMentionRequiredEvidence) > 0;
+  const dataPlaneSatisfied = sumFeishuEvidenceCounts(items, (item) => item.dataPlane.docReadSucceeded) > 0 &&
+    sumFeishuEvidenceCounts(items, (item) => item.dataPlane.agentDocReadSucceeded) > 0 &&
+    sumFeishuEvidenceCounts(items, (item) => item.dataPlane.docApprovedWritesSucceeded) > 0 &&
+    sumFeishuEvidenceCounts(items, (item) => item.dataPlane.sheetReadSucceeded) > 0 &&
+    sumFeishuEvidenceCounts(items, (item) => item.dataPlane.sheetApprovedWriteSyncSucceeded) > 0 &&
+    sumFeishuEvidenceCounts(items, (item) => item.dataPlane.baseReadSucceeded) > 0 &&
+    sumFeishuEvidenceCounts(items, (item) => item.dataPlane.baseApprovedMutationSyncSucceeded) > 0 &&
+    sumFeishuEvidenceCounts(items, (item) => item.dataPlane.userActorEvidence) > 0 &&
+    sumFeishuEvidenceCounts(items, (item) => item.dataPlane.externalGuestActorEvidence) > 0 &&
+    sumFeishuEvidenceCounts(items, (item) => item.dataPlane.externalGuestReadSucceeded) > 0 &&
+    sumFeishuEvidenceCounts(items, (item) => item.dataPlane.externalGuestWriteDeniedEvidence) > 0;
+  const hasWebSocketWorkerIntegration = items.some((item) => item.transportMode === "websocket_worker");
+  const workerSatisfied = hasWebSocketWorkerIntegration
+    ? items.some((item) => item.worker.satisfied)
+    : true;
+  const failureVisibilitySatisfied = items.some((item) => item.failureVisibility.satisfied);
+  const allSatisfied = items.some((item) =>
+    isFeishuEvidenceSatisfiedExceptNative(item) &&
+    hasFeishuWorkspaceNativeExperienceEvidence(sources, {
+      requiredIntegrationId: item.id,
+    })
+  );
+  return {
+    botSatisfied,
+    nativeExperienceSatisfied,
+    guestPolicySatisfied,
+    dataPlaneSatisfied,
+    workerSatisfied,
+    failureVisibilitySatisfied,
+    allSatisfied,
+  };
+}
+
+function hasFeishuWorkspaceNativeExperienceEvidence(
+  sources: readonly FeishuIntegrationEvidenceSource[],
+  options: {
+    requiredIntegrationId?: string;
+  } = {},
+): boolean {
+  const messageMappings = sources.flatMap((source) => source.messageMappings);
+  const channelBindings = sources.flatMap((source) => source.channelBindings);
+  const threadBindings = sources.flatMap((source) => source.threadBindings);
+  const chatReferences = uniqueStrings([
+    ...messageMappings.map((mapping) => readFeishuSafeChatReference(mapping.metadataJson)),
+    ...channelBindings.map((binding) => readFeishuSafeChatReference(binding.metadataJson)),
+    ...threadBindings.map((binding) => readFeishuSafeChatReference(binding.metadataJson)),
+  ].filter(hasNonEmptyString));
+
+  return chatReferences.some((chatReference) => {
+    const scopedMappings = messageMappings.filter((mapping) =>
+      readFeishuSafeChatReference(mapping.metadataJson) === chatReference
+    );
+    const scopedChannelBindings = channelBindings.filter((binding) =>
+      readFeishuSafeChatReference(binding.metadataJson) === chatReference
+    );
+    const scopedThreadBindings = threadBindings.filter((binding) =>
+      readFeishuSafeChatReference(binding.metadataJson) === chatReference
+    );
+    const scopedIntegrationIds = new Set([
+      ...scopedMappings.map((mapping) => mapping.integrationId),
+      ...scopedChannelBindings.map((binding) => binding.integrationId),
+      ...scopedThreadBindings.map((binding) => binding.integrationId),
+    ].filter(hasNonEmptyString));
+    if (options.requiredIntegrationId && !scopedIntegrationIds.has(options.requiredIntegrationId)) {
+      return false;
+    }
+
+    return countFeishuAgentBotRouteEvidence(scopedMappings) > 0 &&
+      countFeishuNativeBotReplyEvidence(scopedMappings) > 0 &&
+      countFeishuNativeActorMentionEvidence(scopedMappings, "user") > 0 &&
+      countFeishuNativeActorMentionEvidence(scopedMappings, "external_guest") > 0 &&
+      countFeishuAgentChannelPolicyDeniedEvidence(scopedMappings) > 0 &&
+      countFeishuBotSenderLoopGuardEvidence(scopedMappings) > 0 &&
+      countFeishuAutoProvisionedChannelBindings(scopedChannelBindings) > 0 &&
+      countFeishuAutoProvisionedChannelBindings(scopedChannelBindings, "bot_added") > 0 &&
+      countFeishuAutoProvisionedChannelBindings(scopedChannelBindings, "first_message") > 0 &&
+      countFeishuReusedProviderChannelBindings(scopedChannelBindings) > 0 &&
+      countFeishuThreadTaskBindingEvidence(scopedThreadBindings) > 0 &&
+      countFeishuThreadContinuationEvidence(scopedMappings, scopedThreadBindings) > 0 &&
+      countFeishuThreadCollaborationEvidence(scopedThreadBindings) > 0;
+  });
+}
+
+function readFeishuSafeChatReference(metadataJson: string): string | undefined {
+  const metadata = readJsonRecord(metadataJson);
+  return hasNonEmptyString(metadata?.externalChatReference) ? metadata.externalChatReference.trim() : undefined;
+}
+
+function sumFeishuEvidenceCounts(
+  items: readonly FeishuIntegrationEvidence[],
+  select: (item: FeishuIntegrationEvidence) => number,
+): number {
+  return items.reduce((total, item) => total + select(item), 0);
+}
+
+function isFeishuEvidenceReportStrictSatisfied(input: {
+  requiredEvidence: FeishuEvidenceRequirement;
+  evidenceItems: readonly FeishuIntegrationEvidence[];
+  workspaceEvidence: FeishuWorkspaceEvidenceSatisfaction;
+  scopedIntegrationId?: string;
+}): boolean {
+  if (input.evidenceItems.length === 0) {
+    return false;
+  }
+  if (input.requiredEvidence === "native") {
+    return input.workspaceEvidence.nativeExperienceSatisfied;
+  }
+  if (input.requiredEvidence === "all") {
+    return buildFeishuScopedAllEvidenceSatisfied(input);
+  }
+  return input.evidenceItems.some((item) => isFeishuEvidenceSatisfied(item, input.requiredEvidence));
+}
+
+function buildFeishuScopedAllEvidenceSatisfied(input: {
+  evidenceItems: readonly FeishuIntegrationEvidence[];
+  workspaceEvidence: FeishuWorkspaceEvidenceSatisfaction;
+  scopedIntegrationId?: string;
+}): boolean {
+  if (input.scopedIntegrationId) {
+    return input.workspaceEvidence.nativeExperienceSatisfied &&
+      input.evidenceItems.some((item) => isFeishuEvidenceSatisfiedExceptNative(item));
+  }
+  return input.workspaceEvidence.allSatisfied;
+}
+
+function isFeishuEvidenceSatisfiedExceptNative(item: FeishuIntegrationEvidence): boolean {
+  return item.bot.satisfied &&
+    item.guestPolicy.satisfied &&
+    item.dataPlane.satisfied &&
+    item.failureVisibility.satisfied &&
+    (item.transportMode !== "websocket_worker" || item.worker.satisfied);
 }
 
 function isFeishuEvidenceSatisfied(

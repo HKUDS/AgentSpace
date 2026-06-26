@@ -1082,7 +1082,7 @@ test("Feishu health-check CLI degrades when scope verification needs manual revi
 test("Feishu evidence report summarizes AgentSpace-side live smoke proof without external ids", () => {
   const report = buildFeishuEvidenceReport({
     workspaceId: "workspace-1",
-    requiredEvidence: "all",
+    requiredEvidence: "all" as const,
     integrations: [
       buildIntegrationRecord({
         id: "integration-evidence",
@@ -1172,6 +1172,14 @@ test("Feishu evidence report summarizes AgentSpace-side live smoke proof without
   assert.equal(report.summary.dataPlaneSatisfiedCount, 1);
   assert.equal(report.summary.workerSatisfiedCount, 1);
   assert.equal(report.summary.failureVisibleCount, 1);
+  assert.equal(report.summary.workspaceBotSatisfied, true);
+  assert.equal(report.summary.workspaceNativeExperienceSatisfied, true);
+  assert.equal(report.summary.workspaceGuestPolicySatisfied, true);
+  assert.equal(report.summary.workspaceDataPlaneSatisfied, true);
+  assert.equal(report.summary.workspaceWorkerSatisfied, true);
+  assert.equal(report.summary.workspaceFailureVisible, true);
+  assert.equal(report.summary.workspaceAllSatisfied, true);
+  assert.equal(report.summary.scopedAllSatisfied, true);
   const [item] = report.integrations;
   assert.equal(item?.bot.satisfied, true);
   assert.equal(item?.bot.inboundMessageMappings, 9);
@@ -1233,6 +1241,345 @@ test("Feishu evidence report summarizes AgentSpace-side live smoke proof without
   assert.equal(serialized.includes("oc_secret"), false);
   assert.equal(serialized.includes("doccn_secret"), false);
   assert.equal(serialized.includes("ou_secret"), false);
+});
+
+test("Feishu evidence report satisfies final gate from workspace-wide agent bot evidence when scoped", () => {
+  const complete = buildCompleteFeishuEvidenceInput();
+  const report = buildFeishuEvidenceReport({
+    ...complete,
+    integrationId: "integration-evidence",
+    requiredEvidence: "all" as const,
+    integrations: [
+      ...complete.integrations,
+      buildIntegrationRecord({
+        id: "agent-bot-hermes",
+        displayName: "HermesAgent Bot",
+        agentId: "HermesAgent",
+        appId: "cli_hermes_bot",
+        transportMode: "websocket_worker",
+        lastHealthStatus: "healthy",
+      }),
+    ],
+    eventsByIntegrationId: {
+      ...complete.eventsByIntegrationId,
+      "agent-bot-hermes": [],
+    },
+    messageMappingsByIntegrationId: {
+      ...complete.messageMappingsByIntegrationId,
+      "agent-bot-hermes": [],
+    },
+    channelBindingsByIntegrationId: {
+      "integration-evidence": [
+        buildAutoProvisionedChannelBinding("integration-evidence", "first_message"),
+      ],
+      "agent-bot-hermes": [
+        buildAutoProvisionedChannelBinding("agent-bot-hermes", "bot_added", {
+          agentId: "HermesAgent",
+          botBindingId: "agent-bot-hermes",
+          linkedFromBindingId: "channel-integration-evidence",
+          linkedFromAgentId: "Atlas",
+          linkedFromBotBindingId: "integration-evidence",
+        }),
+      ],
+    },
+    threadBindingsByIntegrationId: {
+      "integration-evidence": [
+        buildThreadBinding("integration-evidence", {
+          taskQueueId: "task-thread-continuation",
+          agentSpaceMessageId: "message-thread-continuation-source",
+        }),
+      ],
+      "agent-bot-hermes": [
+        buildThreadBinding("agent-bot-hermes", {
+          agentId: "HermesAgent",
+          botBindingId: "agent-bot-hermes",
+          threadCollaboration: true,
+          collaboratingAgentIds: ["Atlas"],
+        }),
+      ],
+    },
+    outboxByIntegrationId: {
+      ...complete.outboxByIntegrationId,
+      "agent-bot-hermes": [],
+    },
+    dataOperationsByIntegrationId: {
+      ...complete.dataOperationsByIntegrationId,
+      "agent-bot-hermes": [],
+    },
+  });
+
+  assert.equal(report.strictSatisfied, true);
+  assert.equal(report.integrationCount, 1);
+  assert.deepEqual(report.integrations.map((item) => item.id), ["integration-evidence"]);
+  assert.equal(report.summary.nativeExperienceSatisfiedCount, 0);
+  assert.equal(report.summary.workspaceNativeExperienceSatisfied, true);
+  assert.equal(report.summary.workspaceAllSatisfied, true);
+  assert.equal(report.summary.scopedAllSatisfied, true);
+  const [item] = report.integrations;
+  assert.equal(item?.nativeExperience.satisfied, false);
+  assert.equal(item?.nativeExperience.botAddedAutoProvisionedChannelBindings, 0);
+  assert.equal(item?.nativeExperience.reusedProviderChannelBindings, 0);
+  assert.equal(item?.nativeExperience.threadCollaborationEvidence, 0);
+
+  const serialized = JSON.stringify(report);
+  assert.equal(serialized.includes("cli_hermes_bot"), false);
+  assert.equal(serialized.includes("oc_secret"), false);
+  assert.equal(serialized.includes("ou_secret"), false);
+});
+
+test("Feishu evidence report does not satisfy native gate by mixing different chat references", () => {
+  const complete = buildCompleteFeishuEvidenceInput();
+  const report = buildFeishuEvidenceReport({
+    ...complete,
+    integrationId: "integration-evidence",
+    requiredEvidence: "all",
+    integrations: [
+      ...complete.integrations,
+      buildIntegrationRecord({
+        id: "agent-bot-hermes",
+        displayName: "HermesAgent Bot",
+        agentId: "HermesAgent",
+        appId: "cli_hermes_bot",
+        transportMode: "websocket_worker",
+        lastHealthStatus: "healthy",
+      }),
+    ],
+    eventsByIntegrationId: {
+      ...complete.eventsByIntegrationId,
+      "agent-bot-hermes": [],
+    },
+    messageMappingsByIntegrationId: {
+      ...complete.messageMappingsByIntegrationId,
+      "agent-bot-hermes": [],
+    },
+    channelBindingsByIntegrationId: {
+      "integration-evidence": [
+        buildAutoProvisionedChannelBinding("integration-evidence", "first_message"),
+      ],
+      "agent-bot-hermes": [
+        withMetadataFields(buildAutoProvisionedChannelBinding("agent-bot-hermes", "bot_added", {
+          agentId: "HermesAgent",
+          botBindingId: "agent-bot-hermes",
+          linkedFromBindingId: "channel-integration-evidence",
+          linkedFromAgentId: "Atlas",
+          linkedFromBotBindingId: "integration-evidence",
+        }), {
+          externalChatReference: "other-chat-ref-hash",
+        }),
+      ],
+    },
+    threadBindingsByIntegrationId: {
+      "integration-evidence": [
+        buildThreadBinding("integration-evidence", {
+          taskQueueId: "task-thread-continuation",
+          agentSpaceMessageId: "message-thread-continuation-source",
+        }),
+      ],
+      "agent-bot-hermes": [
+        withMetadataFields(buildThreadBinding("agent-bot-hermes", {
+          agentId: "HermesAgent",
+          botBindingId: "agent-bot-hermes",
+          threadCollaboration: true,
+          collaboratingAgentIds: ["Atlas"],
+        }), {
+          externalChatReference: "other-chat-ref-hash",
+        }),
+      ],
+    },
+    outboxByIntegrationId: {
+      ...complete.outboxByIntegrationId,
+      "agent-bot-hermes": [],
+    },
+    dataOperationsByIntegrationId: {
+      ...complete.dataOperationsByIntegrationId,
+      "agent-bot-hermes": [],
+    },
+  });
+
+  assert.equal(report.strictSatisfied, false);
+  assert.equal(report.integrationCount, 1);
+  assert.deepEqual(report.integrations.map((item) => item.id), ["integration-evidence"]);
+  assert.equal(report.summary.workspaceBotSatisfied, true);
+  assert.equal(report.summary.workspaceNativeExperienceSatisfied, false);
+  assert.equal(report.summary.workspaceAllSatisfied, false);
+  assert.equal(report.summary.scopedAllSatisfied, false);
+  const [item] = report.integrations;
+  assert.equal(item?.nativeExperience.satisfied, false);
+  assert.equal(item?.nativeExperience.reusedProviderChannelBindings, 0);
+  assert.equal(item?.nativeExperience.threadCollaborationEvidence, 0);
+
+  const serialized = JSON.stringify(report);
+  assert.equal(serialized.includes("other-chat-ref-hash"), false);
+  assert.equal(serialized.includes("cli_hermes_bot"), false);
+  assert.equal(serialized.includes("oc_secret"), false);
+  assert.equal(serialized.includes("ou_secret"), false);
+});
+
+test("Feishu evidence report requires scoped integration to participate in native workspace evidence", () => {
+  const nativeIntegrationId = "agent-bot-hermes";
+  const input = {
+    workspaceId: "workspace-1",
+    requiredEvidence: "native" as const,
+    integrations: [
+      buildIntegrationRecord({
+        id: "integration-evidence",
+        displayName: "Selected Feishu",
+      }),
+      buildIntegrationRecord({
+        id: nativeIntegrationId,
+        displayName: "HermesAgent Bot",
+        agentId: "HermesAgent",
+        appId: "cli_hermes_bot",
+        transportMode: "websocket_worker",
+        lastHealthStatus: "healthy",
+      }),
+    ],
+    eventsByIntegrationId: {
+      "integration-evidence": [],
+      [nativeIntegrationId]: [],
+    },
+    messageMappingsByIntegrationId: {
+      "integration-evidence": [],
+      [nativeIntegrationId]: [
+        buildMessageMapping(nativeIntegrationId, "inbound", "om_secret_inbound"),
+        buildMessageMapping(nativeIntegrationId, "outbound", "om_secret_reply", "om_secret_inbound"),
+        buildMessageMapping(nativeIntegrationId, "inbound", "om_secret_external_guest", undefined, {
+          actorType: "external_guest",
+          externalGuestPolicyDecision: "allow",
+        }),
+        buildExternalGuestReplyAllMapping(nativeIntegrationId),
+        buildAgentChannelPolicyDeniedMapping(nativeIntegrationId),
+        buildBotSenderLoopGuardMapping(nativeIntegrationId),
+        buildThreadContinuationMapping(nativeIntegrationId),
+      ],
+    },
+    channelBindingsByIntegrationId: {
+      "integration-evidence": [],
+      [nativeIntegrationId]: [
+        buildAutoProvisionedChannelBinding(nativeIntegrationId, "first_message"),
+        buildAutoProvisionedChannelBinding(nativeIntegrationId, "bot_added", {
+          agentId: "HermesAgent",
+          botBindingId: nativeIntegrationId,
+          linkedFromBindingId: "channel-atlas-binding",
+          linkedFromAgentId: "Atlas",
+          linkedFromBotBindingId: "agent-bot-atlas",
+        }),
+      ],
+    },
+    threadBindingsByIntegrationId: {
+      "integration-evidence": [],
+      [nativeIntegrationId]: [
+        buildThreadBinding(nativeIntegrationId, {
+          taskQueueId: "task-thread-continuation",
+          agentSpaceMessageId: "message-thread-continuation-source",
+        }),
+        buildThreadBinding(nativeIntegrationId, {
+          id: "thread-agent-bot-hermes-collaboration",
+          agentId: "HermesAgent",
+          botBindingId: nativeIntegrationId,
+          threadCollaboration: true,
+          collaboratingAgentIds: ["Atlas"],
+        }),
+      ],
+    },
+    outboxByIntegrationId: {
+      "integration-evidence": [],
+      [nativeIntegrationId]: [],
+    },
+    dataOperationsByIntegrationId: {
+      "integration-evidence": [],
+      [nativeIntegrationId]: [],
+    },
+  };
+
+  const scopedReport = buildFeishuEvidenceReport({
+    ...input,
+    integrationId: "integration-evidence",
+  });
+  const workspaceReport = buildFeishuEvidenceReport(input);
+
+  assert.equal(scopedReport.strictSatisfied, false);
+  assert.equal(scopedReport.integrationCount, 1);
+  assert.deepEqual(scopedReport.integrations.map((item) => item.id), ["integration-evidence"]);
+  assert.equal(scopedReport.summary.workspaceNativeExperienceSatisfied, false);
+  assert.equal(scopedReport.summary.scopedAllSatisfied, false);
+  assert.equal(workspaceReport.strictSatisfied, true);
+  assert.equal(workspaceReport.integrationCount, 2);
+  assert.equal(workspaceReport.summary.workspaceNativeExperienceSatisfied, true);
+  assert.equal(workspaceReport.summary.scopedAllSatisfied, false);
+
+  const serialized = JSON.stringify(scopedReport);
+  assert.equal(serialized.includes("cli_hermes_bot"), false);
+  assert.equal(serialized.includes("oc_secret"), false);
+  assert.equal(serialized.includes("ou_secret"), false);
+});
+
+test("Feishu evidence report requires one anchor integration to satisfy non-native all gates", () => {
+  const complete = buildCompleteFeishuEvidenceInput();
+  const input = {
+    ...complete,
+    requiredEvidence: "all" as const,
+    integrations: [
+      ...complete.integrations,
+      buildIntegrationRecord({
+        id: "integration-data-plane",
+        displayName: "Data Plane Feishu",
+        lastHealthStatus: "healthy",
+      }),
+    ],
+    eventsByIntegrationId: {
+      ...complete.eventsByIntegrationId,
+      "integration-data-plane": [],
+    },
+    messageMappingsByIntegrationId: {
+      ...complete.messageMappingsByIntegrationId,
+      "integration-data-plane": [],
+    },
+    channelBindingsByIntegrationId: {
+      ...complete.channelBindingsByIntegrationId,
+      "integration-data-plane": [],
+    },
+    threadBindingsByIntegrationId: {
+      ...complete.threadBindingsByIntegrationId,
+      "integration-data-plane": [],
+    },
+    outboxByIntegrationId: {
+      ...complete.outboxByIntegrationId,
+      "integration-data-plane": [],
+    },
+    dataOperationsByIntegrationId: {
+      "integration-evidence": [],
+      "integration-data-plane": complete.dataOperationsByIntegrationId["integration-evidence"],
+    },
+  };
+  const report = buildFeishuEvidenceReport({
+    ...input,
+    integrationId: "integration-evidence",
+  });
+  const workspaceReport = buildFeishuEvidenceReport(input);
+
+  assert.equal(report.strictSatisfied, false);
+  assert.equal(report.integrationCount, 1);
+  assert.deepEqual(report.integrations.map((item) => item.id), ["integration-evidence"]);
+  assert.equal(report.summary.workspaceNativeExperienceSatisfied, true);
+  assert.equal(report.summary.workspaceDataPlaneSatisfied, true);
+  assert.equal(report.summary.workspaceAllSatisfied, false);
+  assert.equal(report.summary.scopedAllSatisfied, false);
+  assert.equal(workspaceReport.strictSatisfied, false);
+  assert.equal(workspaceReport.integrationCount, 2);
+  assert.equal(workspaceReport.summary.workspaceNativeExperienceSatisfied, true);
+  assert.equal(workspaceReport.summary.workspaceDataPlaneSatisfied, true);
+  assert.equal(workspaceReport.summary.workspaceAllSatisfied, false);
+  assert.equal(workspaceReport.summary.scopedAllSatisfied, false);
+  const [item] = report.integrations;
+  assert.equal(item?.nativeExperience.satisfied, true);
+  assert.equal(item?.dataPlane.satisfied, false);
+  assert.ok(item?.issues.includes("doc_read_evidence_missing"));
+
+  const serialized = JSON.stringify(report);
+  assert.equal(serialized.includes("doccn_secret"), false);
+  assert.equal(serialized.includes("shtcn_secret"), false);
+  assert.equal(serialized.includes("tbl_secret"), false);
 });
 
 test("Feishu evidence report requires degraded health for failure visibility smoke", () => {
@@ -5405,6 +5752,95 @@ test("Feishu smoke plan converts readiness into live smoke checklist without ext
   assert.equal(serialized.includes("#frag"), false);
 });
 
+test("Feishu smoke plan checks native multi-agent bot readiness across workspace when one integration is selected", () => {
+  const report = buildFeishuSmokePlanReport({
+    workspaceId: "workspace-1",
+    integrationId: "integration-ready",
+    requiredReadiness: "data-plane",
+    appUrl: "https://agentspace.test",
+    runtimeEnv: {
+      AGENT_SPACE_FEISHU_CREDENTIAL_ENCRYPTION_KEY: FEISHU_TEST_CREDENTIAL_ENCRYPTION_KEY,
+    },
+    integrations: [
+      buildIntegrationRecord({
+        id: "integration-ready",
+        displayName: "Ready Feishu",
+        lastHealthStatus: "healthy",
+        transportMode: "websocket_worker",
+      }),
+      buildIntegrationRecord({
+        id: "agent-bot-codex",
+        displayName: "Codex Bot",
+        agentId: "Codex",
+        appId: "cli_codex_bot",
+        lastHealthStatus: "healthy",
+        transportMode: "websocket_worker",
+      }),
+      buildIntegrationRecord({
+        id: "agent-bot-hermes",
+        displayName: "HermesAgent Bot",
+        agentId: "HermesAgent",
+        appId: "cli_hermes_bot",
+        lastHealthStatus: "healthy",
+        transportMode: "websocket_worker",
+      }),
+    ],
+    channelBindingsByIntegrationId: {
+      "integration-ready": [buildChannelBinding("integration-ready")],
+      "agent-bot-codex": [],
+      "agent-bot-hermes": [],
+    },
+    userBindingsByIntegrationId: {
+      "integration-ready": [buildUserBinding("integration-ready")],
+      "agent-bot-codex": [],
+      "agent-bot-hermes": [],
+    },
+    resourceBindingsByIntegrationId: {
+      "integration-ready": [
+        buildResourceBinding("integration-ready", "doc", "doccn_secret"),
+        buildResourceBinding("integration-ready", "sheet", "shtcn_secret"),
+        buildResourceBinding("integration-ready", "base_table", "tbl_secret"),
+      ],
+      "agent-bot-codex": [],
+      "agent-bot-hermes": [],
+    },
+    failedOutboxByIntegrationId: {
+      "integration-ready": [],
+      "agent-bot-codex": [],
+      "agent-bot-hermes": [],
+    },
+    pendingOutboxByIntegrationId: {
+      "integration-ready": [],
+      "agent-bot-codex": [],
+      "agent-bot-hermes": [],
+    },
+  });
+
+  const bindSecondAgentBot = report.steps.find((step) => step.id === "bind_second_feishu_agent_bot");
+  const liveMultiAgentReuse = report.steps.find((step) => step.id === "live_multi_agent_bot_channel_reuse");
+  const liveThreadCollaboration = report.steps.find((step) => step.id === "live_multi_agent_thread_collaboration");
+  const agentSpaceEvidence = report.steps.find((step) => step.id === "verify_agentspace_live_evidence");
+
+  assert.equal(report.integrationCount, 1);
+  assert.equal(report.selectedBotIntegrationId, "integration-ready");
+  assert.equal(report.selectedDataPlaneIntegrationId, "integration-ready");
+  assert.equal(bindSecondAgentBot?.status, "done");
+  assert.deepEqual(bindSecondAgentBot?.issues, []);
+  assert.match(bindSecondAgentBot?.detail ?? "", /2 Phase 6-ready agent-scoped Feishu bot bindings/);
+  assert.equal(liveMultiAgentReuse?.status, "pending");
+  assert.deepEqual(liveMultiAgentReuse?.issues, []);
+  assert.equal(liveThreadCollaboration?.status, "pending");
+  assert.deepEqual(liveThreadCollaboration?.issues, []);
+  assert.match(agentSpaceEvidence?.command ?? "", /--integration integration-ready/);
+
+  const serialized = JSON.stringify(report);
+  assert.equal(serialized.includes("cli_codex_bot"), false);
+  assert.equal(serialized.includes("cli_hermes_bot"), false);
+  assert.equal(serialized.includes("doccn_secret"), false);
+  assert.equal(serialized.includes("shtcn_secret"), false);
+  assert.equal(serialized.includes("tbl_secret"), false);
+});
+
 test("Feishu smoke plan blocks live smoke steps when local prerequisites are missing", () => {
   const report = buildFeishuSmokePlanReport({
     workspaceId: "workspace-1",
@@ -5926,6 +6362,17 @@ function withoutMetadataField<T extends { metadataJson?: string }>(mapping: T, f
   return {
     ...mapping,
     metadataJson: JSON.stringify(metadata),
+  };
+}
+
+function withMetadataFields<T extends { metadataJson?: string }>(record: T, fields: Record<string, unknown>): T {
+  const metadata = JSON.parse(record.metadataJson ?? "{}") as Record<string, unknown>;
+  return {
+    ...record,
+    metadataJson: JSON.stringify({
+      ...metadata,
+      ...fields,
+    }),
   };
 }
 
