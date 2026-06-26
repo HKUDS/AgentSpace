@@ -504,6 +504,7 @@ export interface FeishuIntegrationEvidence {
   };
   guestPolicy: {
     externalGuestAllowedEvidence: number;
+    externalGuestReplyAllEvidence: number;
     externalGuestRequireIdentityEvidence: number;
     externalGuestIgnoreEvidence: number;
     externalGuestMentionRequiredEvidence: number;
@@ -4297,6 +4298,7 @@ function buildFeishuIntegrationEvidence(input: {
     decision: "allow",
     dispatchStatus: "sent",
   });
+  const externalGuestReplyAllEvidence = countFeishuExternalGuestReplyAllEvidence(input.messageMappings);
   const externalGuestRequireIdentityEvidence = countFeishuExternalGuestPolicyEvidence(input.messageMappings, {
     decision: "require_identity",
     reasonCode: "feishu_external_guest_identity_required",
@@ -4376,6 +4378,7 @@ function buildFeishuIntegrationEvidence(input: {
     reusedProviderChannelBindings > 0 &&
     threadTaskBindings > 0;
   const guestPolicySatisfied = externalGuestAllowedEvidence > 0 &&
+    externalGuestReplyAllEvidence > 0 &&
     externalGuestRequireIdentityEvidence > 0 &&
     externalGuestIgnoreEvidence > 0 &&
     externalGuestMentionRequiredEvidence > 0;
@@ -4417,6 +4420,7 @@ function buildFeishuIntegrationEvidence(input: {
     externalGuestMentionEvidence,
     agentChannelPolicyDeniedEvidence,
     externalGuestAllowedEvidence,
+    externalGuestReplyAllEvidence,
     externalGuestRequireIdentityEvidence,
     externalGuestIgnoreEvidence,
     externalGuestMentionRequiredEvidence,
@@ -4477,6 +4481,7 @@ function buildFeishuIntegrationEvidence(input: {
     },
     guestPolicy: {
       externalGuestAllowedEvidence,
+      externalGuestReplyAllEvidence,
       externalGuestRequireIdentityEvidence,
       externalGuestIgnoreEvidence,
       externalGuestMentionRequiredEvidence,
@@ -4675,6 +4680,7 @@ function buildFeishuEvidenceIssues(input: {
   externalGuestMentionEvidence: number;
   agentChannelPolicyDeniedEvidence: number;
   externalGuestAllowedEvidence: number;
+  externalGuestReplyAllEvidence: number;
   externalGuestRequireIdentityEvidence: number;
   externalGuestIgnoreEvidence: number;
   externalGuestMentionRequiredEvidence: number;
@@ -4753,6 +4759,9 @@ function buildFeishuEvidenceIssues(input: {
   if (!input.guestPolicySatisfied) {
     if (input.externalGuestAllowedEvidence === 0) {
       issues.push("external_guest_policy_allow_evidence_missing");
+    }
+    if (input.externalGuestReplyAllEvidence === 0) {
+      issues.push("external_guest_policy_reply_all_evidence_missing");
     }
     if (input.externalGuestRequireIdentityEvidence === 0) {
       issues.push("external_guest_policy_require_identity_evidence_missing");
@@ -4907,6 +4916,12 @@ function mapFeishuEvidenceIssueToRemediationSpec(input: {
         stepId: "live_external_guest_agent_bot_mention",
         title: "Live smoke: unbound Feishu user routes as external guest",
         detail: "From an unbound Feishu user, mention the agent-specific bot and verify AgentSpace records external_guest policy allow metadata plus the low-permission task dispatch.",
+      };
+    case "external_guest_policy_reply_all_evidence_missing":
+      return {
+        stepId: "live_external_guest_reply_all",
+        title: "Live smoke: external guest reply_all dispatches without mention",
+        detail: "Set the agent bot external guest policy to reply_all, send an unbound Feishu message without mentioning the bot, and verify AgentSpace records the reply_all allow decision plus the low-permission task dispatch.",
       };
     case "external_guest_policy_require_identity_evidence_missing":
       return {
@@ -5196,6 +5211,31 @@ function countFeishuExternalGuestPolicyEvidence(
       return false;
     }
     return true;
+  }).length;
+}
+
+function countFeishuExternalGuestReplyAllEvidence(
+  mappings: readonly ExternalMessageMappingRecord[],
+): number {
+  return mappings.filter((mapping) => {
+    if (mapping.direction !== "inbound" || !mapping.taskQueueId || !mapping.agentSpaceMessageId) {
+      return false;
+    }
+    const metadata = readJsonRecord(mapping.metadataJson);
+    return metadata?.provider === FEISHU_PROVIDER_ID &&
+      metadata.actorType === "external_guest" &&
+      metadata.dispatchStatus === "sent" &&
+      metadata.externalGuestPolicyDecision === "allow" &&
+      metadata.externalGuestPolicyReasonCode === "feishu_external_guest_allowed" &&
+      metadata.externalGuestUnboundUserMode === "reply_all" &&
+      typeof metadata.externalGuestReference === "string" &&
+      metadata.externalGuestReference.trim().length > 0 &&
+      typeof metadata.externalGuestPermissionProfile === "string" &&
+      metadata.externalGuestPermissionProfile.trim().length > 0 &&
+      typeof metadata.agentId === "string" &&
+      metadata.agentId.trim().length > 0 &&
+      typeof metadata.botBindingId === "string" &&
+      metadata.botBindingId.trim().length > 0;
   }).length;
 }
 
