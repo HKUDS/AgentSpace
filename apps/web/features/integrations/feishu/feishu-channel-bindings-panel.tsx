@@ -191,6 +191,13 @@ export function FeishuChannelBindingsPanel({
             <div className="feishu-binding-card__meta">
               <span>{tx("飞书会话", "Feishu Chat")}: {binding.externalChatName || binding.externalChatReference}</span>
               <span>{tx("会话引用", "Chat Reference")}: {binding.externalChatReference}</span>
+              {binding.provisionSource ? (
+                <span>{tx("来源", "Source")}: {translateProvisionSource(binding.provisionSource, tx)}</span>
+              ) : null}
+              {binding.reviewStatus ? (
+                <span>{tx("审核", "Review")}: {translateReviewStatus(binding.reviewStatus, tx)}</span>
+              ) : null}
+              {binding.agentId ? <span>{tx("Agent", "Agent")}: {binding.agentId}</span> : null}
               <span>{tx("状态", "Status")}: {binding.status}</span>
               <span>{tx("同步", "Sync")}: {binding.syncMode}</span>
             </div>
@@ -244,4 +251,38 @@ export function FeishuChannelBindingsPanel({
       </div>
     </section>
   );
+}
+
+function translateProvisionSource(
+  value: NonNullable<FeishuIntegrationSettingsItem["channelBindings"][number]["provisionSource"]>,
+  tx: SettingsTx,
+): string {
+  switch (value) {
+    case "bot_added":
+      return tx("机器人进群", "Bot added");
+    case "first_message":
+      return tx("首次消息", "First message");
+    case "agentspace_created":
+      return tx("AgentSpace 创建", "AgentSpace created");
+    case "manual":
+      return tx("手动绑定", "Manual");
+    default:
+      return value;
+  }
+}
+
+function translateReviewStatus(
+  value: NonNullable<FeishuIntegrationSettingsItem["channelBindings"][number]["reviewStatus"]>,
+  tx: SettingsTx,
+): string {
+  switch (value) {
+    case "approved":
+      return tx("通过", "Approved");
+    case "pending_admin_review":
+      return tx("等待管理员审核", "Pending admin review");
+    case "needs_identity_binding":
+      return tx("需要身份绑定", "Needs identity binding");
+    default:
+      return value;
+  }
 }

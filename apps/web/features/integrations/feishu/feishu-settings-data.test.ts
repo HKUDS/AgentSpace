@@ -128,6 +128,12 @@ describe("Feishu settings data", () => {
         integrationId: "feishu-1",
         channelName: "general",
         externalChatId: "oc_general",
+        metadataJson: JSON.stringify({
+          provisionSource: "bot_added",
+          reviewStatus: "approved",
+          agentId: "Codex",
+          botBindingId: "agent-bot-codex",
+        }),
         status: "active",
         syncMode: "mirror",
         createdAt: "2026-06-24T00:00:00.000Z",
@@ -323,11 +329,19 @@ describe("Feishu settings data", () => {
       channelName: binding.channelName,
       externalChatReference: binding.externalChatReference,
       externalChatIdRedacted: binding.externalChatIdRedacted,
+      provisionSource: binding.provisionSource,
+      reviewStatus: binding.reviewStatus,
+      agentId: binding.agentId,
+      botBindingId: binding.botBindingId,
     }))).toEqual([
       {
         channelName: "general",
         externalChatReference: "chat b2295ba0",
         externalChatIdRedacted: true,
+        provisionSource: "bot_added",
+        reviewStatus: "approved",
+        agentId: "Codex",
+        botBindingId: "agent-bot-codex",
       },
     ]);
     expect(item?.recentOutboxFailures).toEqual([

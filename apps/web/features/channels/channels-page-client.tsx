@@ -2614,6 +2614,10 @@ function ChannelWorkspaceHeader({
         </div>
       </div>
 
+      {selectedChannel.feishu ? (
+        <ChannelFeishuSummaryPanel feishu={selectedChannel.feishu} tx={tx} />
+      ) : null}
+
       <div className="channel-workspace-header__tabs">
         <ChannelTabButton
           active={activeTab === "messages"}
@@ -2674,6 +2678,93 @@ function ChannelWorkspaceHeader({
       </div>
     </header>
   );
+}
+
+function ChannelFeishuSummaryPanel({
+  feishu,
+  tx,
+}: {
+  feishu: NonNullable<ChannelsPageData["channels"][number]["feishu"]>;
+  tx: (zh: string, en: string) => string;
+}) {
+  return (
+    <section
+      aria-label={tx("飞书群聊绑定", "Feishu group binding")}
+      className="channel-feishu-summary"
+    >
+      <div className="channel-feishu-summary__main">
+        <span className="channel-feishu-summary__label">{tx("飞书群聊", "Feishu group")}</span>
+        <strong>{feishu.externalChatName || feishu.externalChatReference || tx("已绑定", "Bound")}</strong>
+        <div className="channel-feishu-summary__meta">
+          {feishu.externalChatReference ? <span>{feishu.externalChatReference}</span> : null}
+          {feishu.provisionSource ? <span>{translateFeishuProvisionSource(feishu.provisionSource, tx)}</span> : null}
+          {feishu.reviewStatus ? <span>{translateFeishuReviewStatus(feishu.reviewStatus, tx)}</span> : null}
+        </div>
+      </div>
+
+      <div className="channel-feishu-summary__section">
+        <span className="channel-feishu-summary__label">{tx("Agent Bots", "Agent bots")}</span>
+        {feishu.connectedAgentBots.length > 0 ? (
+          <div className="channel-feishu-summary__chips">
+            {feishu.connectedAgentBots.map((bot) => (
+              <span className="tag-pill" key={`${bot.integrationId}:${bot.agentId}`}>
+                {bot.agentId}
+              </span>
+            ))}
+          </div>
+        ) : (
+          <span className="channel-feishu-summary__empty">{tx("未连接", "None")}</span>
+        )}
+      </div>
+
+      <div className="channel-feishu-summary__section">
+        <span className="channel-feishu-summary__label">{tx("飞书资源", "Feishu resources")}</span>
+        <div className="channel-feishu-summary__chips">
+          <span className="tag-pill">{tx(`${feishu.resourceBindings.length} 个资源`, `${feishu.resourceBindings.length} resources`)}</span>
+          {feishu.resourceBindings.some((binding) => binding.guestReadable) ? (
+            <span className="tag-pill tag-pill--muted">{tx("Guest readable", "Guest readable")}</span>
+          ) : null}
+          {feishu.resourceBindings.some((binding) => binding.canWrite) ? (
+            <span className="tag-pill tag-pill--muted">{tx("写入需审批", "Writes governed")}</span>
+          ) : null}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function translateFeishuProvisionSource(
+  value: string,
+  tx: (zh: string, en: string) => string,
+): string {
+  switch (value) {
+    case "bot_added":
+      return tx("机器人进群自动创建", "Auto-provisioned by bot added");
+    case "first_message":
+      return tx("首次消息自动创建", "Auto-provisioned by first message");
+    case "agentspace_created":
+      return tx("AgentSpace 创建", "Created by AgentSpace");
+    case "manual":
+      return tx("手动绑定", "Manual binding");
+    default:
+      return value;
+  }
+}
+
+function translateFeishuReviewStatus(
+  value: string,
+  tx: (zh: string, en: string) => string,
+): string {
+  switch (value) {
+    case "approved":
+      return tx("已通过", "Approved");
+    case "pending_admin_review":
+      return tx("等待管理员审核", "Pending admin review");
+    case "needs_identity_binding":
+      return tx("需要身份绑定", "Needs identity binding");
+    default:
+      return value;
+  }
 }
 
 function canRenameChannelFromHeader(channel: ChannelsPageData["channels"][number]): boolean {

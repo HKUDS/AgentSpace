@@ -11,7 +11,7 @@ import type { ChannelsPageData } from "@/features/dashboard/data";
 
 function TestProviders({ children }: { children: React.ReactNode }) {
   return (
-    <LanguageProvider>
+    <LanguageProvider initialLanguage="zh">
       <FeedbackToastProvider>{children}</FeedbackToastProvider>
     </LanguageProvider>
   );
@@ -321,6 +321,59 @@ describe("ChannelsPageClient", () => {
 
     expect(screen.getByAltText("preview.png")).toHaveAttribute("src", "/api/attachments/att-channel-image");
     expect(screen.getByRole("link", { name: /summary\.pdf/i })).toHaveAttribute("href", "/api/attachments/att-channel-file");
+  });
+
+  it("shows Feishu group binding context in the selected channel header", () => {
+    render(
+      <TestProviders>
+        <ChannelsPageClient
+          currentUserDisplayName="Tianyu"
+          data={{
+            ...data,
+            channels: [
+              {
+                ...data.channels[0]!,
+                feishu: {
+                  bindingCount: 1,
+                  externalChatReference: "chat b2295ba0",
+                  externalChatName: "Launch Room",
+                  provisionSource: "bot_added",
+                  reviewStatus: "approved",
+                  connectedAgentBots: [
+                    {
+                      integrationId: "agent-bot-codex",
+                      displayName: "Codex Feishu Bot",
+                      agentId: "Codex",
+                      status: "active",
+                      unboundUserMode: "reply_on_mention",
+                      guestPermissionProfile: "channel_context_only",
+                    },
+                  ],
+                  resourceBindings: [
+                    {
+                      id: "resource-doc-1",
+                      integrationId: "agent-bot-codex",
+                      integrationDisplayName: "Codex Feishu Bot",
+                      providerResourceType: "doc",
+                      displayName: "Launch Doc",
+                      canWrite: true,
+                      guestReadable: true,
+                      status: "active",
+                    },
+                  ],
+                },
+              },
+            ],
+          }}
+        />
+      </TestProviders>,
+    );
+
+    const feishuSummary = screen.getByLabelText(/飞书群聊绑定|Feishu group binding/);
+    expect(within(feishuSummary).getByText("Launch Room")).toBeInTheDocument();
+    expect(within(feishuSummary).getByText("chat b2295ba0")).toBeInTheDocument();
+    expect(within(feishuSummary).getByText("Codex")).toBeInTheDocument();
+    expect(within(feishuSummary).getByText("Guest readable")).toBeInTheDocument();
   });
 
   it("subscribes to channel realtime events and debounces refreshes without clearing the draft", async () => {

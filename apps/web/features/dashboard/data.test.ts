@@ -7,6 +7,7 @@ import type { MessageAttachment } from "@agent-space/domain/workspace";
 import {
   completeQueuedTaskSync,
   createDaemonApiTokenSync,
+  createExternalIntegrationSync,
   createUserSync,
   createWorkspaceSync,
   createWorkspaceMembershipSync,
@@ -18,6 +19,8 @@ import {
   recordTokenUsageSync,
   registerDaemonRuntimesSync,
   upsertBudgetSync,
+  upsertExternalChannelBindingSync,
+  upsertExternalResourceBindingSync,
   writeWorkspaceStateRecordSync,
 } from "@agent-space/db";
 import {
@@ -84,6 +87,17 @@ function ensureTestWorkspace(id: string, slug: string, name: string): void {
 }
 
 function clearWorkspaceScopedTestRows(): void {
+  getDatabase().exec(`
+    DELETE FROM external_thread_binding WHERE workspace_id IN ('default', 'workspace-mars');
+    DELETE FROM external_data_operation_run WHERE workspace_id IN ('default', 'workspace-mars');
+    DELETE FROM external_message_outbox WHERE workspace_id IN ('default', 'workspace-mars');
+    DELETE FROM external_message_mapping WHERE workspace_id IN ('default', 'workspace-mars');
+    DELETE FROM external_resource_binding WHERE workspace_id IN ('default', 'workspace-mars');
+    DELETE FROM external_channel_binding WHERE workspace_id IN ('default', 'workspace-mars');
+    DELETE FROM external_user_binding WHERE workspace_id IN ('default', 'workspace-mars');
+    DELETE FROM external_integration_event WHERE workspace_id IN ('default', 'workspace-mars');
+    DELETE FROM external_integration WHERE workspace_id IN ('default', 'workspace-mars');
+  `);
   getDatabase()
     .prepare("DELETE FROM daemon_api_token WHERE workspace_id IN (?, ?)")
     .run("default", "workspace-mars");
@@ -333,6 +347,97 @@ describe("dashboard data", () => {
     expect(planner?.workAreas[0]?.channel).toBe("travel");
     expect(planner?.workAreas[0]?.workDir).toBe("/tmp/travel-workdir");
     expect(planner?.workAreas[0]?.sessionId).toBe("sess-travel-1");
+  });
+
+  it("adds Feishu group binding summaries to channel page data for workspace managers", () => {
+    createEmployeeSync({ name: "Codex", remarkName: "Codex" });
+    createChannelSync({
+      name: "launch",
+      humanMemberNames: [],
+      employeeNames: ["Codex"],
+      kind: "group",
+    });
+    const integration = createExternalIntegrationSync({
+      workspaceId: "default",
+      provider: "feishu",
+      displayName: "Codex Feishu Bot",
+      transportMode: "websocket_worker",
+      agentId: "Codex",
+      appId: `cli_feishu_${Date.now()}`,
+      encryptedCredentialsJson: {
+        appSecret: "encrypted-secret",
+      },
+      configJson: {
+        externalGuestPolicy: {
+          unboundUserMode: "reply_on_mention",
+          guestPermissionProfile: "channel_context_only",
+          requireIdentityFor: ["writes", "approvals"],
+        },
+      },
+      capabilitiesJson: {},
+      scopesJson: ["im:message"],
+    });
+    upsertExternalChannelBindingSync({
+      workspaceId: "default",
+      integrationId: integration.id,
+      channelName: "launch",
+      externalChatId: "oc_launch_secret",
+      externalChatType: "group",
+      externalChatName: "Launch Room",
+      syncMode: "mirror",
+      metadataJson: {
+        provisionSource: "bot_added",
+        reviewStatus: "approved",
+        agentId: "Codex",
+        botBindingId: integration.id,
+      },
+    });
+    upsertExternalResourceBindingSync({
+      workspaceId: "default",
+      integrationId: integration.id,
+      providerResourceType: "doc",
+      providerResourceToken: "doc_secret_token",
+      agentSpaceResourceType: "channel_document",
+      agentSpaceResourceId: "doc-1",
+      channelName: "launch",
+      displayName: "Launch Doc",
+      permissionsJson: {
+        canWrite: true,
+        guestReadable: true,
+      },
+    });
+
+    const channelsPage = getChannelsPageData("Tianyu");
+    const launch = channelsPage.channels.find((channel) => channel.id === "launch");
+
+    expect(launch?.feishu).toMatchObject({
+      bindingCount: 1,
+      externalChatName: "Launch Room",
+      externalChatReference: expect.stringMatching(/^chat [0-9a-f]{8}$/),
+      provisionSource: "bot_added",
+      reviewStatus: "approved",
+      connectedAgentBots: [
+        {
+          integrationId: integration.id,
+          displayName: "Codex Feishu Bot",
+          agentId: "Codex",
+          status: "active",
+          unboundUserMode: "reply_on_mention",
+          guestPermissionProfile: "channel_context_only",
+        },
+      ],
+      resourceBindings: [
+        {
+          integrationId: integration.id,
+          integrationDisplayName: "Codex Feishu Bot",
+          providerResourceType: "doc",
+          displayName: "Launch Doc",
+          canWrite: true,
+          guestReadable: true,
+          status: "active",
+        },
+      ],
+    });
   });
 
   it("marks channel rows unread for the mentioned current human until they OK or reply", () => {

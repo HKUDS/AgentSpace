@@ -60,6 +60,11 @@ export interface FeishuChannelBindingSettingsItem {
   externalChatName?: string;
   status: ExternalBindingStatus;
   syncMode: "mirror" | "ingest_only" | "send_only";
+  provisionSource?: "manual" | "bot_added" | "first_message" | "agentspace_created";
+  reviewStatus?: "approved" | "pending_admin_review" | "needs_identity_binding";
+  agentId?: string;
+  botBindingId?: string;
+  linkedFromBindingId?: string;
   createdAt: string;
   updatedAt: string;
 }

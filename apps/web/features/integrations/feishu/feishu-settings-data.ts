@@ -141,22 +141,30 @@ export function listFeishuIntegrationSettingsItems(input: {
       updatedAt: binding.updatedAt,
       lastSeenAt: binding.lastSeenAt,
     }));
-    const channelBindingItems = channelBindings.map((binding): FeishuChannelBindingSettingsItem => ({
-      id: binding.id,
-      integrationId: binding.integrationId,
-      channelName: binding.channelName,
-      externalChatReference: buildFeishuExternalIdReference({
-        kind: "chat",
-        value: binding.externalChatId,
-      }),
-      externalChatIdRedacted: true,
-      externalChatType: binding.externalChatType,
-      externalChatName: binding.externalChatName,
-      status: binding.status,
-      syncMode: binding.syncMode,
-      createdAt: binding.createdAt,
-      updatedAt: binding.updatedAt,
-    }));
+    const channelBindingItems = channelBindings.map((binding): FeishuChannelBindingSettingsItem => {
+      const metadata = readFeishuBindingMetadata(binding.metadataJson);
+      return {
+        id: binding.id,
+        integrationId: binding.integrationId,
+        channelName: binding.channelName,
+        externalChatReference: buildFeishuExternalIdReference({
+          kind: "chat",
+          value: binding.externalChatId,
+        }),
+        externalChatIdRedacted: true,
+        externalChatType: binding.externalChatType,
+        externalChatName: binding.externalChatName,
+        status: binding.status,
+        syncMode: binding.syncMode,
+        provisionSource: readFeishuChannelProvisionSource(metadata),
+        reviewStatus: readFeishuChannelReviewStatus(metadata),
+        agentId: readMetadataString(metadata, "agentId"),
+        botBindingId: readMetadataString(metadata, "botBindingId"),
+        linkedFromBindingId: readMetadataString(metadata, "linkedFromBindingId"),
+        createdAt: binding.createdAt,
+        updatedAt: binding.updatedAt,
+      };
+    });
     const resourceBindingItems = resourceBindings.map((binding): FeishuResourceBindingSettingsItem => ({
       id: binding.id,
       integrationId: binding.integrationId,
@@ -650,6 +658,27 @@ function readFeishuBindingMetadata(metadataJson: string | null | undefined): Rec
 function readMetadataString(value: Record<string, unknown>, key: string): string | undefined {
   const candidate = value[key];
   return typeof candidate === "string" && candidate.trim() ? candidate.trim() : undefined;
+}
+
+function readFeishuChannelProvisionSource(
+  metadata: Record<string, unknown>,
+): FeishuChannelBindingSettingsItem["provisionSource"] {
+  return readAllowedValue(metadata.provisionSource, [
+    "manual",
+    "bot_added",
+    "first_message",
+    "agentspace_created",
+  ] as const);
+}
+
+function readFeishuChannelReviewStatus(
+  metadata: Record<string, unknown>,
+): FeishuChannelBindingSettingsItem["reviewStatus"] {
+  return readAllowedValue(metadata.reviewStatus, [
+    "approved",
+    "pending_admin_review",
+    "needs_identity_binding",
+  ] as const);
 }
 
 function readFeishuAgentBotChannelAutoProvisioning(

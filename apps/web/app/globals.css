@@ -15382,6 +15382,52 @@ textarea:focus {
   flex: none;
 }
 
+.channel-feishu-summary {
+  display: grid;
+  grid-template-columns: minmax(13rem, 1.4fr) minmax(10rem, 1fr) minmax(10rem, 1fr);
+  gap: 0.65rem;
+  margin: 0 1.25rem 0.75rem;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid rgba(23, 95, 121, 0.16);
+  border-radius: 8px;
+  background: rgba(240, 253, 250, 0.7);
+}
+
+.channel-feishu-summary__main,
+.channel-feishu-summary__section {
+  display: grid;
+  gap: 0.32rem;
+  min-width: 0;
+}
+
+.channel-feishu-summary__label {
+  color: rgba(0, 0, 0, 0.56);
+  font-size: 0.74rem;
+  font-weight: 700;
+}
+
+.channel-feishu-summary strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: #163a3b;
+  font-size: 0.92rem;
+  font-weight: 700;
+}
+
+.channel-feishu-summary__meta,
+.channel-feishu-summary__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.channel-feishu-summary__meta span,
+.channel-feishu-summary__empty {
+  color: rgba(0, 0, 0, 0.58);
+  font-size: 0.78rem;
+}
+
 .channel-workspace-header__icon-button {
   width: 2.8rem;
   height: 2.8rem;
@@ -15773,6 +15819,11 @@ textarea:focus {
 
   .channel-workspace-header__actions {
     justify-content: flex-end;
+  }
+
+  .channel-feishu-summary {
+    grid-template-columns: 1fr;
+    margin: 0 0.9rem 0.65rem;
   }
 
   .channel-workspace-header__tabs {
