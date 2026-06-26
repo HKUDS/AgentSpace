@@ -697,7 +697,7 @@ Feishu Base table -> AgentSpace data_table
 > - Native routing / auto-provision / thread collaboration / loop guard：`packages/services/src/integrations/providers/feishu/inbound.ts`、`channel-auto-provisioning.ts`、`thread-bindings.ts`、`agent-bot-routing.ts`。
 > - External guest / data-plane governance / evidence：`external-guests.ts`、`data-plane.ts`、`apps/cli/src/commands/integrations/feishu.ts`。
 > - Regression tests：`packages/services/src/integrations/providers/feishu/__tests__/inbound.test.ts`、`agent-bot-bindings.test.ts`、`data-plane*.test.ts`、`outbound*.test.ts`、`apps/cli/src/commands/integrations.test.ts`、`apps/web/features/agents/agents-page-client.test.tsx`、`apps/web/features/integrations/feishu/feishu-*.test.ts`、`packages/services/src/permissions/permissions.test.ts`。
-> - 本地回归验证（2026-06-27）：核心 Feishu service tests、`scripts/feishu/smoke.test.ts`、targeted web Feishu/agent settings Vitest、CLI integrations test、`npm run typecheck:cli` 均已通过；web Vitest 使用显式 `AGENT_SPACE_TEST_DATABASE_URL=postgres://localhost/agent_space_test` 覆盖，避免读取应用库配置。
+> - 本地回归验证（2026-06-27）：`npm run typecheck`、Feishu service tests、`scripts/feishu/smoke.test.ts`、targeted web Feishu/agent settings Vitest、CLI integrations test 均已通过；web Vitest 使用显式 `AGENT_SPACE_TEST_DATABASE_URL=postgres://localhost/agent_space_test` 覆盖，避免读取应用库配置。
 
 ### Phase 0：产品语义收口
 
@@ -789,13 +789,15 @@ Feishu Base table -> AgentSpace data_table
 
 ### 工程质量
 
-- [ ] Feishu 新增代码放在 integration/Feishu 相关路径下。
-- [ ] WebSocket worker / EventCallback 都有单元测试。
-- [ ] Auto-provision idempotency 有测试。
-- [ ] Guest policy 有 service-level 测试。
-- [ ] UI 有创建最小表单、高级配置折叠、policy 控件测试。
-- [ ] CLI 有 JSON 输出和 placeholder 拒绝测试。
-- [ ] `npm run typecheck`、相关 Vitest、smoke harness 通过。
+> 工程质量项以本地自动化和代码路径审计为准；Phase 6 真实飞书租户 smoke 仍单独保留未勾选。
+
+- [x] Feishu 新增代码放在 integration/Feishu 相关路径下。
+- [x] WebSocket worker / EventCallback 都有单元测试。
+- [x] Auto-provision idempotency 有测试。
+- [x] Guest policy 有 service-level 测试。
+- [x] UI 有创建最小表单、高级配置折叠、policy 控件测试。
+- [x] CLI 有 JSON 输出和 placeholder 拒绝测试。
+- [x] `npm run typecheck`、相关 Vitest、smoke harness 通过。
 
 ## 风险与开放问题
 
