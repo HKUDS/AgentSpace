@@ -1116,7 +1116,10 @@ test("Feishu evidence report summarizes AgentSpace-side live smoke proof without
       "integration-evidence": [
         buildAutoProvisionedChannelBinding("integration-evidence", "first_message"),
         buildAutoProvisionedChannelBinding("integration-evidence", "bot_added", {
+          agentId: "HermesAgent",
           linkedFromBindingId: "channel-atlas-binding",
+          linkedFromAgentId: "Atlas",
+          linkedFromBotBindingId: "integration-evidence-atlas",
         }),
       ],
     },
@@ -1669,6 +1672,34 @@ test("Feishu evidence report requires thread collaboration with a different agen
   assert.equal(item?.nativeExperience.threadCollaborationEvidence, 0);
   assert.ok(item?.issues.includes("thread_collaboration_evidence_missing"));
   assert.equal(JSON.stringify(report).includes("om_secret"), false);
+});
+
+test("Feishu evidence report requires channel reuse from a different agent bot", () => {
+  const report = buildFeishuEvidenceReport({
+    ...buildCompleteFeishuEvidenceInput(),
+    requiredEvidence: "native",
+    channelBindingsByIntegrationId: {
+      "integration-evidence": [
+        buildAutoProvisionedChannelBinding("integration-evidence", "first_message"),
+        buildAutoProvisionedChannelBinding("integration-evidence", "bot_added", {
+          agentId: "HermesAgent",
+          botBindingId: "integration-evidence-hermes",
+          linkedFromBindingId: "channel-hermes-binding",
+          linkedFromAgentId: "HermesAgent",
+          linkedFromBotBindingId: "integration-evidence-hermes",
+        }),
+      ],
+    },
+  });
+
+  assert.equal(report.strictSatisfied, false);
+  assert.equal(report.summary.nativeExperienceSatisfiedCount, 0);
+  const [item] = report.integrations;
+  assert.equal(item?.nativeExperience.autoProvisionedChannelBindings, 2);
+  assert.equal(item?.nativeExperience.botAddedAutoProvisionedChannelBindings, 1);
+  assert.equal(item?.nativeExperience.reusedProviderChannelBindings, 0);
+  assert.ok(item?.issues.includes("multi_agent_channel_reuse_evidence_missing"));
+  assert.equal(JSON.stringify(report).includes("oc_secret"), false);
 });
 
 test("Feishu evidence report gates external guest policy proof", () => {
@@ -2718,6 +2749,8 @@ test("Feishu channel-bindings report lists redacted chat mappings", () => {
             agentId: "HermesAgent",
             botBindingId: "agent-bot-hermes",
             linkedFromBindingId: "binding-codex-general",
+            linkedFromAgentId: "Codex",
+            linkedFromBotBindingId: "agent-bot-codex",
             externalChatReference: "chat-ref-safe",
           }),
         }),
@@ -2735,6 +2768,8 @@ test("Feishu channel-bindings report lists redacted chat mappings", () => {
   assert.equal(report.bindings[0]?.externalChatIdRedacted, true);
   assert.equal(report.bindings[0]?.provisionSource, "bot_added");
   assert.equal(report.bindings[1]?.linkedFromBindingId, "binding-codex-general");
+  assert.equal(report.bindings[1]?.linkedFromAgentId, "Codex");
+  assert.equal(report.bindings[1]?.linkedFromBotBindingId, "agent-bot-codex");
   const serialized = JSON.stringify(report);
   assert.equal(serialized.includes("oc_secret_general"), false);
   assert.equal(serialized.includes("oc_"), false);
@@ -4510,6 +4545,8 @@ test("Feishu smoke plan converts readiness into live smoke checklist without ext
   assert.match(bindSecondAgentBot?.detail ?? "", /2 agent-scoped Feishu bot binding/);
   assert.equal(liveMultiAgentReuse?.status, "pending");
   assert.match(liveMultiAgentReuse?.detail ?? "", /linkedFromBindingId/);
+  assert.match(liveMultiAgentReuse?.detail ?? "", /linkedFromAgentId/);
+  assert.match(liveMultiAgentReuse?.detail ?? "", /linkedFromBotBindingId/);
   assert.equal(liveThreadCollaboration?.status, "pending");
   assert.match(liveThreadCollaboration?.detail ?? "", /same Feishu thread/);
   assert.match(liveThreadCollaboration?.detail ?? "", /threadCollaboration=true/);
@@ -4902,7 +4939,10 @@ function buildCompleteFeishuEvidenceInput() {
       "integration-evidence": [
         buildAutoProvisionedChannelBinding("integration-evidence", "first_message"),
         buildAutoProvisionedChannelBinding("integration-evidence", "bot_added", {
+          agentId: "HermesAgent",
           linkedFromBindingId: "channel-atlas-binding",
+          linkedFromAgentId: "Atlas",
+          linkedFromBotBindingId: "integration-evidence-atlas",
         }),
       ],
     },
@@ -5193,19 +5233,27 @@ function buildAutoProvisionedChannelBinding(
   integrationId: string,
   provisionSource: "bot_added" | "first_message",
   options: {
+    agentId?: string;
+    botBindingId?: string;
     linkedFromBindingId?: string;
+    linkedFromAgentId?: string;
+    linkedFromBotBindingId?: string;
   } = {},
 ) {
+  const agentId = options.agentId ?? "Atlas";
+  const botBindingId = options.botBindingId ?? integrationId;
   return {
     ...(buildChannelBinding(integrationId) as Record<string, unknown>),
     metadataJson: JSON.stringify({
       provider: "feishu",
       provisionSource,
       reviewStatus: "approved",
-      agentId: "Atlas",
-      botBindingId: integrationId,
+      agentId,
+      botBindingId,
       externalChatReference: "chat-ref-hash",
       linkedFromBindingId: options.linkedFromBindingId,
+      linkedFromAgentId: options.linkedFromAgentId,
+      linkedFromBotBindingId: options.linkedFromBotBindingId,
     }),
   } as never;
 }

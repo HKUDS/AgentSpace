@@ -421,6 +421,8 @@ export interface FeishuChannelBindingCliItem {
   agentId?: string;
   botBindingId?: string;
   linkedFromBindingId?: string;
+  linkedFromAgentId?: string;
+  linkedFromBotBindingId?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -1867,6 +1869,8 @@ function buildFeishuChannelBindingCliItem(input: {
   const agentId = readStringMetadata(metadata.agentId) ?? input.integration.agentId;
   const botBindingId = readStringMetadata(metadata.botBindingId);
   const linkedFromBindingId = readStringMetadata(metadata.linkedFromBindingId);
+  const linkedFromAgentId = readStringMetadata(metadata.linkedFromAgentId);
+  const linkedFromBotBindingId = readStringMetadata(metadata.linkedFromBotBindingId);
   return {
     bindingId: input.binding.id,
     integrationId: input.integration.id,
@@ -1884,6 +1888,8 @@ function buildFeishuChannelBindingCliItem(input: {
     ...(agentId ? { agentId } : {}),
     ...(botBindingId ? { botBindingId } : {}),
     ...(linkedFromBindingId ? { linkedFromBindingId } : {}),
+    ...(linkedFromAgentId ? { linkedFromAgentId } : {}),
+    ...(linkedFromBotBindingId ? { linkedFromBotBindingId } : {}),
     createdAt: input.binding.createdAt,
     updatedAt: input.binding.updatedAt,
   };
@@ -4418,7 +4424,7 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
         area: "bot",
         title: "Live smoke: second agent bot reuses channel",
         status: hasSecondAgentBot ? "pending" : "blocked",
-        detail: "After the second agent bot binding exists, add that bot to the same Feishu group and verify AgentSpace reuses the existing channel, adds only that agent membership, and records linkedFromBindingId instead of creating a duplicate channel.",
+        detail: "After the second agent bot binding exists, add that bot to the same Feishu group and verify AgentSpace reuses the existing channel, adds only that agent membership, and records linkedFromBindingId plus different linkedFromAgentId/linkedFromBotBindingId metadata instead of creating a duplicate channel.",
         issues: hasSecondAgentBot ? [] : ["second_agent_bot_missing"],
       },
       {
@@ -5523,7 +5529,7 @@ function mapFeishuEvidenceIssueToRemediationSpec(input: {
       return {
         stepId: "live_multi_agent_bot_channel_reuse",
         title: "Live smoke: second agent bot reuses channel",
-        detail: "Add a second agent bot to the same Feishu group and verify AgentSpace adds that agent to the existing channel with linkedFromBindingId metadata instead of creating a duplicate channel.",
+        detail: "Add a second agent bot to the same Feishu group and verify AgentSpace adds that agent to the existing channel with linkedFromBindingId plus different linkedFromAgentId/linkedFromBotBindingId metadata instead of creating a duplicate channel.",
       };
     case "thread_task_binding_evidence_missing":
       return {
@@ -5905,14 +5911,24 @@ function countFeishuReusedProviderChannelBindings(
       return false;
     }
     const metadata = readJsonRecord(binding.metadataJson);
+    const agentId = hasNonEmptyString(metadata?.agentId) ? metadata.agentId.trim() : "";
+    const botBindingId = hasNonEmptyString(metadata?.botBindingId) ? metadata.botBindingId.trim() : "";
+    const linkedFromAgentId = hasNonEmptyString(metadata?.linkedFromAgentId)
+      ? metadata.linkedFromAgentId.trim()
+      : "";
+    const linkedFromBotBindingId = hasNonEmptyString(metadata?.linkedFromBotBindingId)
+      ? metadata.linkedFromBotBindingId.trim()
+      : "";
     return metadata?.provider === FEISHU_PROVIDER_ID &&
       metadata.provisionSource === "bot_added" &&
       typeof metadata.linkedFromBindingId === "string" &&
       metadata.linkedFromBindingId.trim().length > 0 &&
-      typeof metadata.agentId === "string" &&
-      metadata.agentId.trim().length > 0 &&
-      typeof metadata.botBindingId === "string" &&
-      metadata.botBindingId.trim().length > 0 &&
+      agentId.length > 0 &&
+      botBindingId.length > 0 &&
+      linkedFromAgentId.length > 0 &&
+      linkedFromAgentId !== agentId &&
+      linkedFromBotBindingId.length > 0 &&
+      linkedFromBotBindingId !== botBindingId &&
       typeof metadata.externalChatReference === "string" &&
       metadata.externalChatReference.trim().length > 0;
   }).length;

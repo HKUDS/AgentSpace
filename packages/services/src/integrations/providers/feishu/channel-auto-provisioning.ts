@@ -147,6 +147,7 @@ export function resolveOrProvisionFeishuChannelBindingSync(
     status: "active",
   });
   if (providerBinding) {
+    const providerBindingAgentBot = readChannelBindingAgentBotMetadata(providerBinding);
     const addedAgentToChannel = ensureAgentInChannelSync({
       workspaceId,
       channelName: providerBinding.channelName,
@@ -169,6 +170,8 @@ export function resolveOrProvisionFeishuChannelBindingSync(
         externalChatId,
         createdByExternalActorId: input.createdByExternalActorId,
         linkedFromBindingId: providerBinding.id,
+        linkedFromAgentId: providerBindingAgentBot.agentId,
+        linkedFromBotBindingId: providerBindingAgentBot.botBindingId,
       }),
       createdByUserId: input.createdByUserId,
     });
@@ -378,6 +381,8 @@ function buildChannelBindingMetadata(input: {
   externalChatId: string;
   createdByExternalActorId?: string;
   linkedFromBindingId?: string;
+  linkedFromAgentId?: string;
+  linkedFromBotBindingId?: string;
   restoredFromStatus?: string;
   restoredBindingId?: string;
 }): Record<string, unknown> {
@@ -394,6 +399,8 @@ function buildChannelBindingMetadata(input: {
     externalChatReference: shortHash(input.externalChatId),
     createdByExternalActorReference,
     linkedFromBindingId: input.linkedFromBindingId,
+    linkedFromAgentId: input.linkedFromAgentId,
+    linkedFromBotBindingId: input.linkedFromBotBindingId,
     restoredFromStatus: input.restoredFromStatus,
     restoredBindingId: input.restoredBindingId,
     autoProvisionedAt: new Date().toISOString(),
@@ -486,6 +493,18 @@ function readProvisionSource(binding: ExternalChannelBindingRecord): FeishuChann
 function readReviewStatus(binding: ExternalChannelBindingRecord): FeishuChannelReviewStatus | undefined {
   const metadata = parseJsonRecord(binding.metadataJson);
   return normalizeReviewStatus(asString(metadata?.reviewStatus), undefined);
+}
+
+function readChannelBindingAgentBotMetadata(
+  binding: ExternalChannelBindingRecord,
+): { agentId?: string; botBindingId?: string } {
+  const metadata = parseJsonRecord(binding.metadataJson);
+  const agentId = asString(metadata?.agentId)?.trim();
+  const botBindingId = asString(metadata?.botBindingId)?.trim();
+  return {
+    agentId: agentId ? agentId : undefined,
+    botBindingId: botBindingId ? botBindingId : undefined,
+  };
 }
 
 function normalizeBotAddedMode(

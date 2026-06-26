@@ -952,6 +952,8 @@ test("bot added events reuse an existing Feishu chat channel for additional agen
   assert.equal(metadata.provisionSource, "bot_added");
   assert.equal(metadata.agentId, "Hermes");
   assert.equal(metadata.linkedFromBindingId, atlasChannelBinding?.id);
+  assert.equal(metadata.linkedFromAgentId, "Atlas");
+  assert.equal(metadata.linkedFromBotBindingId, fixtures.integration.id);
   assert.match(String(metadata.createdByExternalActorReference), /^[a-f0-9]{10}$/);
   assert.doesNotMatch(hermesChannelBinding?.metadataJson ?? "", /oc_shared_group|ou_mina|on_mina/);
 });
