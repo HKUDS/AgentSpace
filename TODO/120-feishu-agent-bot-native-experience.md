@@ -808,6 +808,7 @@ Feishu Base table -> AgentSpace data_table
 - [x] 自动创建 channel 的命名冲突和归档恢复策略已定义：名称使用 `feishu-<slug>`，冲突时追加 chat 短 hash / 序号； archived binding 会原地恢复并记录 `restoredFromStatus` / `restoredBindingId`。
 - [x] External guest 第一版不存储真实 Feishu displayName；AgentSpace UI 使用统一 `Feishu Guest` 展示名，审计和任务上下文只保存 provider user hash / safe reference。
 - [x] 多 bot 同群的 evidence gate 已收紧：同一 Feishu chat 复用需记录 `linkedFromAgentId` / `linkedFromBotBindingId` 且与当前 agent/bot 不同；同一 thread 可记录 `threadContinuation=true`、`threadCollaboration=true` 和 collaborator agent ids，不覆盖原 agent task。
+- [x] Data-plane approved write evidence 已收紧：Doc / Sheet / Base 写入不仅需要 `approvalId` + `payloadHash`，还必须在同一 operation 的 Feishu governance context 中记录 `agentId` + `botBindingId` 和真实 `agent` / `user` actor，避免 agent bot 绕过 AgentSpace resource policy 的证据空洞。
 - [x] 部署默认已明确：self-hosted / 快速开始默认 WebSocket worker；EventCallback 作为 SaaS webhook / 严格验签 / 加密事件的高级模式保留。
 
 ## 推荐第一版产品默认值

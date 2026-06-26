@@ -1503,6 +1503,48 @@ test("Feishu evidence report requires AgentSpace sync proof for approved Sheet a
   assert.ok(item?.issues.includes("base_mutate_agentspace_sync_evidence_missing"));
 });
 
+test("Feishu evidence report requires agent bot governance on approved writes", () => {
+  const report = buildFeishuEvidenceReport({
+    ...buildCompleteFeishuEvidenceInput(),
+    dataOperationsByIntegrationId: {
+      "integration-evidence": [
+        buildDataOperationRun("integration-evidence", "docs.read_document", "doc", "succeeded", {
+          actorType: "user",
+          actorId: "user-1",
+        }),
+        buildAgentRuntimeDocReadRun("integration-evidence"),
+        buildDataOperationRun("integration-evidence", "docs.update_document", "doc", "succeeded", undefined, {
+          governanceBotBindingId: null,
+        }),
+        buildDataOperationRun("integration-evidence", "sheets.read_range", "sheet", "succeeded"),
+        buildDataOperationRun("integration-evidence", "sheets.update_range", "sheet", "succeeded", undefined, {
+          governanceBotBindingId: null,
+        }),
+        buildDataOperationRun("integration-evidence", "base.query_records", "base_table", "succeeded"),
+        buildDataOperationRun("integration-evidence", "base.mutate_records", "base_table", "succeeded", undefined, {
+          governanceBotBindingId: null,
+        }),
+        buildExternalGuestWriteDeniedRun("integration-evidence"),
+      ],
+    },
+  });
+
+  assert.equal(report.strictSatisfied, false);
+  assert.equal(report.summary.dataPlaneSatisfiedCount, 0);
+  const [item] = report.integrations;
+  assert.equal(item?.dataPlane.docWriteSucceeded, 1);
+  assert.equal(item?.dataPlane.docApprovedWritesSucceeded, 0);
+  assert.equal(item?.dataPlane.sheetWriteSucceeded, 1);
+  assert.equal(item?.dataPlane.sheetApprovedWritesSucceeded, 0);
+  assert.equal(item?.dataPlane.sheetApprovedWriteSyncSucceeded, 0);
+  assert.equal(item?.dataPlane.baseMutateSucceeded, 1);
+  assert.equal(item?.dataPlane.baseApprovedMutationsSucceeded, 0);
+  assert.equal(item?.dataPlane.baseApprovedMutationSyncSucceeded, 0);
+  assert.ok(item?.issues.includes("doc_write_approval_evidence_missing"));
+  assert.ok(item?.issues.includes("sheet_write_approval_evidence_missing"));
+  assert.ok(item?.issues.includes("base_mutate_approval_evidence_missing"));
+});
+
 test("Feishu evidence report requires user and external guest actor provenance", () => {
   const report = buildFeishuEvidenceReport({
     ...buildCompleteFeishuEvidenceInput(),

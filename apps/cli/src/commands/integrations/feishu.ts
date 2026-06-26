@@ -5110,13 +5110,32 @@ function hasFeishuApprovedWriteEvidence(operation: ExternalDataOperationRunRecor
     typeof result.approvalId === "string" &&
     result.approvalId.trim().length > 0 &&
     typeof result.payloadHash === "string" &&
-    result.payloadHash.trim().length > 0;
+    result.payloadHash.trim().length > 0 &&
+    hasFeishuAgentBotGovernedWriteContext(operation);
 }
 
 function hasFeishuApprovedDataTableWriteSyncEvidence(operation: ExternalDataOperationRunRecord): boolean {
   const result = readJsonRecord(operation.resultJson);
   const agentSpaceSync = isRecord(result?.agentSpaceSync) ? result.agentSpaceSync : undefined;
   return agentSpaceSync?.dataTableLastApprovedWriteSynced === true;
+}
+
+function hasFeishuAgentBotGovernedWriteContext(operation: ExternalDataOperationRunRecord): boolean {
+  const governanceContext = readFeishuGovernanceContext(operation);
+  if (governanceContext?.provider !== FEISHU_PROVIDER_ID) {
+    return false;
+  }
+  if (!hasNonEmptyString(governanceContext.agentId) || !hasNonEmptyString(governanceContext.botBindingId)) {
+    return false;
+  }
+  const actorType = readFeishuGovernanceActorType(operation);
+  if (actorType === "agent") {
+    return true;
+  }
+  if (actorType === "user") {
+    return hasNonEmptyString(governanceContext.actorUserId);
+  }
+  return false;
 }
 
 function countFeishuGovernanceActorEvidence(
