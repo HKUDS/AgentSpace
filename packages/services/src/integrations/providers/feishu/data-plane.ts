@@ -1588,6 +1588,14 @@ function applyFeishuDataOperationGovernanceContext(
     externalGuestRequireIdentityFor: actorType === "external_guest"
       ? readStringArrayValue(existing.externalGuestRequireIdentityFor) ?? externalGuest?.requireIdentityFor
       : undefined,
+    externalGuestResourceAccess: actorType === "external_guest"
+      ? readStringValue(existing.externalGuestResourceAccess) ??
+        resolveFeishuExternalGuestResourceAccess({
+          request,
+          binding: input.binding,
+          actor: externalGuest,
+        })
+      : undefined,
     externalChatReference: readStringValue(existing.externalChatReference)
       ?? hashFeishuAuditReference(externalGuest?.sourceChatId),
   });
@@ -1601,6 +1609,26 @@ function applyFeishuDataOperationGovernanceContext(
       feishuGovernance: governanceContext,
     },
   };
+}
+
+function resolveFeishuExternalGuestResourceAccess(input: {
+  request: ExternalDataOperationRequest;
+  binding?: ExternalResourceBindingRecord;
+  actor?: FeishuExternalGuestDataOperationActor;
+}): "guest_readable_current_channel" | undefined {
+  if (!input.actor || !input.binding || input.actor.permissionProfile === "none") {
+    return undefined;
+  }
+  if (!isFeishuResourceBindingGuestReadable(input.binding)) {
+    return undefined;
+  }
+  const bindingChannelName = input.binding.channelName?.trim();
+  const requestChannelName = readStringParameterValue(input.request.parameters.channelName)
+    ?? input.actor.sourceChannelName?.trim();
+  if (!bindingChannelName || !requestChannelName || bindingChannelName !== requestChannelName) {
+    return undefined;
+  }
+  return "guest_readable_current_channel";
 }
 
 function resolveFeishuDataOperationGovernanceActorType(

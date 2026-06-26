@@ -447,6 +447,9 @@ export function summarizeFeishuStoredDataOperationGovernanceContext(
     externalGuestRequireIdentityFor: actorType === "external_guest"
       ? readStringArray(governance.externalGuestRequireIdentityFor)
       : undefined,
+    externalGuestResourceAccess: actorType === "external_guest"
+      ? readString(governance, "externalGuestResourceAccess")
+      : undefined,
     externalChatReference: readString(governance, "externalChatReference"),
   });
   return Object.keys(context).length > 1 ? context : undefined;

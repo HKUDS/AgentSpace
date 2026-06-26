@@ -591,6 +591,7 @@ export interface FeishuIntegrationEvidence {
     baseApprovedMutationSyncSucceeded: number;
     userActorEvidence: number;
     externalGuestActorEvidence: number;
+    externalGuestReadSucceeded: number;
     externalGuestWriteDeniedEvidence: number;
     satisfied: boolean;
   };
@@ -4514,6 +4515,15 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
         issues: readyForBot && readyForDataPlane ? [] : uniqueStrings([...botIssues, ...dataPlaneIssues]),
       },
       {
+        id: "live_external_guest_read_guest_readable",
+        area: "data-plane",
+        title: "Live smoke: external guest reads guest-readable resource",
+        status: readyForBot && readyForDataPlane ? "pending" : "blocked",
+        detail: "From an unbound Feishu user, ask the concrete agent bot to read a guest-readable Doc/Sheet/Base resource bound to the current channel. Verify the run records external_guest governance and externalGuestResourceAccess=guest_readable_current_channel.",
+        command: dataPlaneSmokeCommands.liveDocReadCommand,
+        issues: readyForBot && readyForDataPlane ? [] : uniqueStrings([...botIssues, ...dataPlaneIssues]),
+      },
+      {
         id: "live_agent_channel_policy_disabled",
         area: "bot",
         title: "Live smoke: disabled agent/channel policy blocks replies",
@@ -4855,6 +4865,7 @@ function buildFeishuIntegrationEvidence(input: {
   ]);
   const userActorEvidence = countFeishuGovernanceActorEvidence(input.dataOperations, "user");
   const externalGuestActorEvidence = countFeishuGovernanceActorEvidence(input.dataOperations, "external_guest");
+  const externalGuestReadSucceeded = countFeishuExternalGuestReadEvidence(input.dataOperations);
   const externalGuestWriteDeniedEvidence = countFeishuExternalGuestWriteDeniedEvidence(input.dataOperations);
   const failedDataOperations = input.dataOperations.filter((operation) => operation.status === "failed").length;
   const failedDataOperationAgentBotEvidence = countFeishuFailedDataOperationAgentBotEvidence(input.dataOperations);
@@ -4891,6 +4902,7 @@ function buildFeishuIntegrationEvidence(input: {
     baseApprovedMutationSyncSucceeded > 0 &&
     userActorEvidence > 0 &&
     externalGuestActorEvidence > 0 &&
+    externalGuestReadSucceeded > 0 &&
     externalGuestWriteDeniedEvidence > 0;
   const requiredWorkerCorrelatedReplies = input.integration.transportMode === "websocket_worker" ? 2 : 0;
   const workerRestartRecoverySatisfied = correlatedReplyMappings >= requiredWorkerCorrelatedReplies;
@@ -4947,6 +4959,7 @@ function buildFeishuIntegrationEvidence(input: {
     baseApprovedMutationSyncSucceeded,
     userActorEvidence,
     externalGuestActorEvidence,
+    externalGuestReadSucceeded,
     externalGuestWriteDeniedEvidence,
     workerRestartRecoverySatisfied,
     workerApprovalCardActionSatisfied,
@@ -5011,6 +5024,7 @@ function buildFeishuIntegrationEvidence(input: {
       baseApprovedMutationSyncSucceeded,
       userActorEvidence,
       externalGuestActorEvidence,
+      externalGuestReadSucceeded,
       externalGuestWriteDeniedEvidence,
       satisfied: dataPlaneSatisfied,
     },
@@ -5170,6 +5184,21 @@ function countFeishuExternalGuestWriteDeniedEvidence(
   ).length;
 }
 
+function countFeishuExternalGuestReadEvidence(
+  operations: readonly ExternalDataOperationRunRecord[],
+): number {
+  const readOperations = new Set(["docs.read_document", "sheets.read_range", "base.query_records"]);
+  return operations.filter((operation) => {
+    const governanceContext = readFeishuGovernanceContext(operation);
+    return operation.status === "succeeded" &&
+      readOperations.has(operation.operationType) &&
+      hasNonEmptyString(operation.resourceBindingId) &&
+      countFeishuGovernanceActorEvidence([operation], "external_guest") === 1 &&
+      governanceContext?.externalGuestResourceAccess === "guest_readable_current_channel" &&
+      hasNonEmptyString(governanceContext.channelName);
+  }).length;
+}
+
 function readFeishuGovernanceActorType(
   operation: ExternalDataOperationRunRecord,
 ): "user" | "external_guest" | "agent" | "system" | undefined {
@@ -5271,6 +5300,7 @@ function buildFeishuEvidenceIssues(input: {
   baseApprovedMutationSyncSucceeded: number;
   userActorEvidence: number;
   externalGuestActorEvidence: number;
+  externalGuestReadSucceeded: number;
   externalGuestWriteDeniedEvidence: number;
   workerRestartRecoverySatisfied: boolean;
   workerApprovalCardActionSatisfied: boolean;
@@ -5390,6 +5420,8 @@ function buildFeishuEvidenceIssues(input: {
     }
     if (input.externalGuestActorEvidence === 0) {
       issues.push("external_guest_actor_data_operation_evidence_missing");
+    } else if (input.externalGuestReadSucceeded === 0) {
+      issues.push("external_guest_read_evidence_missing");
     } else if (input.externalGuestWriteDeniedEvidence === 0) {
       issues.push("external_guest_write_deny_evidence_missing");
     }
@@ -5634,6 +5666,13 @@ function mapFeishuEvidenceIssueToRemediationSpec(input: {
         command: dataPlaneCommands.liveDocReadCommand,
       };
     case "external_guest_actor_data_operation_evidence_missing":
+    case "external_guest_read_evidence_missing":
+      return {
+        stepId: "live_external_guest_read_guest_readable",
+        title: "Live smoke: external guest reads guest-readable resource",
+        detail: "From an unbound Feishu user, ask an agent bot to read a guest-readable resource bound to the current channel and verify AgentSpace records externalGuestResourceAccess=guest_readable_current_channel.",
+        command: dataPlaneCommands.liveDocReadCommand,
+      };
     case "external_guest_write_deny_evidence_missing":
       return {
         stepId: "live_external_guest_write_denied",

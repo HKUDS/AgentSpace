@@ -1145,6 +1145,7 @@ test("Feishu evidence report summarizes AgentSpace-side live smoke proof without
           actorType: "user",
           actorId: "user-1",
         }),
+        buildExternalGuestDocReadRun("integration-evidence"),
         buildAgentRuntimeDocReadRun("integration-evidence"),
         buildDataOperationRun("integration-evidence", "docs.update_document", "doc", "succeeded"),
         buildDataOperationRun("integration-evidence", "sheets.read_range", "sheet", "succeeded"),
@@ -1189,7 +1190,7 @@ test("Feishu evidence report summarizes AgentSpace-side live smoke proof without
   assert.equal(item?.guestPolicy.externalGuestIgnoreEvidence, 1);
   assert.equal(item?.guestPolicy.externalGuestMentionRequiredEvidence, 1);
   assert.equal(item?.dataPlane.satisfied, true);
-  assert.equal(item?.dataPlane.docReadSucceeded, 1);
+  assert.equal(item?.dataPlane.docReadSucceeded, 2);
   assert.equal(item?.dataPlane.agentDocReadSucceeded, 1);
   assert.equal(item?.dataPlane.docWriteSucceeded, 1);
   assert.equal(item?.dataPlane.docApprovedWritesSucceeded, 1);
@@ -1201,7 +1202,8 @@ test("Feishu evidence report summarizes AgentSpace-side live smoke proof without
   assert.equal(item?.dataPlane.baseApprovedMutationsSucceeded, 1);
   assert.equal(item?.dataPlane.baseApprovedMutationSyncSucceeded, 1);
   assert.equal(item?.dataPlane.userActorEvidence, 1);
-  assert.equal(item?.dataPlane.externalGuestActorEvidence, 1);
+  assert.equal(item?.dataPlane.externalGuestActorEvidence, 2);
+  assert.equal(item?.dataPlane.externalGuestReadSucceeded, 1);
   assert.equal(item?.dataPlane.externalGuestWriteDeniedEvidence, 1);
   assert.equal(item?.worker.correlatedReplyMappings, 2);
   assert.equal(item?.worker.requiredCorrelatedReplies, 2);
@@ -1512,6 +1514,7 @@ test("Feishu evidence report requires agent bot governance on approved writes", 
           actorType: "user",
           actorId: "user-1",
         }),
+        buildExternalGuestDocReadRun("integration-evidence"),
         buildAgentRuntimeDocReadRun("integration-evidence"),
         buildDataOperationRun("integration-evidence", "docs.update_document", "doc", "succeeded", undefined, {
           governanceBotBindingId: null,
@@ -1585,6 +1588,7 @@ test("Feishu evidence report requires external guest write-deny proof", () => {
           actorType: "user",
           actorId: "user-1",
         }),
+        buildExternalGuestDocReadRun("integration-evidence"),
         buildAgentRuntimeDocReadRun("integration-evidence"),
         buildDataOperationRun("integration-evidence", "docs.update_document", "doc", "succeeded"),
         buildDataOperationRun("integration-evidence", "sheets.read_range", "sheet", "succeeded"),
@@ -1602,7 +1606,7 @@ test("Feishu evidence report requires external guest write-deny proof", () => {
   assert.equal(report.summary.dataPlaneSatisfiedCount, 0);
   const [item] = report.integrations;
   assert.equal(item?.dataPlane.userActorEvidence, 1);
-  assert.equal(item?.dataPlane.externalGuestActorEvidence, 1);
+  assert.equal(item?.dataPlane.externalGuestActorEvidence, 2);
   assert.equal(item?.dataPlane.externalGuestWriteDeniedEvidence, 0);
   assert.ok(item?.issues.includes("external_guest_write_deny_evidence_missing"));
 });
@@ -2143,7 +2147,7 @@ test("Feishu evidence report blocks strict gates when local proof is incomplete"
     "live_sheet_write_with_approval",
     "live_base_preview_and_update",
     "live_bound_user_data_operation",
-    "live_external_guest_write_denied",
+    "live_external_guest_read_guest_readable",
     "live_failure_visibility",
   ]);
   const botRemediation = item?.remediationSteps.find((step) => step.stepId === "live_bot_message_reply");
@@ -2226,7 +2230,7 @@ test("Feishu evidence report blocks strict gates when local proof is incomplete"
   );
   assert.ok(userActorRemediation?.issues.includes("user_actor_data_operation_evidence_missing"));
   const guestActorRemediation = item?.remediationSteps.find((step) =>
-    step.stepId === "live_external_guest_write_denied"
+    step.stepId === "live_external_guest_read_guest_readable"
   );
   assert.ok(guestActorRemediation?.issues.includes("external_guest_actor_data_operation_evidence_missing"));
   const failureRemediation = item?.remediationSteps.find((step) => step.stepId === "live_failure_visibility");
@@ -4553,7 +4557,7 @@ test("Feishu smoke plan converts readiness into live smoke checklist without ext
     },
       {
         key: "data_plane",
-        required: "doc_read + agent_runtime_doc_read_from_lark_cli_manifest + approved_doc_write + sheet_read + approved_sheet_write_with_agentspace_sync + base_read + approved_base_mutation_with_agentspace_sync + user_actor + external_guest_actor + external_guest_write_denied",
+        required: "doc_read + agent_runtime_doc_read_from_lark_cli_manifest + approved_doc_write + sheet_read + approved_sheet_write_with_agentspace_sync + base_read + approved_base_mutation_with_agentspace_sync + user_actor + external_guest_actor + external_guest_read_guest_readable_current_channel + external_guest_write_denied",
       },
     {
       key: "failure_visibility",
@@ -4589,6 +4593,7 @@ test("Feishu smoke plan converts readiness into live smoke checklist without ext
   const liveUnmentionedGuestIgnored = report.steps.find((step) => step.id === "live_unmentioned_guest_message_ignored");
   const liveBoundUserDataOperation = report.steps.find((step) => step.id === "live_bound_user_data_operation");
   const liveGuestWriteDenied = report.steps.find((step) => step.id === "live_external_guest_write_denied");
+  const liveGuestReadableRead = report.steps.find((step) => step.id === "live_external_guest_read_guest_readable");
   const livePolicyDisabled = report.steps.find((step) => step.id === "live_agent_channel_policy_disabled");
   const liveAgentDocSummary = report.steps.find((step) => step.id === "live_agent_bound_doc_summary");
   const workerDryRun = report.steps.find((step) => step.id === "run_websocket_worker_dry_run");
@@ -4663,6 +4668,9 @@ test("Feishu smoke plan converts readiness into live smoke checklist without ext
   assert.equal(liveGuestWriteDenied?.status, "pending");
   assert.match(liveGuestWriteDenied?.detail ?? "", /require_identity/);
   assert.match(liveGuestWriteDenied?.detail ?? "", /does not create a real workspace member/);
+  assert.equal(liveGuestReadableRead?.status, "pending");
+  assert.match(liveGuestReadableRead?.detail ?? "", /guest-readable/);
+  assert.match(liveGuestReadableRead?.detail ?? "", /externalGuestResourceAccess=guest_readable_current_channel/);
   assert.equal(livePolicyDisabled?.status, "pending");
   assert.match(livePolicyDisabled?.detail ?? "", /without writing a channel message/);
   assert.equal(liveAgentDocSummary?.status, "pending");
@@ -4786,6 +4794,7 @@ test("Feishu smoke plan blocks live smoke steps when local prerequisites are mis
   const liveUnmentionedGuestIgnored = report.steps.find((step) => step.id === "live_unmentioned_guest_message_ignored");
   const liveBoundUserDataOperation = report.steps.find((step) => step.id === "live_bound_user_data_operation");
   const liveGuestWriteDenied = report.steps.find((step) => step.id === "live_external_guest_write_denied");
+  const liveGuestReadableRead = report.steps.find((step) => step.id === "live_external_guest_read_guest_readable");
   const liveAgentDocSummary = report.steps.find((step) => step.id === "live_agent_bound_doc_summary");
   const workerDryRun = report.steps.find((step) => step.id === "run_websocket_worker_dry_run");
   const workerReceive = report.steps.find((step) => step.id === "live_websocket_receive_message");
@@ -4843,6 +4852,8 @@ test("Feishu smoke plan blocks live smoke steps when local prerequisites are mis
   assert.ok(liveBoundUserDataOperation?.issues?.includes("doc_resource_binding_missing"));
   assert.equal(liveGuestWriteDenied?.status, "blocked");
   assert.ok(liveGuestWriteDenied?.issues?.includes("doc_resource_binding_missing"));
+  assert.equal(liveGuestReadableRead?.status, "blocked");
+  assert.ok(liveGuestReadableRead?.issues?.includes("doc_resource_binding_missing"));
   assert.equal(report.steps.find((step) => step.id === "live_agent_channel_policy_disabled")?.status, "blocked");
   assert.equal(liveAgentDocSummary?.status, "blocked");
   assert.ok(liveAgentDocSummary?.issues?.includes("doc_resource_binding_missing"));
@@ -5059,6 +5070,7 @@ function buildCompleteFeishuEvidenceInput() {
           actorType: "user",
           actorId: "user-1",
         }),
+        buildExternalGuestDocReadRun("integration-evidence"),
         buildAgentRuntimeDocReadRun("integration-evidence"),
         buildDataOperationRun("integration-evidence", "docs.update_document", "doc", "succeeded"),
         buildDataOperationRun("integration-evidence", "sheets.read_range", "sheet", "succeeded"),
@@ -5730,6 +5742,13 @@ function buildAgentRuntimeDocReadRun(integrationId: string) {
   } as never;
 }
 
+function buildExternalGuestDocReadRun(integrationId: string) {
+  return buildDataOperationRun(integrationId, "docs.read_document", "doc", "succeeded", undefined, {
+    governanceActorType: "external_guest",
+    governanceExternalGuestResourceAccess: "guest_readable_current_channel",
+  });
+}
+
 function buildExternalGuestWriteDeniedRun(
   integrationId: string,
   options: Pick<DataOperationRunOptions,
@@ -5771,6 +5790,7 @@ interface DataOperationRunOptions {
   governanceActorUserId?: string | null;
   governanceExternalActorReference?: string | null;
   governanceExternalGuestPermissionProfile?: string | null;
+  governanceExternalGuestResourceAccess?: string | null;
   errorCode?: string;
   errorMessage?: string;
 }
@@ -5806,6 +5826,7 @@ function buildDataOperationRun(
     actorUserId: options.governanceActorUserId,
     externalActorReference: options.governanceExternalActorReference,
     externalGuestPermissionProfile: options.governanceExternalGuestPermissionProfile,
+    externalGuestResourceAccess: options.governanceExternalGuestResourceAccess,
   });
   return {
     id: `${status}-${operationType}-${integrationId}`,
@@ -5854,6 +5875,7 @@ function buildFeishuTestGovernanceContext(input: {
   actorUserId?: string | null;
   externalActorReference?: string | null;
   externalGuestPermissionProfile?: string | null;
+  externalGuestResourceAccess?: string | null;
 }) {
   return {
     provider: "feishu",
@@ -5872,6 +5894,9 @@ function buildFeishuTestGovernanceContext(input: {
         ...(input.externalGuestPermissionProfile === null
           ? {}
           : { externalGuestPermissionProfile: input.externalGuestPermissionProfile ?? "channel_context_only" }),
+        ...(input.externalGuestResourceAccess === null || input.externalGuestResourceAccess === undefined
+          ? {}
+          : { externalGuestResourceAccess: input.externalGuestResourceAccess }),
         externalChatReference: "external-chat-ref-hash",
       }
       : {}),
