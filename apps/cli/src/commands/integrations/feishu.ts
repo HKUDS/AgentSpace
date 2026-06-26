@@ -470,6 +470,7 @@ export interface FeishuEvidenceReport {
   summary: {
     botSatisfiedCount: number;
     nativeExperienceSatisfiedCount: number;
+    guestPolicySatisfiedCount: number;
     dataPlaneSatisfiedCount: number;
     workerSatisfiedCount: number;
     failureVisibleCount: number;
@@ -497,6 +498,13 @@ export interface FeishuIntegrationEvidence {
     botAddedAutoProvisionedChannelBindings: number;
     firstMessageAutoProvisionedChannelBindings: number;
     threadTaskBindings: number;
+    satisfied: boolean;
+  };
+  guestPolicy: {
+    externalGuestAllowedEvidence: number;
+    externalGuestRequireIdentityEvidence: number;
+    externalGuestIgnoreEvidence: number;
+    externalGuestMentionRequiredEvidence: number;
     satisfied: boolean;
   };
   dataPlane: {
@@ -572,7 +580,7 @@ interface BindingCountSummary {
 
 type FeishuRequiredReadiness = "bot" | "data-plane" | "worker";
 
-type FeishuEvidenceRequirement = "bot" | "native" | "data-plane" | "worker" | "failure" | "all";
+type FeishuEvidenceRequirement = "bot" | "native" | "guest-policy" | "data-plane" | "worker" | "failure" | "all";
 
 interface BuildFeishuReadinessReportInput {
   workspaceId: string;
@@ -3609,6 +3617,7 @@ export function buildFeishuEvidenceReport(input: BuildFeishuEvidenceReportInput)
     summary: {
       botSatisfiedCount: evidenceItems.filter((item) => item.bot.satisfied).length,
       nativeExperienceSatisfiedCount: evidenceItems.filter((item) => item.nativeExperience.satisfied).length,
+      guestPolicySatisfiedCount: evidenceItems.filter((item) => item.guestPolicy.satisfied).length,
       dataPlaneSatisfiedCount: evidenceItems.filter((item) => item.dataPlane.satisfied).length,
       workerSatisfiedCount: evidenceItems.filter((item) => item.worker.satisfied).length,
       failureVisibleCount: evidenceItems.filter((item) => item.failureVisibility.satisfied).length,
@@ -4240,6 +4249,9 @@ function parseEvidenceRequirement(value: string | undefined): FeishuEvidenceRequ
   if (value === "native" || value === "native-experience" || value === "agent-bot") {
     return "native";
   }
+  if (value === "guest-policy" || value === "guest_policy" || value === "external-guest") {
+    return "guest-policy";
+  }
   if (value === "data-plane" || value === "data_plane" || value === "data") {
     return "data-plane";
   }
@@ -4252,7 +4264,7 @@ function parseEvidenceRequirement(value: string | undefined): FeishuEvidenceRequ
   if (value === "all") {
     return "all";
   }
-  throw new Error("Invalid --require value. Use bot, native, data-plane, worker, failure, or all.");
+  throw new Error("Invalid --require value. Use bot, native, guest-policy, data-plane, worker, failure, or all.");
 }
 
 function buildFeishuIntegrationEvidence(input: {
@@ -4278,6 +4290,27 @@ function buildFeishuIntegrationEvidence(input: {
   const agentBotRouteEvidence = countFeishuAgentBotRouteEvidence(input.messageMappings);
   const boundUserMentionEvidence = countFeishuNativeActorMentionEvidence(input.messageMappings, "user");
   const externalGuestMentionEvidence = countFeishuNativeActorMentionEvidence(input.messageMappings, "external_guest");
+  const externalGuestAllowedEvidence = countFeishuExternalGuestPolicyEvidence(input.messageMappings, {
+    decision: "allow",
+    dispatchStatus: "sent",
+  });
+  const externalGuestRequireIdentityEvidence = countFeishuExternalGuestPolicyEvidence(input.messageMappings, {
+    decision: "require_identity",
+    reasonCode: "feishu_external_guest_identity_required",
+    dispatchStatus: "ignored",
+  });
+  const externalGuestIgnoreEvidence = countFeishuExternalGuestPolicyEvidence(input.messageMappings, {
+    decision: "ignore",
+    reasonCode: "feishu_external_guest_ignored",
+    unboundUserMode: "ignore",
+    dispatchStatus: "ignored",
+  });
+  const externalGuestMentionRequiredEvidence = countFeishuExternalGuestPolicyEvidence(input.messageMappings, {
+    decision: "ignore",
+    reasonCode: "feishu_external_guest_bot_mention_required",
+    unboundUserMode: "reply_on_mention",
+    dispatchStatus: "ignored",
+  });
   const autoProvisionedChannelBindings = countFeishuAutoProvisionedChannelBindings(input.channelBindings);
   const botAddedAutoProvisionedChannelBindings = countFeishuAutoProvisionedChannelBindings(
     input.channelBindings,
@@ -4334,6 +4367,10 @@ function buildFeishuIntegrationEvidence(input: {
     externalGuestMentionEvidence > 0 &&
     autoProvisionedChannelBindings > 0 &&
     threadTaskBindings > 0;
+  const guestPolicySatisfied = externalGuestAllowedEvidence > 0 &&
+    externalGuestRequireIdentityEvidence > 0 &&
+    externalGuestIgnoreEvidence > 0 &&
+    externalGuestMentionRequiredEvidence > 0;
   const dataPlaneSatisfied = docReadSucceeded > 0 &&
     agentDocReadSucceeded > 0 &&
     docApprovedWritesSucceeded > 0 &&
@@ -4358,6 +4395,7 @@ function buildFeishuIntegrationEvidence(input: {
     integration: input.integration,
     botSatisfied,
     nativeExperienceSatisfied,
+    guestPolicySatisfied,
     dataPlaneSatisfied,
     workerSatisfied,
     failureSatisfied,
@@ -4369,6 +4407,10 @@ function buildFeishuIntegrationEvidence(input: {
     agentBotRouteEvidence,
     boundUserMentionEvidence,
     externalGuestMentionEvidence,
+    externalGuestAllowedEvidence,
+    externalGuestRequireIdentityEvidence,
+    externalGuestIgnoreEvidence,
+    externalGuestMentionRequiredEvidence,
     autoProvisionedChannelBindings,
     threadTaskBindings,
     docReadSucceeded,
@@ -4418,6 +4460,13 @@ function buildFeishuIntegrationEvidence(input: {
       firstMessageAutoProvisionedChannelBindings,
       threadTaskBindings,
       satisfied: nativeExperienceSatisfied,
+    },
+    guestPolicy: {
+      externalGuestAllowedEvidence,
+      externalGuestRequireIdentityEvidence,
+      externalGuestIgnoreEvidence,
+      externalGuestMentionRequiredEvidence,
+      satisfied: guestPolicySatisfied,
     },
     dataPlane: {
       docReadSucceeded,
@@ -4598,6 +4647,7 @@ function buildFeishuEvidenceIssues(input: {
   integration: ExternalIntegrationRecord;
   botSatisfied: boolean;
   nativeExperienceSatisfied: boolean;
+  guestPolicySatisfied: boolean;
   dataPlaneSatisfied: boolean;
   workerSatisfied: boolean;
   failureSatisfied: boolean;
@@ -4609,6 +4659,10 @@ function buildFeishuEvidenceIssues(input: {
   agentBotRouteEvidence: number;
   boundUserMentionEvidence: number;
   externalGuestMentionEvidence: number;
+  externalGuestAllowedEvidence: number;
+  externalGuestRequireIdentityEvidence: number;
+  externalGuestIgnoreEvidence: number;
+  externalGuestMentionRequiredEvidence: number;
   autoProvisionedChannelBindings: number;
   threadTaskBindings: number;
   docReadSucceeded: number;
@@ -4664,6 +4718,20 @@ function buildFeishuEvidenceIssues(input: {
     }
     if (input.threadTaskBindings === 0) {
       issues.push("thread_task_binding_evidence_missing");
+    }
+  }
+  if (!input.guestPolicySatisfied) {
+    if (input.externalGuestAllowedEvidence === 0) {
+      issues.push("external_guest_policy_allow_evidence_missing");
+    }
+    if (input.externalGuestRequireIdentityEvidence === 0) {
+      issues.push("external_guest_policy_require_identity_evidence_missing");
+    }
+    if (input.externalGuestIgnoreEvidence === 0) {
+      issues.push("external_guest_policy_ignore_evidence_missing");
+    }
+    if (input.externalGuestMentionRequiredEvidence === 0) {
+      issues.push("external_guest_policy_mention_required_evidence_missing");
     }
   }
   if (!input.dataPlaneSatisfied) {
@@ -4803,6 +4871,30 @@ function mapFeishuEvidenceIssueToRemediationSpec(input: {
         stepId: "live_external_guest_agent_bot_mention",
         title: "Live smoke: unbound Feishu user routes as external guest",
         detail: "From an unbound Feishu user, mention the agent-specific bot and verify AgentSpace records external_guest actor metadata without raw Feishu user ids.",
+      };
+    case "external_guest_policy_allow_evidence_missing":
+      return {
+        stepId: "live_external_guest_agent_bot_mention",
+        title: "Live smoke: unbound Feishu user routes as external guest",
+        detail: "From an unbound Feishu user, mention the agent-specific bot and verify AgentSpace records external_guest policy allow metadata plus the low-permission task dispatch.",
+      };
+    case "external_guest_policy_require_identity_evidence_missing":
+      return {
+        stepId: "live_external_guest_identity_required",
+        title: "Live smoke: external guest is asked to bind identity",
+        detail: "Set the agent bot external guest policy to require_identity, mention the bot from an unbound Feishu user, and verify AgentSpace records the require_identity decision and sends the binding notice.",
+      };
+    case "external_guest_policy_ignore_evidence_missing":
+      return {
+        stepId: "live_external_guest_reply_disabled",
+        title: "Live smoke: external guest replies can be disabled",
+        detail: "Set the agent bot external guest policy to ignore, mention the bot from an unbound Feishu user, and verify AgentSpace records the ignore decision without dispatching a task or reply.",
+      };
+    case "external_guest_policy_mention_required_evidence_missing":
+      return {
+        stepId: "live_unmentioned_guest_message_ignored",
+        title: "Live smoke: unmentioned guest message is ignored",
+        detail: "With reply_on_mention enabled, send an unbound Feishu message that does not mention the agent bot and verify AgentSpace records the bot-mention-required decision without dispatching.",
       };
     case "channel_auto_provision_evidence_missing":
       return {
@@ -4984,6 +5076,44 @@ function countFeishuNativeActorMentionEvidence(
         metadata.externalGuestPermissionProfile.trim().length > 0;
     }
     return typeof metadata.userId === "string" && metadata.userId.trim().length > 0;
+  }).length;
+}
+
+function countFeishuExternalGuestPolicyEvidence(
+  mappings: readonly ExternalMessageMappingRecord[],
+  input: {
+    decision: "allow" | "ignore" | "require_identity";
+    dispatchStatus: "sent" | "ignored";
+    reasonCode?: string;
+    unboundUserMode?: string;
+  },
+): number {
+  return mappings.filter((mapping) => {
+    if (mapping.direction !== "inbound") {
+      return false;
+    }
+    const metadata = readJsonRecord(mapping.metadataJson);
+    if (
+      metadata?.provider !== FEISHU_PROVIDER_ID ||
+      metadata.actorType !== "external_guest" ||
+      metadata.dispatchStatus !== input.dispatchStatus ||
+      metadata.externalGuestPolicyDecision !== input.decision ||
+      typeof metadata.externalGuestReference !== "string" ||
+      metadata.externalGuestReference.trim().length === 0 ||
+      typeof metadata.agentId !== "string" ||
+      metadata.agentId.trim().length === 0 ||
+      typeof metadata.botBindingId !== "string" ||
+      metadata.botBindingId.trim().length === 0
+    ) {
+      return false;
+    }
+    if (input.reasonCode && metadata.externalGuestPolicyReasonCode !== input.reasonCode) {
+      return false;
+    }
+    if (input.unboundUserMode && metadata.externalGuestUnboundUserMode !== input.unboundUserMode) {
+      return false;
+    }
+    return true;
   }).length;
 }
 
@@ -5343,6 +5473,9 @@ function isFeishuEvidenceSatisfied(
   if (requiredEvidence === "native") {
     return item.nativeExperience.satisfied;
   }
+  if (requiredEvidence === "guest-policy") {
+    return item.guestPolicy.satisfied;
+  }
   if (requiredEvidence === "data-plane") {
     return item.dataPlane.satisfied;
   }
@@ -5355,6 +5488,7 @@ function isFeishuEvidenceSatisfied(
   if (requiredEvidence === "all") {
     return item.bot.satisfied &&
       item.nativeExperience.satisfied &&
+      item.guestPolicy.satisfied &&
       item.dataPlane.satisfied &&
       item.failureVisibility.satisfied &&
       (item.transportMode !== "websocket_worker" || item.worker.satisfied);
@@ -6303,7 +6437,7 @@ function printFeishuIntegrationHelp(): void {
   agent-space integrations feishu smoke-plan [--workspace-id <id>] [--integration <id>] [--app-url <url>] [--strict] [--require bot|data-plane|worker] [--json]
   agent-space integrations feishu smoke-env [--workspace-id <id>] [--integration <id>] [--app-url <url>] [--json]
   agent-space integrations feishu health-check [--workspace-id <id>] [--integration <id>] [--base-url <url>] [--dry-run] [--strict] [--json]
-  agent-space integrations feishu evidence [--workspace-id <id>] [--integration <id>] [--openapi-evidence <path>] [--strict] [--require bot|native|data-plane|worker|failure|all] [--json]
+  agent-space integrations feishu evidence [--workspace-id <id>] [--integration <id>] [--openapi-evidence <path>] [--strict] [--require bot|native|guest-policy|data-plane|worker|failure|all] [--json]
   agent-space integrations feishu data-operation --workspace-id <id> --integration <id> --operation read-doc|plan-doc-create|plan-doc-update|plan-doc-append|read-sheet|query-base|plan-sheet-write|plan-base-update --resource <url-or-token> [--type doc|sheet|base|base_table|base_view] [--title <doc-title>] [--folder-token <folder-token>] [--parent-block-id <block-id>] [--block-id <block-id>] [--document-revision-id <n>] [--client-token <token>] [--blocks-json <json>] [--children-json <json>] [--block-json <json>] [--app-token <base-app-token>] [--table-id <base-table-id>] [--range <sheet-range>] [--values-json <json>] [--record-id <id>] [--fields-json <json>] [--approval-agent <agent-id> --approval-channel <channel>] [--json]
   agent-space integrations feishu review-data-operation --workspace-id <id> --approval-id <approval-id> --decision approved|rejected [--comment <text>] [--base-url <url>] [--json]
   agent-space integrations feishu bind-channel --workspace-id <id> --integration <id> --channel <name> --chat-id <oc_xxx> [--chat-type group|p2p] [--chat-name <name>] [--json]
@@ -6367,6 +6501,6 @@ Options:
   bind-resource            Create/update a Feishu Docs/Sheets/Base resource binding; output redacts resource tokens
   --openapi-evidence <path> Evidence: also verify redacted strict live smoke artifact from npm run smoke:feishu
   --strict                 Readiness/smoke-plan/evidence: require matching proof; health-check: require all healthy
-  --require <kind>         Gate to enforce: bot, data-plane, worker; evidence also accepts native, failure, or all
+  --require <kind>         Gate to enforce: bot, data-plane, worker; evidence also accepts native, guest-policy, failure, or all
   --json                   Print machine-readable output`);
 }
