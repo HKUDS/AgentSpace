@@ -230,6 +230,8 @@ export interface FeishuOpenPlatformSetupStep {
 
 export type FeishuIntegrationEvidenceGateKey =
   | "bot_reply"
+  | "native_agent_bot"
+  | "guest_policy"
   | "worker_restart"
   | "worker_card_action"
   | "data_plane"

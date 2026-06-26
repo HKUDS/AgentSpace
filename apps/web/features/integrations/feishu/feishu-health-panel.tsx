@@ -715,6 +715,10 @@ function translateEvidenceGateLabel(
   switch (key) {
     case "bot_reply":
       return tx("Bot 回复证据", "Bot Reply Evidence");
+    case "native_agent_bot":
+      return tx("原生 Agent Bot 证据", "Native Agent Bot Evidence");
+    case "guest_policy":
+      return tx("外部访客策略证据", "External Guest Policy Evidence");
     case "worker_restart":
       return tx("长连接恢复证据", "Worker Recovery Evidence");
     case "worker_card_action":

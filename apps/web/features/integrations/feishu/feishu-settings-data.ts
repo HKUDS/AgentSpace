@@ -429,6 +429,14 @@ function buildFeishuEvidenceGates(transportMode: string): FeishuIntegrationSetup
       key: "bot_reply",
       required: FEISHU_FINAL_EVIDENCE_GATE_REQUIREMENTS.botReply,
     },
+    {
+      key: "native_agent_bot",
+      required: FEISHU_FINAL_EVIDENCE_GATE_REQUIREMENTS.nativeAgentBot,
+    },
+    {
+      key: "guest_policy",
+      required: FEISHU_FINAL_EVIDENCE_GATE_REQUIREMENTS.guestPolicy,
+    },
     ...(transportMode === "websocket_worker"
       ? [{
         key: "worker_restart" as const,

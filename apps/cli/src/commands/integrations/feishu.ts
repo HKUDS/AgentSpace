@@ -4252,11 +4252,11 @@ function buildFeishuSmokePlanEvidenceGates(input: {
     },
     {
       key: "native_agent_bot",
-      required: "agent_bot_route + bound_user_bot_mention + external_guest_bot_mention + bot_added_auto_provision + first_message_auto_provision + multi_agent_channel_reuse + thread_task_binding + agent_channel_policy_denial",
+      required: FEISHU_FINAL_EVIDENCE_GATE_REQUIREMENTS.nativeAgentBot,
     },
     {
       key: "guest_policy",
-      required: "external_guest_allow + external_guest_reply_all + external_guest_require_identity + external_guest_ignore + external_guest_mention_required",
+      required: FEISHU_FINAL_EVIDENCE_GATE_REQUIREMENTS.guestPolicy,
     },
     ...(input.hasWebSocketIntegration
       ? [{
