@@ -561,6 +561,46 @@ export function readExternalChannelBindingByExternalChatSync(input: {
   return row ? mapExternalChannelBindingRecord(row) : null;
 }
 
+export function readExternalChannelBindingByProviderChatSync(input: {
+  workspaceId?: string;
+  provider: string;
+  externalChatId: string;
+  tenantKey?: string;
+  status?: ExternalBindingStatus;
+}): ExternalChannelBindingRecord | null {
+  const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
+  const provider = normalizeRequiredText(input.provider, "External channel binding provider is required.");
+  const externalChatId = normalizeRequiredText(input.externalChatId, "External channel binding external chat id is required.");
+  const tenantKey = normalizeOptionalText(input.tenantKey);
+  const where = [
+    "binding.workspace_id = ?",
+    "integration.provider = ?",
+    "binding.external_chat_id = ?",
+    tenantKey ? "integration.tenant_key = ?" : "integration.tenant_key IS NULL",
+  ];
+  const params: unknown[] = [workspaceId, provider, externalChatId];
+  if (tenantKey) {
+    params.push(tenantKey);
+  }
+  if (input.status) {
+    where.push("binding.status = ?");
+    params.push(input.status);
+  }
+
+  const row = getDatabase().prepare(
+    `${selectExternalChannelBindingSql("binding")}
+     JOIN external_integration integration ON integration.id = binding.integration_id
+     WHERE ${where.join(" AND ")}
+     ORDER BY
+       CASE binding.status WHEN 'active' THEN 0 WHEN 'error' THEN 1 ELSE 2 END,
+       binding.updated_at DESC,
+       binding.id DESC
+     LIMIT 1`,
+  ).get(...params) as Record<string, unknown> | undefined;
+
+  return row ? mapExternalChannelBindingRecord(row) : null;
+}
+
 export function listExternalChannelBindingsSync(options: {
   workspaceId?: string;
   integrationId: string;
@@ -1594,23 +1634,23 @@ function selectExternalUserBindingSql(): string {
    FROM external_user_binding`;
 }
 
-function selectExternalChannelBindingSql(): string {
+function selectExternalChannelBindingSql(alias = "external_channel_binding"): string {
   return `SELECT
-    id,
-    workspace_id AS workspaceId,
-    integration_id AS integrationId,
-    channel_name AS channelName,
-    external_chat_id AS externalChatId,
-    external_chat_type AS externalChatType,
-    external_chat_name AS externalChatName,
-    status,
-    sync_mode AS syncMode,
-    metadata_json AS metadataJson,
-    created_by_user_id AS createdByUserId,
-    created_at AS createdAt,
-    updated_at AS updatedAt,
-    disabled_at AS disabledAt
-   FROM external_channel_binding`;
+    ${alias}.id,
+    ${alias}.workspace_id AS workspaceId,
+    ${alias}.integration_id AS integrationId,
+    ${alias}.channel_name AS channelName,
+    ${alias}.external_chat_id AS externalChatId,
+    ${alias}.external_chat_type AS externalChatType,
+    ${alias}.external_chat_name AS externalChatName,
+    ${alias}.status,
+    ${alias}.sync_mode AS syncMode,
+    ${alias}.metadata_json AS metadataJson,
+    ${alias}.created_by_user_id AS createdByUserId,
+    ${alias}.created_at AS createdAt,
+    ${alias}.updated_at AS updatedAt,
+    ${alias}.disabled_at AS disabledAt
+   FROM external_channel_binding ${alias}`;
 }
 
 function selectExternalResourceBindingSql(): string {

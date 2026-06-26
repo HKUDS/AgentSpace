@@ -36,6 +36,33 @@ export {
   type RotateFeishuAgentBotCredentialsInput,
 } from "./agent-bot-bindings.ts";
 export {
+  ensureFeishuAgentMentionText,
+  isFeishuBotAddedToChatPayload,
+  resolveFeishuAgentBotRouteSync,
+  resolveFeishuChatDescriptor,
+  type FeishuAgentBotRoute,
+  type FeishuChatDescriptor,
+} from "./agent-bot-routing.ts";
+export {
+  queueFeishuChannelAutoProvisionConfirmationOutboxSync,
+  readFeishuChannelAutoProvisionPolicy,
+  resolveOrProvisionFeishuChannelBindingSync,
+  shouldAutoProvisionFeishuChannelForBotAdded,
+  shouldAutoProvisionFeishuChannelForFirstMessage,
+  type FeishuChannelAutoProvisionPolicy,
+  type FeishuChannelAutoProvisionResult,
+} from "./channel-auto-provisioning.ts";
+export {
+  buildFeishuExternalGuestActor,
+  ensureFeishuExternalGuestChannelActorSync,
+  evaluateFeishuExternalGuestPolicy,
+  readFeishuExternalParticipantPolicy,
+  FEISHU_EXTERNAL_GUEST_DISPLAY_NAME,
+  type FeishuExternalGuestActor,
+  type FeishuExternalGuestDecision,
+  type FeishuExternalParticipantPolicy,
+} from "./external-guests.ts";
+export {
   createFeishuApiClient,
   fetchFeishuTenantAccessToken,
   type FeishuApiClient,

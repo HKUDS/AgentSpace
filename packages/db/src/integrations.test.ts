@@ -24,6 +24,7 @@ import {
   listExternalUserBindingsSync,
   markExternalMessageOutboxLockedSync,
   readExternalChannelBindingByExternalChatSync,
+  readExternalChannelBindingByProviderChatSync,
   readExternalDataOperationRunSync,
   readExternalIntegrationByAgentSync,
   readExternalMessageMappingByExternalMessageSync,
@@ -351,6 +352,80 @@ test("external channel bindings are unique by AgentSpace channel and Feishu chat
     channelName: "ops",
     externalChatId: "oc_second",
   }));
+});
+
+test("external channel bindings can be resolved by provider tenant and chat across integrations", {
+  skip: runIntegrationDbTests
+    ? false
+    : "Set AGENT_SPACE_DB_INTEGRATIONS_TESTS=1 with AGENT_SPACE_TEST_DATABASE_URL to run external integration DB tests.",
+}, () => {
+  const { workspace, integration } = seedIntegrationWorkspace("provider-chat");
+  const secondIntegration = createExternalIntegrationSync({
+    workspaceId: workspace.id,
+    provider: "feishu",
+    displayName: "Hermes Feishu Bot",
+    transportMode: "websocket_worker",
+    agentId: "Hermes",
+    appId: "cli_provider_chat_hermes",
+  });
+  const otherTenantIntegration = createExternalIntegrationSync({
+    workspaceId: workspace.id,
+    provider: "feishu",
+    displayName: "Other Tenant Bot",
+    transportMode: "websocket_worker",
+    agentId: "OtherTenant",
+    appId: "cli_provider_chat_other",
+    tenantKey: "tenant-other",
+  });
+  createStoredChannelSync({
+    name: "general",
+    kind: "group",
+    humanMembers: 0,
+    humanMemberNames: [],
+    employeeNames: [],
+  }, workspace.id);
+  createStoredChannelSync({
+    name: "other",
+    kind: "group",
+    humanMembers: 0,
+    humanMemberNames: [],
+    employeeNames: [],
+  }, workspace.id);
+
+  const binding = upsertExternalChannelBindingSync({
+    workspaceId: workspace.id,
+    integrationId: integration.id,
+    channelName: "general",
+    externalChatId: "oc_shared",
+    externalChatType: "group",
+    externalChatName: "Shared Chat",
+  });
+  upsertExternalChannelBindingSync({
+    workspaceId: workspace.id,
+    integrationId: otherTenantIntegration.id,
+    channelName: "other",
+    externalChatId: "oc_shared",
+    externalChatType: "group",
+    externalChatName: "Other Tenant Shared Chat",
+  });
+
+  assert.equal(readExternalChannelBindingByProviderChatSync({
+    workspaceId: workspace.id,
+    provider: "feishu",
+    externalChatId: "oc_shared",
+  })?.id, binding.id);
+  assert.equal(readExternalChannelBindingByProviderChatSync({
+    workspaceId: workspace.id,
+    provider: "feishu",
+    externalChatId: "oc_shared",
+    tenantKey: "tenant-other",
+  })?.integrationId, otherTenantIntegration.id);
+  assert.equal(readExternalChannelBindingByProviderChatSync({
+    workspaceId: workspace.id,
+    provider: "feishu",
+    externalChatId: "oc_missing",
+  }), null);
+  assert.equal(secondIntegration.agentId, "Hermes");
 });
 
 test("external resource bindings are unique by provider resource key", {

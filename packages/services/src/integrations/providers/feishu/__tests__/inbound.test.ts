@@ -10,6 +10,7 @@ import {
   DEFAULT_WORKSPACE_ID,
   getDatabase,
   listQueuedTasksSync,
+  readExternalChannelBindingByExternalChatSync,
   readExternalMessageMappingByExternalMessageSync,
   readExternalIntegrationEventSync,
   registerDaemonRuntimesSync,
@@ -22,12 +23,13 @@ import {
   createEmployeeSync,
   ensureDirectChannelSync,
   initializeOrganizationSync,
-  persistWorkspaceAttachmentFromBytesSync,
   readWorkspaceStateSync,
   resetWorkspaceStateSync,
   writeWorkspaceStateSync,
 } from "../../../../index.ts";
 import { FEISHU_PROVIDER_ID } from "../constants.ts";
+import { createFeishuAgentBotBindingSync } from "../agent-bot-bindings.ts";
+import { FEISHU_EXTERNAL_GUEST_DISPLAY_NAME } from "../external-guests.ts";
 import {
   processFeishuInboundEvent,
   processFeishuInboundEventSync,
@@ -50,6 +52,10 @@ before(() => {
     symlinkSync(join(repositoryRoot, "packages"), packagesLink, "dir");
   }
   process.chdir(tempRoot);
+  process.env.AGENT_SPACE_DEPLOYMENT_MODE = "self_hosted";
+  process.env.AGENT_SPACE_FEISHU_CREDENTIAL_ENCRYPTION_KEY = Buffer
+    .from("0123456789abcdef0123456789abcdef", "utf8")
+    .toString("base64");
 });
 
 beforeEach(() => {
@@ -63,7 +69,6 @@ beforeEach(() => {
     DELETE FROM external_user_binding;
     DELETE FROM external_integration;
     DELETE FROM agent_task_queue;
-    DELETE FROM conversation_execution_workspace;
     DELETE FROM employee_runtime_binding;
     DELETE FROM agent_runtime;
     DELETE FROM daemon_connection;
@@ -294,6 +299,175 @@ test("bound Feishu direct messages enter the AgentSpace contact chat path withou
   assert.equal(JSON.parse(mapping.metadataJson).dispatchStatus, "sent");
 });
 
+test("agent bot first messages auto-provision a channel and route @bot to the agent", databaseTestOptions, () => {
+  const fixtures = seedBoundFeishuWorkspace({ agentBot: true, bindChannel: false });
+
+  const result = processFeishuInboundEventSync({
+    context: {
+      workspaceId: DEFAULT_WORKSPACE_ID,
+      integrationId: fixtures.integration.id,
+      provider: FEISHU_PROVIDER_ID,
+    },
+    payload: buildFeishuMessagePayload({
+      eventId: "evt-agent-bot-first-message",
+      messageId: "om-agent-bot-first-message",
+      chatId: "oc_launch",
+      chatName: "Launch Room",
+      text: '<at user_id="ou_bot_atlas">@Atlas Bot</at> summarize launch notes',
+    }),
+  });
+
+  assert.equal(result.dispatchStatus, "sent");
+  assert.ok(result.mappedChannelName);
+  const state = readWorkspaceStateSync(DEFAULT_WORKSPACE_ID);
+  const channel = state.channels.find((item) => item.name === result.mappedChannelName);
+  assert.ok(channel);
+  assert.ok(channel.employeeNames.includes("Atlas"));
+
+  const humanMessage = state.messages.find((message) =>
+    message.channel === result.mappedChannelName &&
+    message.speaker === "Mina" &&
+    message.summary === "@Atlas summarize launch notes"
+  );
+  assert.ok(humanMessage);
+  const [queuedTask] = listQueuedTasksSync({ workspaceId: DEFAULT_WORKSPACE_ID });
+  assert.equal(queuedTask?.agentId, "Atlas");
+
+  const binding = readExternalChannelBindingByExternalChatSync({
+    workspaceId: DEFAULT_WORKSPACE_ID,
+    integrationId: fixtures.integration.id,
+    externalChatId: "oc_launch",
+  });
+  assert.ok(binding);
+  assert.equal(binding.channelName, result.mappedChannelName);
+  const metadata = JSON.parse(binding.metadataJson) as Record<string, unknown>;
+  assert.equal(metadata.provisionSource, "first_message");
+  assert.equal(metadata.reviewStatus, "approved");
+  assert.equal(metadata.agentId, "Atlas");
+  assert.equal(metadata.botBindingId, fixtures.integration.id);
+  assert.doesNotMatch(binding.metadataJson, /oc_launch/);
+});
+
+test("bot added events reuse an existing Feishu chat channel for additional agent bots", databaseTestOptions, () => {
+  const fixtures = seedBoundFeishuWorkspace({ agentBot: true, bindChannel: false });
+  createEmployeeSync({
+    name: "Hermes",
+    role: "Runner",
+    remarkName: "Hermes",
+    summary: "Delivery runner",
+    fit: "Ready",
+    origin: "test",
+  }, DEFAULT_WORKSPACE_ID);
+  const hermesBinding = createFeishuAgentBotBindingSync({
+    workspaceId: DEFAULT_WORKSPACE_ID,
+    agentId: "Hermes",
+    appId: "cli_hermes_bot",
+    appSecret: "secret-hermes",
+  });
+
+  const first = processFeishuInboundEventSync({
+    context: {
+      workspaceId: DEFAULT_WORKSPACE_ID,
+      integrationId: fixtures.integration.id,
+      provider: FEISHU_PROVIDER_ID,
+    },
+    payload: buildFeishuBotAddedPayload({
+      eventId: "evt-atlas-bot-added",
+      chatId: "oc_shared_group",
+      chatName: "Shared Feishu Group",
+    }),
+  });
+  const second = processFeishuInboundEventSync({
+    context: {
+      workspaceId: DEFAULT_WORKSPACE_ID,
+      integrationId: hermesBinding.id,
+      provider: FEISHU_PROVIDER_ID,
+    },
+    payload: buildFeishuBotAddedPayload({
+      eventId: "evt-hermes-bot-added",
+      chatId: "oc_shared_group",
+      chatName: "Shared Feishu Group",
+    }),
+  });
+
+  assert.equal(first.dispatchStatus, "sent");
+  assert.equal(second.dispatchStatus, "sent");
+  assert.equal(second.mappedChannelName, first.mappedChannelName);
+  assert.ok(first.noticeOutbox);
+  assert.ok(second.noticeOutbox);
+
+  const state = readWorkspaceStateSync(DEFAULT_WORKSPACE_ID);
+  const channel = state.channels.find((item) => item.name === first.mappedChannelName);
+  assert.ok(channel);
+  assert.deepEqual(channel.employeeNames.sort(), ["Atlas", "Hermes"]);
+  assert.equal(state.channels.filter((item) => item.name === first.mappedChannelName).length, 1);
+
+  const atlasChannelBinding = readExternalChannelBindingByExternalChatSync({
+    workspaceId: DEFAULT_WORKSPACE_ID,
+    integrationId: fixtures.integration.id,
+    externalChatId: "oc_shared_group",
+  });
+  const hermesChannelBinding = readExternalChannelBindingByExternalChatSync({
+    workspaceId: DEFAULT_WORKSPACE_ID,
+    integrationId: hermesBinding.id,
+    externalChatId: "oc_shared_group",
+  });
+  assert.equal(hermesChannelBinding?.channelName, first.mappedChannelName);
+  const metadata = JSON.parse(hermesChannelBinding?.metadataJson ?? "{}") as Record<string, unknown>;
+  assert.equal(metadata.provisionSource, "bot_added");
+  assert.equal(metadata.agentId, "Hermes");
+  assert.equal(metadata.linkedFromBindingId, atlasChannelBinding?.id);
+});
+
+test("unbound Feishu users can dispatch as a governed external guest on agent bot mentions", databaseTestOptions, () => {
+  const fixtures = seedBoundFeishuWorkspace({ agentBot: true, bindUser: false });
+
+  const result = processFeishuInboundEventSync({
+    context: {
+      workspaceId: DEFAULT_WORKSPACE_ID,
+      integrationId: fixtures.integration.id,
+      provider: FEISHU_PROVIDER_ID,
+    },
+    payload: buildFeishuMessagePayload({
+      eventId: "evt-agent-bot-guest",
+      messageId: "om-agent-bot-guest",
+      text: '<at user_id="ou_bot_atlas">@Atlas Bot</at> help with this error',
+    }),
+  });
+
+  assert.equal(result.dispatchStatus, "sent");
+  assert.equal(result.reasonCode, undefined);
+  const state = readWorkspaceStateSync(DEFAULT_WORKSPACE_ID);
+  assert.ok(state.humanMembers.some((member) => member.name === FEISHU_EXTERNAL_GUEST_DISPLAY_NAME));
+  const channel = state.channels.find((item) => item.name === "general");
+  assert.ok(channel?.humanMemberNames?.includes(FEISHU_EXTERNAL_GUEST_DISPLAY_NAME));
+  const humanMessage = state.messages.find((message) =>
+    message.channel === "general" &&
+    message.speaker === FEISHU_EXTERNAL_GUEST_DISPLAY_NAME &&
+    message.summary === "@Atlas help with this error"
+  );
+  assert.ok(humanMessage);
+  assert.equal(humanMessage.speakerUserId, undefined);
+  const [queuedTask] = listQueuedTasksSync({ workspaceId: DEFAULT_WORKSPACE_ID });
+  assert.equal(queuedTask?.agentId, "Atlas");
+  assert.equal(queuedTask?.requestedByUserId, undefined);
+  assert.equal(queuedTask?.requestedByDisplayName, FEISHU_EXTERNAL_GUEST_DISPLAY_NAME);
+
+  const mapping = readExternalMessageMappingByExternalMessageSync({
+    workspaceId: DEFAULT_WORKSPACE_ID,
+    integrationId: fixtures.integration.id,
+    externalMessageId: "om-agent-bot-guest",
+  });
+  assert.ok(mapping);
+  const metadata = JSON.parse(mapping.metadataJson) as Record<string, unknown>;
+  assert.equal(metadata.actorType, "external_guest");
+  assert.equal(metadata.externalGuestPermissionProfile, "channel_context_only");
+  assert.equal(metadata.agentId, "Atlas");
+  assert.equal(metadata.botBindingId, fixtures.integration.id);
+  assert.match(String(metadata.externalGuestReference), /^[a-f0-9]{64}$/);
+  assert.doesNotMatch(mapping.metadataJson, /ou_mina|on_mina/);
+});
+
 test("bound Feishu file messages attach downloaded files to messages and task metadata", databaseTestOptions, async () => {
   const fixtures = seedBoundFeishuWorkspace();
   let downloadCount = 0;
@@ -321,12 +495,14 @@ test("bound Feishu file messages attach downloaded files to messages and task me
       downloadCount += 1;
       assert.equal(input.message.externalMessageId, "om-file-1");
       assert.equal(input.attachment.fileName, "brief.pdf");
-      return persistWorkspaceAttachmentFromBytesSync({
-        workspaceId: input.context.workspaceId,
-        contentBytes: Buffer.from("payload", "utf8"),
+      return {
+        id: "attachment-feishu-brief",
         fileName: input.attachment.fileName ?? "brief.pdf",
-        mediaType: input.attachment.mediaType,
-      });
+        mediaType: input.attachment.mediaType ?? "application/pdf",
+        sizeBytes: 7,
+        kind: "file",
+        storedPath: "runtime-output/test/brief.pdf",
+      };
     },
   });
 
@@ -457,7 +633,7 @@ test("legacy Feishu card action ignored path records a safe payload summary", da
   assert.equal(result.dispatchStatus, "ignored");
   assert.equal(result.reasonCode, "feishu_card_action_approval_unsupported");
   assert.equal(result.message, null);
-  assert.equal(readWorkspaceStateSync(DEFAULT_WORKSPACE_ID).messages.length, 0);
+  assert.equal(countHumanMessages(), 0);
   assert.equal(listQueuedTasksSync({ workspaceId: DEFAULT_WORKSPACE_ID }).length, 0);
 
   const event = readExternalIntegrationEventSync({
@@ -519,7 +695,7 @@ test("non-approval Feishu card action callbacks are safely ignored", databaseTes
   assert.equal(result.dispatchStatus, "ignored");
   assert.equal(result.reasonCode, "feishu_card_action_non_approval_ignored");
   assert.equal(result.message, null);
-  assert.equal(readWorkspaceStateSync(DEFAULT_WORKSPACE_ID).messages.length, 0);
+  assert.equal(countHumanMessages(), 0);
   assert.equal(listQueuedTasksSync({ workspaceId: DEFAULT_WORKSPACE_ID }).length, 0);
 
   const event = readExternalIntegrationEventSync({
@@ -574,7 +750,7 @@ test("Feishu callbacks rejected by tenant context are audited with safe app and 
   assert.equal(result.dispatchStatus, "failed");
   assert.equal(result.reasonCode, "feishu.callback_tenant_key_mismatch");
   assert.equal(result.message, null);
-  assert.equal(readWorkspaceStateSync(DEFAULT_WORKSPACE_ID).messages.length, 0);
+  assert.equal(countHumanMessages(), 0);
   assert.equal(listQueuedTasksSync({ workspaceId: DEFAULT_WORKSPACE_ID }).length, 0);
 
   const event = readExternalIntegrationEventSync({
@@ -622,7 +798,7 @@ test("unbound Feishu users are ignored and queued for a binding notice", databas
   assert.equal(result.dispatchStatus, "ignored");
   assert.equal(result.reasonCode, "external_user_unbound");
   assert.ok(result.noticeOutbox);
-  assert.equal(readWorkspaceStateSync(DEFAULT_WORKSPACE_ID).messages.length, 0);
+  assert.equal(countHumanMessages(), 0);
   assert.equal(listQueuedTasksSync({ workspaceId: DEFAULT_WORKSPACE_ID }).length, 0);
 
   const mapping = readExternalMessageMappingByExternalMessageSync({
@@ -673,7 +849,7 @@ test("unbound Feishu users do not trigger attachment downloads", databaseTestOpt
   assert.equal(result.dispatchStatus, "ignored");
   assert.equal(result.reasonCode, "external_user_unbound");
   assert.equal(downloadCount, 0);
-  assert.equal(readWorkspaceStateSync(DEFAULT_WORKSPACE_ID).messages.length, 0);
+  assert.equal(countHumanMessages(), 0);
   assert.equal(listQueuedTasksSync({ workspaceId: DEFAULT_WORKSPACE_ID }).length, 0);
 });
 
@@ -697,7 +873,7 @@ test("unbound Feishu channels are ignored and queued for an admin binding notice
   assert.equal(result.dispatchStatus, "ignored");
   assert.equal(result.reasonCode, "external_channel_unbound");
   assert.ok(result.noticeOutbox);
-  assert.equal(readWorkspaceStateSync(DEFAULT_WORKSPACE_ID).messages.length, 0);
+  assert.equal(countHumanMessages(), 0);
   assert.equal(listQueuedTasksSync({ workspaceId: DEFAULT_WORKSPACE_ID }).length, 0);
 
   const mapping = readExternalMessageMappingByExternalMessageSync({
@@ -740,7 +916,7 @@ test("bound Feishu users without channel access are ignored and queued for a den
   assert.equal(result.dispatchStatus, "ignored");
   assert.equal(result.reasonCode, "external_channel_access_denied");
   assert.ok(result.noticeOutbox);
-  assert.equal(readWorkspaceStateSync(DEFAULT_WORKSPACE_ID).messages.length, 0);
+  assert.equal(countHumanMessages(), 0);
   assert.equal(listQueuedTasksSync({ workspaceId: DEFAULT_WORKSPACE_ID }).length, 0);
 
   const mapping = readExternalMessageMappingByExternalMessageSync({
@@ -779,7 +955,7 @@ test("out-of-channel Feishu agent mentions reuse the AgentSpace mention error", 
   assert.equal(result.reasonCode, "agent_space_dispatch_failed");
   assert.equal(result.noticeOutbox, undefined);
   assert.match(result.event.errorMessage ?? "", /以下 Agent 不在当前群组中：@Hermes/);
-  assert.equal(readWorkspaceStateSync(DEFAULT_WORKSPACE_ID).messages.length, 0);
+  assert.equal(countHumanMessages(), 0);
   assert.equal(listQueuedTasksSync({ workspaceId: DEFAULT_WORKSPACE_ID }).length, 0);
 
   const mapping = readExternalMessageMappingByExternalMessageSync({
@@ -796,6 +972,7 @@ test("out-of-channel Feishu agent mentions reuse the AgentSpace mention error", 
 });
 
 function seedBoundFeishuWorkspace(input: {
+  agentBot?: boolean;
   bindChannel?: boolean;
   bindUser?: boolean;
   includeOutOfChannelAgent?: boolean;
@@ -859,13 +1036,20 @@ function seedBoundFeishuWorkspace(input: {
   assert.ok(runtime);
   bindEmployeeRuntimeSync("Atlas", runtime.id, DEFAULT_WORKSPACE_ID);
 
-  const integration = createExternalIntegrationSync({
-    workspaceId: DEFAULT_WORKSPACE_ID,
-    provider: FEISHU_PROVIDER_ID,
-    displayName: "Feishu",
-    transportMode: "http_webhook",
-    appId: "cli_test",
-  });
+  const integration = input.agentBot
+    ? createFeishuAgentBotBindingSync({
+      workspaceId: DEFAULT_WORKSPACE_ID,
+      agentId: "Atlas",
+      appId: "cli_atlas_bot",
+      appSecret: "secret-atlas",
+    })
+    : createExternalIntegrationSync({
+      workspaceId: DEFAULT_WORKSPACE_ID,
+      provider: FEISHU_PROVIDER_ID,
+      displayName: "Feishu",
+      transportMode: "http_webhook",
+      appId: "cli_test",
+    });
   if (input.bindChannel !== false) {
     upsertExternalChannelBindingSync({
       workspaceId: DEFAULT_WORKSPACE_ID,
@@ -895,6 +1079,7 @@ function buildFeishuMessagePayload(input: {
   messageId: string;
   chatId?: string;
   chatType?: string;
+  chatName?: string;
   text?: string;
   content?: Record<string, unknown>;
   messageType?: string;
@@ -918,12 +1103,39 @@ function buildFeishuMessagePayload(input: {
       message: {
         chat_id: input.chatId ?? "oc_general",
         chat_type: input.chatType ?? "group",
+        chat_name: input.chatName,
         message_id: input.messageId,
         message_type: input.messageType ?? "text",
         content: JSON.stringify(input.content ?? { text: input.text }),
       },
     },
   };
+}
+
+function buildFeishuBotAddedPayload(input: {
+  eventId: string;
+  chatId: string;
+  chatName?: string;
+  chatType?: string;
+}): Record<string, unknown> {
+  return {
+    schema: "2.0",
+    header: {
+      event_id: input.eventId,
+      event_type: "im.chat.member.bot.added_v1",
+      create_time: "1782220800000",
+      token: "verify-token",
+    },
+    event: {
+      chat_id: input.chatId,
+      chat_type: input.chatType ?? "group",
+      chat_name: input.chatName,
+    },
+  };
+}
+
+function countHumanMessages(): number {
+  return readWorkspaceStateSync(DEFAULT_WORKSPACE_ID).messages.filter((message) => message.role === "human").length;
 }
 
 function expectedWorkspaceDataPolicy(input: {

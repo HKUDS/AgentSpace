@@ -218,6 +218,7 @@ export {
   listPendingExternalMessageOutboxSync,
   markExternalMessageOutboxLockedSync,
   readExternalChannelBindingByExternalChatSync,
+  readExternalChannelBindingByProviderChatSync,
   readExternalChannelBindingSync,
   readExternalDataOperationRunSync,
   readExternalIntegrationByAgentSync,

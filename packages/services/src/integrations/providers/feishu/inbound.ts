@@ -39,6 +39,25 @@ import {
   buildFeishuTextOutboundMessage,
   queueFeishuAgentStatusCardOutboxSync,
 } from "./outbound.ts";
+import {
+  ensureFeishuAgentMentionText,
+  isFeishuBotAddedToChatPayload,
+  resolveFeishuAgentBotRouteSync,
+  resolveFeishuChatDescriptor,
+  type FeishuAgentBotRoute,
+} from "./agent-bot-routing.ts";
+import {
+  queueFeishuChannelAutoProvisionConfirmationOutboxSync,
+  resolveOrProvisionFeishuChannelBindingSync,
+  shouldAutoProvisionFeishuChannelForBotAdded,
+  shouldAutoProvisionFeishuChannelForFirstMessage,
+} from "./channel-auto-provisioning.ts";
+import {
+  buildFeishuExternalGuestActor,
+  ensureFeishuExternalGuestChannelActorSync,
+  evaluateFeishuExternalGuestPolicy,
+  type FeishuExternalGuestActor,
+} from "./external-guests.ts";
 
 export interface FeishuInboundRecordResult {
   event: ExternalIntegrationEventRecord;
@@ -72,7 +91,12 @@ interface FeishuInboundPreparedDispatch {
   event: ExternalIntegrationEventRecord;
   message: ExternalMessageEnvelope;
   channelBinding: ExternalChannelBindingRecord;
-  userBinding: ExternalUserBindingRecord;
+  userBinding?: ExternalUserBindingRecord;
+  userId?: string;
+  actorType: "user" | "external_guest";
+  externalGuestActor?: FeishuExternalGuestActor;
+  agentId?: string;
+  botBindingId?: string;
   text: string;
   displayName: string;
 }
@@ -143,6 +167,11 @@ function prepareFeishuInboundDispatchSync(input: ProcessFeishuInboundEventInput)
     eventType,
     payloadJson: summarizeFeishuInboundEventPayload(input.payload),
   });
+  const agentBotRoute = resolveFeishuAgentBotRouteSync({
+    workspaceId: input.context.workspaceId,
+    integrationId: input.context.integrationId,
+    payload: input.payload,
+  });
 
   if (isFeishuCardActionCallbackPayload(input.payload)) {
     return {
@@ -152,6 +181,20 @@ function prepareFeishuInboundDispatchSync(input: ProcessFeishuInboundEventInput)
         event,
         message: null,
         reasonCode: "feishu_card_action_approval_unsupported",
+      }),
+    };
+  }
+
+  if (isFeishuBotAddedToChatPayload(input.payload)) {
+    return {
+      ready: false,
+      result: processFeishuBotAddedToChatEventSync({
+        context: input.context,
+        payload: input.payload,
+        event,
+        externalEventId,
+        agentBotRoute,
+        queueNotices: input.queueNotices,
       }),
     };
   }
@@ -194,15 +237,49 @@ function prepareFeishuInboundDispatchSync(input: ProcessFeishuInboundEventInput)
     };
   }
 
-  const channelBinding = readExternalChannelBindingByExternalChatSync({
+  let channelBinding = readExternalChannelBindingByExternalChatSync({
     workspaceId: input.context.workspaceId,
     integrationId: input.context.integrationId,
     externalChatId: message.externalChatId,
   });
+  let channelAutoProvisionNotice: ExternalMessageOutboxRecord | undefined;
+  if ((!channelBinding || channelBinding.status !== "active") && agentBotRoute) {
+    const chatDescriptor = resolveFeishuChatDescriptor(input.payload) ?? {
+      externalChatId: message.externalChatId,
+      externalChatType: resolveFeishuChatType(message),
+    };
+    if (shouldAutoProvisionFeishuChannelForFirstMessage({
+      integration: agentBotRoute.binding,
+      botMentioned: agentBotRoute.botMentioned,
+    })) {
+      const provisioned = resolveOrProvisionFeishuChannelBindingSync({
+        workspaceId: input.context.workspaceId,
+        integration: agentBotRoute.binding,
+        agentId: agentBotRoute.agentId,
+        externalChatId: chatDescriptor.externalChatId,
+        externalChatType: chatDescriptor.externalChatType,
+        externalChatName: chatDescriptor.externalChatName,
+        provisionSource: "first_message",
+      });
+      channelBinding = provisioned.binding;
+      channelAutoProvisionNotice = input.queueNotices === false
+        ? undefined
+        : queueFeishuChannelAutoProvisionConfirmationOutboxSync({
+          workspaceId: input.context.workspaceId,
+          integrationId: input.context.integrationId,
+          binding: provisioned.binding,
+          agentId: agentBotRoute.agentId,
+          result: provisioned,
+          targetExternalThreadId: message.externalThreadId,
+        });
+    }
+  }
   if (!channelBinding || channelBinding.status !== "active") {
     const mapping = createFeishuInboundMapping({
       context: input.context,
       message,
+      agentId: agentBotRoute?.agentId,
+      botBindingId: agentBotRoute?.binding.id,
       reasonCode: "external_channel_unbound",
       dispatchStatus: "ignored",
     });
@@ -260,11 +337,90 @@ function prepareFeishuInboundDispatchSync(input: ProcessFeishuInboundEventInput)
     ? readWorkspaceMembershipSync(input.context.workspaceId, userBinding.userId)
     : null;
   if (!userBinding || userBinding.status !== "active" || !user || !membership) {
+    const guestDecision = agentBotRoute
+      ? evaluateFeishuExternalGuestPolicy({
+        integration: agentBotRoute.binding,
+        botMentioned: agentBotRoute.botMentioned,
+      })
+      : null;
+    if (agentBotRoute && guestDecision?.decision === "allow") {
+      const route = agentBotRoute;
+      const displayName = ensureFeishuExternalGuestChannelActorSync({
+        workspaceId: input.context.workspaceId,
+        channelName: channelBinding.channelName,
+      });
+      const externalGuestActor = buildFeishuExternalGuestActor({
+        workspaceId: input.context.workspaceId,
+        tenantKey: route.binding.tenantKey,
+        externalUserId: externalSenderId,
+        sourceChatId: message.externalChatId,
+        permissionProfile: guestDecision.policy.guestPermissionProfile,
+      });
+      const text = resolveRoutedFeishuText({
+        message,
+        agentBotRoute: route,
+      });
+      if (!text) {
+        const mapping = createFeishuInboundMapping({
+          context: input.context,
+          message,
+          channelBindingId: channelBinding.id,
+          mappedChannelName: channelBinding.channelName,
+          actorType: "external_guest",
+          agentId: route.agentId,
+          botBindingId: route.binding.id,
+          externalGuestActor,
+          reasonCode: "empty_message",
+          dispatchStatus: "ignored",
+        });
+        return {
+          ready: false,
+          result: finishIgnored({
+            context: input.context,
+            event,
+            message,
+            mappedChannelName: channelBinding.channelName,
+            reasonCode: "empty_message",
+            mapping,
+            noticeOutbox: channelAutoProvisionNotice,
+          }),
+        };
+      }
+      createFeishuInboundMapping({
+        context: input.context,
+        message,
+        channelBindingId: channelBinding.id,
+        mappedChannelName: channelBinding.channelName,
+        actorType: "external_guest",
+        agentId: route.agentId,
+        botBindingId: route.binding.id,
+        externalGuestActor,
+        dispatchStatus: "dispatching",
+      });
+      return {
+        ready: true,
+        dispatch: {
+          context: input.context,
+          externalEventId,
+          event,
+          message,
+          channelBinding,
+          actorType: "external_guest",
+          externalGuestActor,
+          text,
+          displayName,
+          agentId: route.agentId,
+          botBindingId: route.binding.id,
+        },
+      };
+    }
     const mapping = createFeishuInboundMapping({
       context: input.context,
       message,
       channelBindingId: channelBinding.id,
       mappedChannelName: channelBinding.channelName,
+      agentId: agentBotRoute?.agentId,
+      botBindingId: agentBotRoute?.binding.id,
       reasonCode: "external_user_unbound",
       dispatchStatus: "ignored",
     });
@@ -305,6 +461,9 @@ function prepareFeishuInboundDispatchSync(input: ProcessFeishuInboundEventInput)
       channelBindingId: channelBinding.id,
       mappedChannelName: channelBinding.channelName,
       userId: userBinding.userId,
+      actorType: "user",
+      agentId: agentBotRoute?.agentId,
+      botBindingId: agentBotRoute?.binding.id,
       reasonCode: "external_channel_access_denied",
       dispatchStatus: "ignored",
     });
@@ -330,7 +489,7 @@ function prepareFeishuInboundDispatchSync(input: ProcessFeishuInboundEventInput)
     };
   }
 
-  const text = message.text?.trim();
+  const text = resolveRoutedFeishuText({ message, agentBotRoute });
   if (!text) {
     const mapping = createFeishuInboundMapping({
       context: input.context,
@@ -338,6 +497,9 @@ function prepareFeishuInboundDispatchSync(input: ProcessFeishuInboundEventInput)
       channelBindingId: channelBinding.id,
       mappedChannelName: channelBinding.channelName,
       userId: userBinding.userId,
+      actorType: "user",
+      agentId: agentBotRoute?.agentId,
+      botBindingId: agentBotRoute?.binding.id,
       reasonCode: "empty_message",
       dispatchStatus: "ignored",
     });
@@ -360,6 +522,9 @@ function prepareFeishuInboundDispatchSync(input: ProcessFeishuInboundEventInput)
     channelBindingId: channelBinding.id,
     mappedChannelName: channelBinding.channelName,
     userId: userBinding.userId,
+    actorType: "user",
+    agentId: agentBotRoute?.agentId,
+    botBindingId: agentBotRoute?.binding.id,
     dispatchStatus: "dispatching",
   });
   const displayName = user.displayName || userBinding.displayName || externalSenderId;
@@ -373,6 +538,10 @@ function prepareFeishuInboundDispatchSync(input: ProcessFeishuInboundEventInput)
       message,
       channelBinding,
       userBinding,
+      userId: userBinding.userId,
+      actorType: "user",
+      agentId: agentBotRoute?.agentId,
+      botBindingId: agentBotRoute?.binding.id,
       text,
       displayName,
     },
@@ -397,7 +566,7 @@ function dispatchPreparedFeishuInboundEventSync(input: FeishuInboundPreparedDisp
         input.text,
         input.attachments,
         input.context.workspaceId,
-        input.userBinding.userId,
+        input.userId,
         externalInput,
       )
       : sendChannelHumanMessageSync(
@@ -407,13 +576,13 @@ function dispatchPreparedFeishuInboundEventSync(input: FeishuInboundPreparedDisp
         input.attachments,
         undefined,
         input.context.workspaceId,
-        input.userBinding.userId,
+        input.userId,
         externalInput,
       );
     agentSpaceMessageId = nextState.messages.find((candidate) =>
       candidate.role === "human" &&
       candidate.channel === input.channelBinding.channelName &&
-      candidate.speakerUserId === input.userBinding.userId &&
+      (input.userId ? candidate.speakerUserId === input.userId : candidate.speaker === input.displayName) &&
       candidate.summary === input.text
     )?.id;
     pendingAgentNames = agentSpaceMessageId
@@ -439,7 +608,11 @@ function dispatchPreparedFeishuInboundEventSync(input: FeishuInboundPreparedDisp
     message: input.message,
     channelBindingId: input.channelBinding.id,
     mappedChannelName: input.channelBinding.channelName,
-    userId: input.userBinding.userId,
+    userId: input.userId,
+    actorType: input.actorType,
+    externalGuestActor: input.externalGuestActor,
+    agentId: input.agentId,
+    botBindingId: input.botBindingId,
     agentSpaceMessageId,
     dispatchStatus: "sent",
     downloadedAttachmentCount: input.attachments.length,
@@ -448,6 +621,7 @@ function dispatchPreparedFeishuInboundEventSync(input: FeishuInboundPreparedDisp
     queueFeishuAgentStatusCardBestEffort({
       workspaceId: input.context.workspaceId,
       channelName: input.channelBinding.channelName,
+      agentId: input.agentId,
       agentNames: pendingAgentNames,
       sourceAgentSpaceMessageId: agentSpaceMessageId,
       message: "AgentSpace has queued the requested agent work.",
@@ -472,6 +646,7 @@ function dispatchPreparedFeishuInboundEventSync(input: FeishuInboundPreparedDisp
 function queueFeishuAgentStatusCardBestEffort(input: {
   workspaceId: string;
   channelName: string;
+  agentId?: string;
   agentNames: string[];
   sourceAgentSpaceMessageId: string;
   message: string;
@@ -480,6 +655,7 @@ function queueFeishuAgentStatusCardBestEffort(input: {
     queueFeishuAgentStatusCardOutboxSync({
       workspaceId: input.workspaceId,
       channelName: input.channelName,
+      agentId: input.agentId,
       status: "thinking",
       agentNames: input.agentNames,
       sourceAgentSpaceMessageId: input.sourceAgentSpaceMessageId,
@@ -499,6 +675,90 @@ function buildFeishuExternalInput(message: ExternalMessageEnvelope): ExternalMes
     externalChatId: message.externalChatId,
     trust: "untrusted_user_message",
   };
+}
+
+function processFeishuBotAddedToChatEventSync(input: {
+  context: IntegrationRuntimeContext;
+  payload: Record<string, unknown>;
+  event: ExternalIntegrationEventRecord;
+  externalEventId: string;
+  agentBotRoute: FeishuAgentBotRoute | null;
+  queueNotices?: boolean;
+}): FeishuInboundProcessResult {
+  if (!input.agentBotRoute) {
+    return finishIgnored({
+      context: input.context,
+      event: input.event,
+      message: null,
+      reasonCode: "feishu_bot_added_workspace_integration_ignored",
+    });
+  }
+  const chatDescriptor = resolveFeishuChatDescriptor(input.payload);
+  if (!chatDescriptor) {
+    return finishIgnored({
+      context: input.context,
+      event: input.event,
+      message: null,
+      reasonCode: "feishu_bot_added_chat_missing",
+    });
+  }
+  if (!shouldAutoProvisionFeishuChannelForBotAdded(input.agentBotRoute.binding)) {
+    return finishIgnored({
+      context: input.context,
+      event: input.event,
+      message: null,
+      reasonCode: "feishu_bot_added_auto_provision_disabled",
+    });
+  }
+
+  try {
+    const provisioned = resolveOrProvisionFeishuChannelBindingSync({
+      workspaceId: input.context.workspaceId,
+      integration: input.agentBotRoute.binding,
+      agentId: input.agentBotRoute.agentId,
+      externalChatId: chatDescriptor.externalChatId,
+      externalChatType: chatDescriptor.externalChatType ?? "group",
+      externalChatName: chatDescriptor.externalChatName,
+      provisionSource: "bot_added",
+    });
+    const noticeOutbox = input.queueNotices === false
+      ? undefined
+      : queueFeishuChannelAutoProvisionConfirmationOutboxSync({
+        workspaceId: input.context.workspaceId,
+        integrationId: input.context.integrationId,
+        binding: provisioned.binding,
+        agentId: input.agentBotRoute.agentId,
+        result: provisioned,
+      });
+    const processed = updateExternalIntegrationEventStatusSync({
+      workspaceId: input.context.workspaceId,
+      provider: FEISHU_PROVIDER_ID,
+      externalEventId: input.externalEventId,
+      status: "processed",
+    });
+    return {
+      event: processed,
+      message: null,
+      mappedChannelName: provisioned.channelName,
+      dispatchStatus: "sent",
+      reasonCode: "feishu_bot_added_channel_provisioned",
+      noticeOutbox,
+    };
+  } catch (error) {
+    const failed = updateExternalIntegrationEventStatusSync({
+      workspaceId: input.context.workspaceId,
+      provider: FEISHU_PROVIDER_ID,
+      externalEventId: input.externalEventId,
+      status: "failed",
+      errorMessage: formatFeishuInboundErrorMessage(error),
+    });
+    return {
+      event: failed,
+      message: null,
+      dispatchStatus: "failed",
+      reasonCode: "feishu_bot_added_channel_provision_failed",
+    };
+  }
 }
 
 function resolveFeishuDirectContactIdSync(input: {
@@ -689,7 +949,11 @@ function finishFailedDispatch(input: FeishuInboundPreparedDispatch & {
     message: input.message,
     channelBindingId: input.channelBinding.id,
     mappedChannelName: input.channelBinding.channelName,
-    userId: input.userBinding.userId,
+    userId: input.userId,
+    actorType: input.actorType,
+    externalGuestActor: input.externalGuestActor,
+    agentId: input.agentId,
+    botBindingId: input.botBindingId,
     reasonCode: input.reasonCode,
     dispatchStatus: "failed",
     errorMessage,
@@ -768,6 +1032,10 @@ function createFeishuInboundMapping(input: {
   channelBindingId?: string;
   mappedChannelName?: string;
   userId?: string;
+  actorType?: "user" | "external_guest";
+  externalGuestActor?: FeishuExternalGuestActor;
+  agentId?: string;
+  botBindingId?: string;
   agentSpaceMessageId?: string;
   dispatchStatus: string;
   reasonCode?: string;
@@ -790,12 +1058,31 @@ function createFeishuInboundMapping(input: {
       externalChatId: input.message.externalChatId,
       mappedChannelName: input.mappedChannelName,
       userId: input.userId,
+      actorType: input.actorType ?? (input.userId ? "user" : undefined),
+      externalGuestReference: input.externalGuestActor?.providerUserRefHash,
+      externalGuestPermissionProfile: input.externalGuestActor?.permissionProfile,
+      agentId: input.agentId,
+      botBindingId: input.botBindingId,
       dispatchStatus: input.dispatchStatus,
       reasonCode: input.reasonCode,
       errorMessage: input.errorMessage,
       attachmentCount: input.message.attachments.length,
       downloadedAttachmentCount: input.downloadedAttachmentCount,
     },
+  });
+}
+
+function resolveRoutedFeishuText(input: {
+  message: ExternalMessageEnvelope;
+  agentBotRoute: FeishuAgentBotRoute | null;
+}): string | undefined {
+  const text = input.message.text?.trim();
+  if (!input.agentBotRoute?.botMentioned) {
+    return text;
+  }
+  return ensureFeishuAgentMentionText({
+    text,
+    agentId: input.agentBotRoute.agentId,
   });
 }
 

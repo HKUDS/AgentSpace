@@ -1,6 +1,7 @@
 export {
   listExternalChannelBindingsSync,
   readExternalChannelBindingByExternalChatSync,
+  readExternalChannelBindingByProviderChatSync,
   readExternalChannelBindingSync,
   updateExternalChannelBindingStatusSync,
   upsertExternalChannelBindingSync,
