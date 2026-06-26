@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   createExternalMessageOutboxSync,
   createExternalMessageMappingSync,
@@ -59,6 +60,7 @@ import {
   buildFeishuExternalGuestActor,
   ensureFeishuExternalGuestChannelActorSync,
   evaluateFeishuExternalGuestPolicy,
+  type FeishuExternalGuestDecision,
   type FeishuExternalGuestActor,
 } from "./external-guests.ts";
 import { recordFeishuThreadBindingSync } from "./thread-bindings.ts";
@@ -400,6 +402,7 @@ function prepareFeishuInboundDispatchSync(input: ProcessFeishuInboundEventInput)
         agentId: route.agentId,
         botBindingId: route.binding.id,
         externalGuestActor,
+        externalGuestDecision: guestDecision,
         dispatchStatus: "dispatching",
       });
       return {
@@ -420,17 +423,31 @@ function prepareFeishuInboundDispatchSync(input: ProcessFeishuInboundEventInput)
         },
       };
     }
+    const blockedExternalGuestActor = agentBotRoute && guestDecision
+      ? buildFeishuExternalGuestActor({
+        workspaceId: input.context.workspaceId,
+        tenantKey: agentBotRoute.binding.tenantKey,
+        externalUserId: externalSenderId,
+        sourceChatId: message.externalChatId,
+        permissionProfile: guestDecision.policy.guestPermissionProfile,
+      })
+      : undefined;
+    const blockedReasonCode = guestDecision?.reasonCode ?? "external_user_unbound";
     const mapping = createFeishuInboundMapping({
       context: input.context,
       message,
       channelBindingId: channelBinding.id,
       mappedChannelName: channelBinding.channelName,
+      actorType: blockedExternalGuestActor ? "external_guest" : undefined,
+      externalGuestActor: blockedExternalGuestActor,
+      externalGuestDecision: guestDecision ?? undefined,
       agentId: agentBotRoute?.agentId,
       botBindingId: agentBotRoute?.binding.id,
-      reasonCode: "external_user_unbound",
+      reasonCode: blockedReasonCode,
       dispatchStatus: "ignored",
     });
-    const noticeOutbox = input.queueNotices === false
+    const shouldQueueIdentityNotice = !agentBotRoute || guestDecision?.decision === "require_identity";
+    const noticeOutbox = input.queueNotices === false || !shouldQueueIdentityNotice
       ? undefined
       : queueFeishuInboundNoticeSync({
         context: input.context,
@@ -445,7 +462,7 @@ function prepareFeishuInboundDispatchSync(input: ProcessFeishuInboundEventInput)
         event,
         message,
         mappedChannelName: channelBinding.channelName,
-        reasonCode: "external_user_unbound",
+        reasonCode: blockedReasonCode,
         mapping,
         noticeOutbox,
       }),
@@ -1084,6 +1101,7 @@ function createFeishuInboundMapping(input: {
   userId?: string;
   actorType?: "user" | "external_guest";
   externalGuestActor?: FeishuExternalGuestActor;
+  externalGuestDecision?: FeishuExternalGuestDecision;
   agentId?: string;
   botBindingId?: string;
   taskQueueId?: string;
@@ -1110,12 +1128,15 @@ function createFeishuInboundMapping(input: {
     metadataJson: {
       provider: FEISHU_PROVIDER_ID,
       eventType: input.message.eventType,
-      externalChatId: input.message.externalChatId,
+      externalChatReference: shortHash(input.message.externalChatId),
       mappedChannelName: input.mappedChannelName,
       userId: input.userId,
       actorType: input.actorType ?? (input.userId ? "user" : undefined),
       externalGuestReference: input.externalGuestActor?.providerUserRefHash,
       externalGuestPermissionProfile: input.externalGuestActor?.permissionProfile,
+      externalGuestPolicyDecision: input.externalGuestDecision?.decision,
+      externalGuestPolicyReasonCode: input.externalGuestDecision?.reasonCode,
+      externalGuestUnboundUserMode: input.externalGuestDecision?.policy.unboundUserMode,
       agentId: input.agentId,
       botBindingId: input.botBindingId,
       threadBindingId: input.threadBindingId,
@@ -1126,6 +1147,10 @@ function createFeishuInboundMapping(input: {
       downloadedAttachmentCount: input.downloadedAttachmentCount,
     },
   });
+}
+
+function shortHash(value: string): string {
+  return createHash("sha256").update(value).digest("hex").slice(0, 16);
 }
 
 function resolveRoutedFeishuText(input: {

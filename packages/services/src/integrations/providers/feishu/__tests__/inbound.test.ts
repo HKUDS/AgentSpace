@@ -28,7 +28,10 @@ import {
   writeWorkspaceStateSync,
 } from "../../../../index.ts";
 import { FEISHU_PROVIDER_ID } from "../constants.ts";
-import { createFeishuAgentBotBindingSync } from "../agent-bot-bindings.ts";
+import {
+  createFeishuAgentBotBindingSync,
+  type FeishuAgentBotExternalGuestPolicyInput,
+} from "../agent-bot-bindings.ts";
 import { FEISHU_EXTERNAL_GUEST_DISPLAY_NAME } from "../external-guests.ts";
 import { readFeishuThreadBindingSync } from "../thread-bindings.ts";
 import {
@@ -496,7 +499,148 @@ test("unbound Feishu users can dispatch as a governed external guest on agent bo
   assert.equal(metadata.agentId, "Atlas");
   assert.equal(metadata.botBindingId, fixtures.integration.id);
   assert.match(String(metadata.externalGuestReference), /^[a-f0-9]{64}$/);
-  assert.doesNotMatch(mapping.metadataJson, /ou_mina|on_mina/);
+  assert.doesNotMatch(mapping.metadataJson, /oc_general|ou_mina|on_mina/);
+});
+
+test("agent bot require_identity policy prompts unbound Feishu users without dispatching", databaseTestOptions, () => {
+  const fixtures = seedBoundFeishuWorkspace({
+    agentBot: true,
+    bindUser: false,
+    externalGuestPolicy: {
+      unboundUserMode: "require_identity",
+      guestPermissionProfile: "none",
+    },
+  });
+
+  const result = withAgentSpaceAppUrl("https://agentspace.test", () =>
+    processFeishuInboundEventSync({
+      context: {
+        workspaceId: DEFAULT_WORKSPACE_ID,
+        integrationId: fixtures.integration.id,
+        provider: FEISHU_PROVIDER_ID,
+      },
+      payload: buildFeishuMessagePayload({
+        eventId: "evt-agent-bot-guest-require-identity",
+        messageId: "om-agent-bot-guest-require-identity",
+        text: '<at user_id="ou_bot_atlas">@Atlas Bot</at> help with this error',
+      }),
+    }));
+
+  assert.equal(result.dispatchStatus, "ignored");
+  assert.equal(result.reasonCode, "feishu_external_guest_identity_required");
+  assert.ok(result.noticeOutbox);
+  assert.equal(countHumanMessages(), 0);
+  assert.equal(listQueuedTasksSync({ workspaceId: DEFAULT_WORKSPACE_ID }).length, 0);
+  const state = readWorkspaceStateSync(DEFAULT_WORKSPACE_ID);
+  assert.equal(state.humanMembers.some((member) => member.name === FEISHU_EXTERNAL_GUEST_DISPLAY_NAME), false);
+
+  const mapping = readExternalMessageMappingByExternalMessageSync({
+    workspaceId: DEFAULT_WORKSPACE_ID,
+    integrationId: fixtures.integration.id,
+    externalMessageId: "om-agent-bot-guest-require-identity",
+  });
+  assert.ok(mapping);
+  const metadata = JSON.parse(mapping.metadataJson) as Record<string, unknown>;
+  assert.equal(metadata.actorType, "external_guest");
+  assert.equal(metadata.externalGuestPolicyDecision, "require_identity");
+  assert.equal(metadata.externalGuestPolicyReasonCode, "feishu_external_guest_identity_required");
+  assert.equal(metadata.externalGuestUnboundUserMode, "require_identity");
+  assert.equal(metadata.externalGuestPermissionProfile, "none");
+  assert.match(String(metadata.externalGuestReference), /^[a-f0-9]{64}$/);
+  assert.doesNotMatch(mapping.metadataJson, /oc_general|ou_mina|on_mina|om-agent-bot-guest-require-identity/);
+
+  const noticePayload = JSON.parse(result.noticeOutbox.payloadJson) as { content?: string };
+  const noticeContent = JSON.parse(String(noticePayload.content)) as { text?: string };
+  assert.match(noticeContent.text ?? "", /还没有绑定 AgentSpace 账号/);
+  assert.match(noticeContent.text ?? "", /https:\/\/agentspace\.test\/w\/default\/settings\/integrations#feishu-user-bindings/);
+  assert.doesNotMatch(noticeContent.text ?? "", /ou_mina|on_mina|om-agent-bot-guest-require-identity/);
+});
+
+test("agent bot ignore policy silently ignores unbound Feishu users", databaseTestOptions, () => {
+  const fixtures = seedBoundFeishuWorkspace({
+    agentBot: true,
+    bindUser: false,
+    externalGuestPolicy: {
+      unboundUserMode: "ignore",
+    },
+  });
+
+  const result = processFeishuInboundEventSync({
+    context: {
+      workspaceId: DEFAULT_WORKSPACE_ID,
+      integrationId: fixtures.integration.id,
+      provider: FEISHU_PROVIDER_ID,
+    },
+    payload: buildFeishuMessagePayload({
+      eventId: "evt-agent-bot-guest-ignore",
+      messageId: "om-agent-bot-guest-ignore",
+      text: '<at user_id="ou_bot_atlas">@Atlas Bot</at> help with this error',
+    }),
+  });
+
+  assert.equal(result.dispatchStatus, "ignored");
+  assert.equal(result.reasonCode, "feishu_external_guest_ignored");
+  assert.equal(result.noticeOutbox, undefined);
+  assert.equal(countHumanMessages(), 0);
+  assert.equal(listQueuedTasksSync({ workspaceId: DEFAULT_WORKSPACE_ID }).length, 0);
+  const state = readWorkspaceStateSync(DEFAULT_WORKSPACE_ID);
+  assert.equal(state.humanMembers.some((member) => member.name === FEISHU_EXTERNAL_GUEST_DISPLAY_NAME), false);
+
+  const mapping = readExternalMessageMappingByExternalMessageSync({
+    workspaceId: DEFAULT_WORKSPACE_ID,
+    integrationId: fixtures.integration.id,
+    externalMessageId: "om-agent-bot-guest-ignore",
+  });
+  assert.ok(mapping);
+  const metadata = JSON.parse(mapping.metadataJson) as Record<string, unknown>;
+  assert.equal(metadata.actorType, "external_guest");
+  assert.equal(metadata.externalGuestPolicyDecision, "ignore");
+  assert.equal(metadata.externalGuestPolicyReasonCode, "feishu_external_guest_ignored");
+  assert.equal(metadata.externalGuestUnboundUserMode, "ignore");
+  assert.equal(metadata.agentId, "Atlas");
+  assert.equal(metadata.botBindingId, fixtures.integration.id);
+  assert.doesNotMatch(mapping.metadataJson, /oc_general|ou_mina|on_mina|om-agent-bot-guest-ignore/);
+});
+
+test("agent bot reply_on_mention policy ignores unmentioned unbound Feishu users", databaseTestOptions, () => {
+  const fixtures = seedBoundFeishuWorkspace({
+    agentBot: true,
+    bindUser: false,
+  });
+
+  const result = processFeishuInboundEventSync({
+    context: {
+      workspaceId: DEFAULT_WORKSPACE_ID,
+      integrationId: fixtures.integration.id,
+      provider: FEISHU_PROVIDER_ID,
+    },
+    payload: buildFeishuMessagePayload({
+      eventId: "evt-agent-bot-guest-unmentioned",
+      messageId: "om-agent-bot-guest-unmentioned",
+      text: "help with this error",
+    }),
+  });
+
+  assert.equal(result.dispatchStatus, "ignored");
+  assert.equal(result.reasonCode, "feishu_external_guest_bot_mention_required");
+  assert.equal(result.noticeOutbox, undefined);
+  assert.equal(countHumanMessages(), 0);
+  assert.equal(listQueuedTasksSync({ workspaceId: DEFAULT_WORKSPACE_ID }).length, 0);
+
+  const mapping = readExternalMessageMappingByExternalMessageSync({
+    workspaceId: DEFAULT_WORKSPACE_ID,
+    integrationId: fixtures.integration.id,
+    externalMessageId: "om-agent-bot-guest-unmentioned",
+  });
+  assert.ok(mapping);
+  const metadata = JSON.parse(mapping.metadataJson) as Record<string, unknown>;
+  assert.equal(metadata.actorType, "external_guest");
+  assert.equal(metadata.externalGuestPolicyDecision, "ignore");
+  assert.equal(metadata.externalGuestPolicyReasonCode, "feishu_external_guest_bot_mention_required");
+  assert.equal(metadata.externalGuestUnboundUserMode, "reply_on_mention");
+  assert.equal(metadata.agentId, "Atlas");
+  assert.equal(metadata.botBindingId, fixtures.integration.id);
+  assert.doesNotMatch(mapping.metadataJson, /oc_general|ou_mina|on_mina|om-agent-bot-guest-unmentioned/);
 });
 
 test("bound Feishu file messages attach downloaded files to messages and task metadata", databaseTestOptions, async () => {
@@ -1010,6 +1154,7 @@ function seedBoundFeishuWorkspace(input: {
   userDisplayName?: string;
   userEmail?: string;
   workspaceRole?: WorkspaceRole;
+  externalGuestPolicy?: FeishuAgentBotExternalGuestPolicyInput;
 } = {}) {
   const displayName = input.userDisplayName ?? "Mina";
   const user = createUserSync({
@@ -1073,6 +1218,7 @@ function seedBoundFeishuWorkspace(input: {
       agentId: "Atlas",
       appId: "cli_atlas_bot",
       appSecret: "secret-atlas",
+      externalGuestPolicy: input.externalGuestPolicy,
     })
     : createExternalIntegrationSync({
       workspaceId: DEFAULT_WORKSPACE_ID,
