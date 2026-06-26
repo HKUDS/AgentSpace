@@ -555,6 +555,7 @@ export interface FeishuIntegrationEvidence {
     boundUserMentionEvidence: number;
     externalGuestMentionEvidence: number;
     agentChannelPolicyDeniedEvidence: number;
+    botSenderLoopGuardEvidence: number;
     autoProvisionedChannelBindings: number;
     botAddedAutoProvisionedChannelBindings: number;
     firstMessageAutoProvisionedChannelBindings: number;
@@ -4544,7 +4545,7 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
         area: "failure",
         title: "Verify AgentSpace-side Feishu live smoke evidence",
         status: readyForBot && readyForDataPlane ? "pending" : "blocked",
-        detail: "After live native agent bot, guest-policy, data-plane, worker, and failure smoke, verify local AgentSpace DB evidence without exposing external ids or resource tokens. Native evidence requires agent-specific bot routing, auto-provisioning, multi-agent channel reuse, thread/task binding, thread continuation, thread collaboration, and disabled-policy no-reply proof; guest evidence requires allow, reply_all, require_identity, ignore, and mention-required decisions.",
+        detail: "After live native agent bot, guest-policy, data-plane, worker, and failure smoke, verify local AgentSpace DB evidence without exposing external ids or resource tokens. Native evidence requires agent-specific bot routing, auto-provisioning, multi-agent channel reuse, thread/task binding, thread continuation, thread collaboration, bot sender loop guard, and disabled-policy no-reply proof; guest evidence requires allow, reply_all, require_identity, ignore, and mention-required decisions.",
         command: `agent-space integrations feishu evidence --workspace-id ${readiness.workspaceId} --integration ${setupIntegrationFlag} --openapi-evidence ${smokeHarness.evidencePath} --strict --require all --json`,
         issues: readyForBot && readyForDataPlane ? [] : uniqueStrings([...botIssues, ...dataPlaneIssues]),
       },
@@ -4663,6 +4664,7 @@ function buildFeishuIntegrationEvidence(input: {
   const boundUserMentionEvidence = countFeishuNativeActorMentionEvidence(input.messageMappings, "user");
   const externalGuestMentionEvidence = countFeishuNativeActorMentionEvidence(input.messageMappings, "external_guest");
   const agentChannelPolicyDeniedEvidence = countFeishuAgentChannelPolicyDeniedEvidence(input.messageMappings);
+  const botSenderLoopGuardEvidence = countFeishuBotSenderLoopGuardEvidence(input.messageMappings);
   const externalGuestAllowedEvidence = countFeishuExternalGuestPolicyEvidence(input.messageMappings, {
     decision: "allow",
     dispatchStatus: "sent",
@@ -4747,6 +4749,7 @@ function buildFeishuIntegrationEvidence(input: {
     boundUserMentionEvidence > 0 &&
     externalGuestMentionEvidence > 0 &&
     agentChannelPolicyDeniedEvidence > 0 &&
+    botSenderLoopGuardEvidence > 0 &&
     autoProvisionedChannelBindings > 0 &&
     botAddedAutoProvisionedChannelBindings > 0 &&
     firstMessageAutoProvisionedChannelBindings > 0 &&
@@ -4797,6 +4800,7 @@ function buildFeishuIntegrationEvidence(input: {
     boundUserMentionEvidence,
     externalGuestMentionEvidence,
     agentChannelPolicyDeniedEvidence,
+    botSenderLoopGuardEvidence,
     externalGuestAllowedEvidence,
     externalGuestReplyAllEvidence,
     externalGuestRequireIdentityEvidence,
@@ -4854,6 +4858,7 @@ function buildFeishuIntegrationEvidence(input: {
       boundUserMentionEvidence,
       externalGuestMentionEvidence,
       agentChannelPolicyDeniedEvidence,
+      botSenderLoopGuardEvidence,
       autoProvisionedChannelBindings,
       botAddedAutoProvisionedChannelBindings,
       firstMessageAutoProvisionedChannelBindings,
@@ -5095,6 +5100,7 @@ function buildFeishuEvidenceIssues(input: {
   boundUserMentionEvidence: number;
   externalGuestMentionEvidence: number;
   agentChannelPolicyDeniedEvidence: number;
+  botSenderLoopGuardEvidence: number;
   externalGuestAllowedEvidence: number;
   externalGuestReplyAllEvidence: number;
   externalGuestRequireIdentityEvidence: number;
@@ -5161,6 +5167,9 @@ function buildFeishuEvidenceIssues(input: {
     }
     if (input.agentChannelPolicyDeniedEvidence === 0) {
       issues.push("agent_channel_policy_disabled_evidence_missing");
+    }
+    if (input.botSenderLoopGuardEvidence === 0) {
+      issues.push("bot_sender_loop_guard_evidence_missing");
     }
     if (input.autoProvisionedChannelBindings === 0) {
       issues.push("channel_auto_provision_evidence_missing");
@@ -5420,6 +5429,12 @@ function mapFeishuEvidenceIssueToRemediationSpec(input: {
         title: "Live smoke: second agent bot joins an active thread",
         detail: "Mention one agent bot in a Feishu thread, then mention a second agent bot in that same thread and verify AgentSpace keeps separate thread bindings, records threadCollaboration=true, and sends the collaboration card without raw Feishu ids.",
       };
+    case "bot_sender_loop_guard_evidence_missing":
+      return {
+        stepId: "live_multi_agent_thread_collaboration",
+        title: "Live smoke: second agent bot joins an active thread",
+        detail: "Mention one agent bot in a Feishu thread, then have another registered agent bot reply or mention it in the same group; verify AgentSpace records feishu_bot_sender_ignored without dispatching a task or leaking raw Feishu ids.",
+      };
     case "doc_read_evidence_missing":
       return {
         stepId: "live_doc_read",
@@ -5659,6 +5674,26 @@ function countFeishuAgentChannelPolicyDeniedEvidence(
       typeof metadata.externalChatReference === "string" &&
       metadata.externalChatReference.trim().length > 0 &&
       Boolean(reasonCode && policyDenialReasonCodes.has(reasonCode));
+  }).length;
+}
+
+function countFeishuBotSenderLoopGuardEvidence(
+  mappings: readonly ExternalMessageMappingRecord[],
+): number {
+  return mappings.filter((mapping) => {
+    if (mapping.direction !== "inbound" || mapping.taskQueueId || mapping.agentSpaceMessageId) {
+      return false;
+    }
+    const metadata = readJsonRecord(mapping.metadataJson);
+    return metadata?.provider === FEISHU_PROVIDER_ID &&
+      metadata.dispatchStatus === "ignored" &&
+      metadata.reasonCode === "feishu_bot_sender_ignored" &&
+      typeof metadata.agentId === "string" &&
+      metadata.agentId.trim().length > 0 &&
+      typeof metadata.botBindingId === "string" &&
+      metadata.botBindingId.trim().length > 0 &&
+      typeof metadata.externalChatReference === "string" &&
+      metadata.externalChatReference.trim().length > 0;
   }).length;
 }
 
