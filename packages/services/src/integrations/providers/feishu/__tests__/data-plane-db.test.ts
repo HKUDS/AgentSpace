@@ -60,6 +60,7 @@ beforeEach(() => {
     DELETE FROM external_message_mapping;
     DELETE FROM external_message_outbox;
     DELETE FROM external_user_binding;
+    DELETE FROM external_thread_binding;
     DELETE FROM external_channel_binding;
     DELETE FROM external_data_operation_run;
     DELETE FROM external_resource_binding;

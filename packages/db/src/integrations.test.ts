@@ -21,6 +21,7 @@ import {
   listExternalMessageMappingsSync,
   listExternalMessageOutboxSync,
   listExternalResourceBindingsSync,
+  listExternalThreadBindingsSync,
   listExternalUserBindingsSync,
   markExternalMessageOutboxLockedSync,
   readExternalChannelBindingByExternalChatSync,
@@ -29,6 +30,7 @@ import {
   readExternalIntegrationByAgentSync,
   readExternalMessageMappingByExternalMessageSync,
   readExternalResourceBindingByKeySync,
+  readExternalThreadBindingSync,
   readExternalUserBindingByExternalUserSync,
   recordExternalIntegrationEventSync,
   updateExternalDataOperationRunStatusSync,
@@ -37,6 +39,7 @@ import {
   updateExternalIntegrationStatusSync,
   upsertExternalChannelBindingSync,
   upsertExternalResourceBindingSync,
+  upsertExternalThreadBindingSync,
   upsertExternalUserBindingSync,
 } from "./index.ts";
 
@@ -54,6 +57,7 @@ beforeEach(() => {
     DELETE FROM external_data_operation_run;
     DELETE FROM external_message_outbox;
     DELETE FROM external_message_mapping;
+    DELETE FROM external_thread_binding;
     DELETE FROM external_resource_binding;
     DELETE FROM external_channel_binding;
     DELETE FROM external_user_binding;
@@ -525,6 +529,93 @@ test("external message mappings are idempotent by external message id", {
     integrationId: integration.id,
     direction: "outbound",
   }).map((mapping) => mapping.id), [outbound.id]);
+});
+
+test("external thread bindings are idempotent per provider chat thread and agent", {
+  skip: runIntegrationDbTests
+    ? false
+    : "Set AGENT_SPACE_DB_INTEGRATIONS_TESTS=1 with AGENT_SPACE_TEST_DATABASE_URL to run external integration DB tests.",
+}, () => {
+  const { workspace, integration } = seedIntegrationWorkspace("threads");
+  const hermesIntegration = createExternalIntegrationSync({
+    workspaceId: workspace.id,
+    provider: "feishu",
+    displayName: "Hermes Feishu",
+    transportMode: "websocket_worker",
+    agentId: "Hermes",
+    appId: "cli_threads_hermes",
+  });
+  createStoredChannelSync({
+    name: "general",
+    kind: "group",
+    humanMembers: 0,
+    humanMemberNames: [],
+    employeeNames: [],
+  }, workspace.id);
+  const channelBinding = upsertExternalChannelBindingSync({
+    workspaceId: workspace.id,
+    integrationId: integration.id,
+    channelName: "general",
+    externalChatId: "oc_thread",
+    externalChatType: "group",
+    externalChatName: "Thread Chat",
+  });
+
+  const first = upsertExternalThreadBindingSync({
+    workspaceId: workspace.id,
+    integrationId: integration.id,
+    channelBindingId: channelBinding.id,
+    provider: "feishu",
+    externalChatId: "oc_thread",
+    externalThreadId: "om_root",
+    channelName: "general",
+    agentId: "Atlas",
+    agentSpaceMessageId: "message-1",
+    metadataJson: { source: "first" },
+    lastMessageAt: "2026-06-24T00:00:00.000Z",
+  });
+  const updated = upsertExternalThreadBindingSync({
+    workspaceId: workspace.id,
+    integrationId: integration.id,
+    channelBindingId: channelBinding.id,
+    provider: "feishu",
+    externalChatId: "oc_thread",
+    externalThreadId: "om_root",
+    channelName: "general",
+    agentId: "Atlas",
+    agentSpaceMessageId: "message-2",
+    metadataJson: { source: "second" },
+    lastMessageAt: "2026-06-24T00:01:00.000Z",
+  });
+  const hermes = upsertExternalThreadBindingSync({
+    workspaceId: workspace.id,
+    integrationId: hermesIntegration.id,
+    provider: "feishu",
+    externalChatId: "oc_thread",
+    externalThreadId: "om_root",
+    channelName: "general",
+    agentId: "Hermes",
+    agentSpaceMessageId: "message-hermes",
+  });
+
+  assert.equal(updated.id, first.id);
+  assert.equal(updated.agentSpaceMessageId, "message-2");
+  assert.equal(updated.lastMessageAt, "2026-06-24T00:01:00.000Z");
+  assert.deepEqual(JSON.parse(updated.metadataJson), { source: "second" });
+  assert.notEqual(hermes.id, first.id);
+  assert.equal(readExternalThreadBindingSync({
+    workspaceId: workspace.id,
+    provider: "feishu",
+    externalChatId: "oc_thread",
+    externalThreadId: "om_root",
+    agentId: "Atlas",
+  })?.id, first.id);
+  assert.deepEqual(listExternalThreadBindingsSync({
+    workspaceId: workspace.id,
+    provider: "feishu",
+    externalChatId: "oc_thread",
+    externalThreadId: "om_root",
+  }).map((binding) => binding.agentId).sort(), ["Atlas", "Hermes"]);
 });
 
 test("external data operation runs preserve payload hashes through status transitions", {

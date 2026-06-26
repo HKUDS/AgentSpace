@@ -1,4 +1,4 @@
-export const POSTGRES_SCHEMA_VERSION = "21";
+export const POSTGRES_SCHEMA_VERSION = "22";
 
 export const POSTGRES_TABLE_NAMES = [
   "app_metadata",
@@ -51,6 +51,7 @@ export const POSTGRES_TABLE_NAMES = [
   "agent_router_session",
   "agent_router_provider_session",
   "agent_task_queue",
+  "external_thread_binding",
   "agent_task_attempt",
   "agent_router_event",
   "agent_router_context_snapshot",
@@ -914,6 +915,32 @@ export function getPostgresSchemaStatements(): string[] {
       )
     `,
     `
+      CREATE TABLE IF NOT EXISTS external_thread_binding (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+        integration_id TEXT NOT NULL REFERENCES external_integration(id) ON DELETE CASCADE,
+        channel_binding_id TEXT REFERENCES external_channel_binding(id) ON DELETE SET NULL,
+        provider TEXT NOT NULL,
+        tenant_key TEXT NOT NULL DEFAULT '',
+        external_chat_id TEXT NOT NULL,
+        external_thread_id TEXT NOT NULL,
+        channel_name TEXT NOT NULL,
+        agent_id TEXT NOT NULL,
+        task_queue_id TEXT REFERENCES agent_task_queue(id) ON DELETE SET NULL,
+        agent_space_message_id TEXT,
+        status TEXT NOT NULL DEFAULT 'active',
+        metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+        last_message_at TIMESTAMPTZ NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL,
+        FOREIGN KEY (workspace_id, channel_name)
+          REFERENCES workspace_channel(workspace_id, name)
+          ON DELETE CASCADE
+          ON UPDATE CASCADE,
+        UNIQUE(workspace_id, provider, tenant_key, external_chat_id, external_thread_id, agent_id)
+      )
+    `,
+    `
       CREATE TABLE IF NOT EXISTS agent_router_session (
         id TEXT PRIMARY KEY,
         workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
@@ -1526,6 +1553,15 @@ export function getPostgresSchemaStatements(): string[] {
     `
       CREATE INDEX IF NOT EXISTS idx_external_message_mapping_task
         ON external_message_mapping(workspace_id, task_queue_id)
+        WHERE task_queue_id IS NOT NULL
+    `,
+    `
+      CREATE INDEX IF NOT EXISTS idx_external_thread_binding_lookup
+        ON external_thread_binding(workspace_id, provider, tenant_key, external_chat_id, external_thread_id, status)
+    `,
+    `
+      CREATE INDEX IF NOT EXISTS idx_external_thread_binding_task
+        ON external_thread_binding(workspace_id, task_queue_id)
         WHERE task_queue_id IS NOT NULL
     `,
     `

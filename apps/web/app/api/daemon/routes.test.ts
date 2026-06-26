@@ -130,6 +130,7 @@ beforeEach(() => {
   db.exec("DELETE FROM google_oauth_credential");
   db.exec("DELETE FROM external_message_outbox");
   db.exec("DELETE FROM external_message_mapping");
+  db.exec("DELETE FROM external_thread_binding");
   db.exec("DELETE FROM external_data_operation_run");
   db.exec("DELETE FROM external_resource_binding");
   db.exec("DELETE FROM external_channel_binding");

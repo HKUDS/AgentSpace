@@ -30,6 +30,7 @@ import {
 import { FEISHU_PROVIDER_ID } from "../constants.ts";
 import { createFeishuAgentBotBindingSync } from "../agent-bot-bindings.ts";
 import { FEISHU_EXTERNAL_GUEST_DISPLAY_NAME } from "../external-guests.ts";
+import { readFeishuThreadBindingSync } from "../thread-bindings.ts";
 import {
   processFeishuInboundEvent,
   processFeishuInboundEventSync,
@@ -62,6 +63,7 @@ beforeEach(() => {
   getDatabase().exec(`
     DELETE FROM external_message_outbox;
     DELETE FROM external_message_mapping;
+    DELETE FROM external_thread_binding;
     DELETE FROM external_integration_event;
     DELETE FROM external_data_operation_run;
     DELETE FROM external_resource_binding;
@@ -313,6 +315,7 @@ test("agent bot first messages auto-provision a channel and route @bot to the ag
       messageId: "om-agent-bot-first-message",
       chatId: "oc_launch",
       chatName: "Launch Room",
+      threadId: "om-launch-root",
       text: '<at user_id="ou_bot_atlas">@Atlas Bot</at> summarize launch notes',
     }),
   });
@@ -346,6 +349,34 @@ test("agent bot first messages auto-provision a channel and route @bot to the ag
   assert.equal(metadata.agentId, "Atlas");
   assert.equal(metadata.botBindingId, fixtures.integration.id);
   assert.doesNotMatch(binding.metadataJson, /oc_launch/);
+
+  const threadBinding = readFeishuThreadBindingSync({
+    workspaceId: DEFAULT_WORKSPACE_ID,
+    tenantKey: fixtures.integration.tenantKey,
+    externalChatId: "oc_launch",
+    externalThreadId: "om-launch-root",
+    agentId: "Atlas",
+  });
+  assert.ok(threadBinding);
+  assert.equal(threadBinding.channelName, result.mappedChannelName);
+  assert.equal(threadBinding.integrationId, fixtures.integration.id);
+  assert.equal(threadBinding.taskQueueId, queuedTask?.id);
+  assert.equal(threadBinding.agentSpaceMessageId, humanMessage.id);
+  const threadMetadata = JSON.parse(threadBinding.metadataJson) as Record<string, unknown>;
+  assert.equal(threadMetadata.agentId, "Atlas");
+  assert.equal(threadMetadata.botBindingId, fixtures.integration.id);
+  assert.equal(threadMetadata.actorType, "user");
+  assert.doesNotMatch(threadBinding.metadataJson, /oc_launch|om-launch-root/);
+
+  const mapping = readExternalMessageMappingByExternalMessageSync({
+    workspaceId: DEFAULT_WORKSPACE_ID,
+    integrationId: fixtures.integration.id,
+    externalMessageId: "om-agent-bot-first-message",
+  });
+  assert.ok(mapping);
+  assert.equal(mapping.taskQueueId, queuedTask?.id);
+  assert.equal(mapping.routerSessionId, queuedTask?.routerSessionId);
+  assert.equal(JSON.parse(mapping.metadataJson).threadBindingId, threadBinding.id);
 });
 
 test("bot added events reuse an existing Feishu chat channel for additional agent bots", databaseTestOptions, () => {
@@ -1080,6 +1111,7 @@ function buildFeishuMessagePayload(input: {
   chatId?: string;
   chatType?: string;
   chatName?: string;
+  threadId?: string;
   text?: string;
   content?: Record<string, unknown>;
   messageType?: string;
@@ -1105,6 +1137,7 @@ function buildFeishuMessagePayload(input: {
         chat_type: input.chatType ?? "group",
         chat_name: input.chatName,
         message_id: input.messageId,
+        thread_id: input.threadId,
         message_type: input.messageType ?? "text",
         content: JSON.stringify(input.content ?? { text: input.text }),
       },

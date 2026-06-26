@@ -20,6 +20,8 @@ import type {
   ExternalResourceBindingAgentSpaceType,
   ExternalResourceBindingProviderType,
   ExternalResourceBindingRecord,
+  ExternalThreadBindingRecord,
+  ExternalThreadBindingStatus,
   ExternalUserBindingRecord,
 } from "../types.ts";
 
@@ -943,6 +945,205 @@ export function listExternalMessageMappingsSync(options: {
   return rows.map(mapExternalMessageMappingRecord).filter((record): record is ExternalMessageMappingRecord => record !== null);
 }
 
+export function upsertExternalThreadBindingSync(input: {
+  workspaceId?: string;
+  integrationId: string;
+  channelBindingId?: string;
+  provider: ExternalIntegrationProvider;
+  tenantKey?: string;
+  externalChatId: string;
+  externalThreadId: string;
+  channelName: string;
+  agentId: string;
+  taskQueueId?: string;
+  agentSpaceMessageId?: string;
+  status?: ExternalThreadBindingStatus;
+  metadataJson?: JsonInput;
+  lastMessageAt?: string;
+}): ExternalThreadBindingRecord {
+  const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
+  const integrationId = normalizeRequiredText(input.integrationId, "External thread binding integration id is required.");
+  const provider = normalizeRequiredText(input.provider, "External thread binding provider is required.");
+  const externalChatId = normalizeRequiredText(input.externalChatId, "External thread binding external chat id is required.");
+  const externalThreadId = normalizeRequiredText(input.externalThreadId, "External thread binding external thread id is required.");
+  const channelName = normalizeRequiredText(input.channelName, "External thread binding channel name is required.");
+  const agentId = normalizeRequiredText(input.agentId, "External thread binding agent id is required.");
+  const tenantKey = normalizeThreadTenantKey(input.tenantKey);
+  const id = `external-thread-binding-${randomLikeId()}`;
+  const now = new Date().toISOString();
+  const lastMessageAt = normalizeOptionalText(input.lastMessageAt) ?? now;
+
+  getDatabase().prepare(
+    `INSERT INTO external_thread_binding (
+       id,
+       workspace_id,
+       integration_id,
+       channel_binding_id,
+       provider,
+       tenant_key,
+       external_chat_id,
+       external_thread_id,
+       channel_name,
+       agent_id,
+       task_queue_id,
+       agent_space_message_id,
+       status,
+       metadata_json,
+       last_message_at,
+       created_at,
+       updated_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(workspace_id, provider, tenant_key, external_chat_id, external_thread_id, agent_id)
+     DO UPDATE SET
+       integration_id = EXCLUDED.integration_id,
+       channel_binding_id = COALESCE(EXCLUDED.channel_binding_id, external_thread_binding.channel_binding_id),
+       channel_name = EXCLUDED.channel_name,
+       task_queue_id = COALESCE(EXCLUDED.task_queue_id, external_thread_binding.task_queue_id),
+       agent_space_message_id = COALESCE(EXCLUDED.agent_space_message_id, external_thread_binding.agent_space_message_id),
+       status = EXCLUDED.status,
+       metadata_json = EXCLUDED.metadata_json,
+       last_message_at = EXCLUDED.last_message_at,
+       updated_at = EXCLUDED.updated_at`,
+  ).run(
+    id,
+    workspaceId,
+    integrationId,
+    normalizeOptionalText(input.channelBindingId),
+    provider,
+    tenantKey,
+    externalChatId,
+    externalThreadId,
+    channelName,
+    agentId,
+    normalizeOptionalText(input.taskQueueId),
+    normalizeOptionalText(input.agentSpaceMessageId),
+    input.status ?? "active",
+    normalizeJsonInput(input.metadataJson, DEFAULT_JSON_OBJECT),
+    lastMessageAt,
+    now,
+    now,
+  );
+
+  const record = readExternalThreadBindingSync({
+    workspaceId,
+    provider,
+    tenantKey,
+    externalChatId,
+    externalThreadId,
+    agentId,
+  });
+  if (!record) {
+    throw new Error("External thread binding could not be read back.");
+  }
+  return record;
+}
+
+export function readExternalThreadBindingByIdSync(input: {
+  workspaceId?: string;
+  bindingId: string;
+}): ExternalThreadBindingRecord | null {
+  const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
+  const row = getDatabase().prepare(
+    `${selectExternalThreadBindingSql()}
+     WHERE workspace_id = ? AND id = ?`,
+  ).get(workspaceId, input.bindingId.trim()) as Record<string, unknown> | undefined;
+
+  return row ? mapExternalThreadBindingRecord(row) : null;
+}
+
+export function readExternalThreadBindingSync(input: {
+  workspaceId?: string;
+  provider: ExternalIntegrationProvider;
+  externalChatId: string;
+  externalThreadId: string;
+  agentId: string;
+  tenantKey?: string;
+  status?: ExternalThreadBindingStatus;
+}): ExternalThreadBindingRecord | null {
+  const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
+  const where = [
+    "workspace_id = ?",
+    "provider = ?",
+    "tenant_key = ?",
+    "external_chat_id = ?",
+    "external_thread_id = ?",
+    "agent_id = ?",
+  ];
+  const params: unknown[] = [
+    workspaceId,
+    normalizeRequiredText(input.provider, "External thread binding provider is required."),
+    normalizeThreadTenantKey(input.tenantKey),
+    normalizeRequiredText(input.externalChatId, "External thread binding external chat id is required."),
+    normalizeRequiredText(input.externalThreadId, "External thread binding external thread id is required."),
+    normalizeRequiredText(input.agentId, "External thread binding agent id is required."),
+  ];
+  if (input.status) {
+    where.push("status = ?");
+    params.push(input.status);
+  }
+  const row = getDatabase().prepare(
+    `${selectExternalThreadBindingSql()}
+     WHERE ${where.join(" AND ")}
+     ORDER BY updated_at DESC, id DESC
+     LIMIT 1`,
+  ).get(...params) as Record<string, unknown> | undefined;
+
+  return row ? mapExternalThreadBindingRecord(row) : null;
+}
+
+export function listExternalThreadBindingsSync(options: {
+  workspaceId?: string;
+  integrationId?: string;
+  provider?: ExternalIntegrationProvider;
+  externalChatId?: string;
+  externalThreadId?: string;
+  agentId?: string;
+  tenantKey?: string;
+  status?: ExternalThreadBindingStatus;
+  limit?: number;
+} = {}): ExternalThreadBindingRecord[] {
+  const workspaceId = options.workspaceId ?? DEFAULT_WORKSPACE_ID;
+  const where = ["workspace_id = ?"];
+  const params: unknown[] = [workspaceId];
+  if (options.integrationId?.trim()) {
+    where.push("integration_id = ?");
+    params.push(options.integrationId.trim());
+  }
+  if (options.provider?.trim()) {
+    where.push("provider = ?");
+    params.push(options.provider.trim());
+  }
+  if (options.tenantKey !== undefined) {
+    where.push("tenant_key = ?");
+    params.push(normalizeThreadTenantKey(options.tenantKey));
+  }
+  if (options.externalChatId?.trim()) {
+    where.push("external_chat_id = ?");
+    params.push(options.externalChatId.trim());
+  }
+  if (options.externalThreadId?.trim()) {
+    where.push("external_thread_id = ?");
+    params.push(options.externalThreadId.trim());
+  }
+  if (options.agentId?.trim()) {
+    where.push("agent_id = ?");
+    params.push(options.agentId.trim());
+  }
+  if (options.status) {
+    where.push("status = ?");
+    params.push(options.status);
+  }
+  const limit = Math.max(1, Math.min(options.limit ?? 100, 500));
+  const rows = getDatabase().prepare(
+    `${selectExternalThreadBindingSql()}
+     WHERE ${where.join(" AND ")}
+     ORDER BY last_message_at DESC, updated_at DESC, id DESC
+     LIMIT ${limit}`,
+  ).all(...params) as Array<Record<string, unknown>>;
+
+  return rows.map(mapExternalThreadBindingRecord).filter((record): record is ExternalThreadBindingRecord => record !== null);
+}
+
 export function createExternalMessageOutboxSync(input: {
   workspaceId?: string;
   integrationId: string;
@@ -1694,6 +1895,28 @@ function selectExternalMessageMappingSql(): string {
    FROM external_message_mapping`;
 }
 
+function selectExternalThreadBindingSql(): string {
+  return `SELECT
+    id,
+    workspace_id AS workspaceId,
+    integration_id AS integrationId,
+    channel_binding_id AS channelBindingId,
+    provider,
+    tenant_key AS tenantKey,
+    external_chat_id AS externalChatId,
+    external_thread_id AS externalThreadId,
+    channel_name AS channelName,
+    agent_id AS agentId,
+    task_queue_id AS taskQueueId,
+    agent_space_message_id AS agentSpaceMessageId,
+    status,
+    metadata_json AS metadataJson,
+    last_message_at AS lastMessageAt,
+    created_at AS createdAt,
+    updated_at AS updatedAt
+   FROM external_thread_binding`;
+}
+
 function selectExternalMessageOutboxSql(): string {
   return `SELECT
     id,
@@ -1935,6 +2158,46 @@ function mapExternalMessageMappingRecord(value: Record<string, unknown>): Extern
   };
 }
 
+function mapExternalThreadBindingRecord(value: Record<string, unknown>): ExternalThreadBindingRecord | null {
+  if (
+    typeof value.id !== "string" ||
+    typeof value.workspaceId !== "string" ||
+    typeof value.integrationId !== "string" ||
+    typeof value.provider !== "string" ||
+    typeof value.externalChatId !== "string" ||
+    typeof value.externalThreadId !== "string" ||
+    typeof value.channelName !== "string" ||
+    typeof value.agentId !== "string" ||
+    !isExternalThreadBindingStatus(value.status) ||
+    typeof value.metadataJson !== "string" ||
+    typeof value.lastMessageAt !== "string" ||
+    typeof value.createdAt !== "string" ||
+    typeof value.updatedAt !== "string"
+  ) {
+    return null;
+  }
+
+  return {
+    id: value.id,
+    workspaceId: value.workspaceId,
+    integrationId: value.integrationId,
+    channelBindingId: asOptionalString(value.channelBindingId),
+    provider: value.provider,
+    tenantKey: asOptionalString(value.tenantKey),
+    externalChatId: value.externalChatId,
+    externalThreadId: value.externalThreadId,
+    channelName: value.channelName,
+    agentId: value.agentId,
+    taskQueueId: asOptionalString(value.taskQueueId),
+    agentSpaceMessageId: asOptionalString(value.agentSpaceMessageId),
+    status: value.status,
+    metadataJson: value.metadataJson,
+    lastMessageAt: value.lastMessageAt,
+    createdAt: value.createdAt,
+    updatedAt: value.updatedAt,
+  };
+}
+
 function mapExternalMessageOutboxRecord(value: Record<string, unknown>): ExternalMessageOutboxRecord | null {
   if (
     typeof value.id !== "string" ||
@@ -2053,6 +2316,10 @@ function normalizeOptionalText(value: string | undefined | null): string | null 
   return normalized ? normalized : null;
 }
 
+function normalizeThreadTenantKey(value: string | undefined | null): string {
+  return normalizeOptionalText(value) ?? "";
+}
+
 function normalizeOptionalEmail(value: string | undefined): string | null {
   const normalized = value?.trim().toLowerCase();
   return normalized ? normalized : null;
@@ -2099,6 +2366,10 @@ function isExternalMessageDirection(value: unknown): value is ExternalMessageDir
 
 function isExternalMessageOutboxStatus(value: unknown): value is ExternalMessageOutboxStatus {
   return value === "pending" || value === "locked" || value === "sent" || value === "failed" || value === "cancelled";
+}
+
+function isExternalThreadBindingStatus(value: unknown): value is ExternalThreadBindingStatus {
+  return value === "active" || value === "closed" || value === "archived";
 }
 
 function isExternalDataOperationRunStatus(value: unknown): value is ExternalDataOperationRunStatus {

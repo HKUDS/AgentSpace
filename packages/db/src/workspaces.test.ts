@@ -128,6 +128,7 @@ test("hardDeleteWorkspaceSync removes all workspace-scoped records without touch
   assert.equal(countWhere(db, "external_resource_binding", "workspace_id", purgeTarget.id), 0);
   assert.equal(countWhere(db, "external_message_mapping", "workspace_id", purgeTarget.id), 0);
   assert.equal(countWhere(db, "external_message_outbox", "workspace_id", purgeTarget.id), 0);
+  assert.equal(countWhere(db, "external_thread_binding", "workspace_id", purgeTarget.id), 0);
   assert.equal(countWhere(db, "external_data_operation_run", "workspace_id", purgeTarget.id), 0);
   assert.equal(countWhere(db, "external_integration_event", "workspace_id", purgeTarget.id), 0);
   assert.equal(
@@ -170,6 +171,7 @@ test("hardDeleteWorkspaceSync removes all workspace-scoped records without touch
   assert.equal(countWhere(db, "external_resource_binding", "workspace_id", survivor.id), 1);
   assert.equal(countWhere(db, "external_message_mapping", "workspace_id", survivor.id), 1);
   assert.equal(countWhere(db, "external_message_outbox", "workspace_id", survivor.id), 1);
+  assert.equal(countWhere(db, "external_thread_binding", "workspace_id", survivor.id), 1);
   assert.equal(countWhere(db, "external_data_operation_run", "workspace_id", survivor.id), 1);
   assert.equal(countWhere(db, "external_integration_event", "workspace_id", survivor.id), 1);
 });
@@ -489,6 +491,42 @@ function seedWorkspaceRecords(workspaceId: string, suffix: string): void {
       updated_at
     ) VALUES (?, ?, ?, ?, ?, 'queued', '{}', ?, ?, ?)`,
   ).run(`queue-${suffix}`, workspaceId, `agent:${suffix}`, `runtime-${suffix}`, `router-session-${suffix}`, now, now, now);
+
+  db.prepare(
+    `INSERT INTO external_thread_binding (
+       id,
+       workspace_id,
+       integration_id,
+       channel_binding_id,
+       provider,
+       tenant_key,
+       external_chat_id,
+       external_thread_id,
+       channel_name,
+       agent_id,
+       task_queue_id,
+       agent_space_message_id,
+       status,
+       metadata_json,
+       last_message_at,
+       created_at,
+       updated_at
+     ) VALUES (?, ?, ?, ?, 'feishu', '', ?, ?, ?, ?, ?, ?, 'active', '{}', ?, ?, ?)`,
+  ).run(
+    `external-thread-binding-${suffix}`,
+    workspaceId,
+    `external-integration-${suffix}`,
+    `external-channel-binding-${suffix}`,
+    `oc_${suffix}`,
+    `om_root_${suffix}`,
+    `channel-${suffix}`,
+    `agent:${suffix}`,
+    `queue-${suffix}`,
+    `message-${suffix}`,
+    now,
+    now,
+    now,
+  );
 
   db.prepare(
     `INSERT INTO agent_router_session (

@@ -1,6 +1,7 @@
 import {
   createExternalMessageOutboxSync,
   createExternalMessageMappingSync,
+  listQueuedTasksSync,
   readExternalChannelBindingByExternalChatSync,
   readExternalMessageMappingByExternalMessageSync,
   readExternalUserBindingByExternalUserSync,
@@ -10,9 +11,11 @@ import {
   updateExternalIntegrationEventStatusSync,
   type ExternalChannelBindingRecord,
   type ExternalIntegrationEventRecord,
+  type ExternalIntegrationRecord,
   type ExternalMessageMappingRecord,
   type ExternalMessageOutboxRecord,
   type ExternalUserBindingRecord,
+  type QueuedTaskRecord,
 } from "@agent-space/db";
 import type { ChannelRecord, MessageAttachment } from "@agent-space/domain/workspace";
 import type { ExternalMessageEnvelope, IntegrationRuntimeContext } from "../../core/index.ts";
@@ -58,6 +61,7 @@ import {
   evaluateFeishuExternalGuestPolicy,
   type FeishuExternalGuestActor,
 } from "./external-guests.ts";
+import { recordFeishuThreadBindingSync } from "./thread-bindings.ts";
 
 export interface FeishuInboundRecordResult {
   event: ExternalIntegrationEventRecord;
@@ -97,6 +101,7 @@ interface FeishuInboundPreparedDispatch {
   externalGuestActor?: FeishuExternalGuestActor;
   agentId?: string;
   botBindingId?: string;
+  agentBotIntegration?: ExternalIntegrationRecord;
   text: string;
   displayName: string;
 }
@@ -411,6 +416,7 @@ function prepareFeishuInboundDispatchSync(input: ProcessFeishuInboundEventInput)
           displayName,
           agentId: route.agentId,
           botBindingId: route.binding.id,
+          agentBotIntegration: route.binding,
         },
       };
     }
@@ -542,6 +548,7 @@ function prepareFeishuInboundDispatchSync(input: ProcessFeishuInboundEventInput)
       actorType: "user",
       agentId: agentBotRoute?.agentId,
       botBindingId: agentBotRoute?.binding.id,
+      agentBotIntegration: agentBotRoute?.binding,
       text,
       displayName,
     },
@@ -553,6 +560,7 @@ function dispatchPreparedFeishuInboundEventSync(input: FeishuInboundPreparedDisp
 }): FeishuInboundProcessResult {
   let agentSpaceMessageId: string | undefined;
   let pendingAgentNames: string[] = [];
+  let dispatchedTask: QueuedTaskRecord | null = null;
   try {
     const externalInput = buildFeishuExternalInput(input.message);
     const directContactId = resolveFeishuDirectContactIdSync({
@@ -595,6 +603,14 @@ function dispatchPreparedFeishuInboundEventSync(input: FeishuInboundPreparedDisp
           candidate.data?.source_message_id === agentSpaceMessageId)
         .map((candidate) => candidate.speaker)
       : [];
+    dispatchedTask = agentSpaceMessageId && input.agentId
+      ? resolveFeishuDispatchedTaskSync({
+        workspaceId: input.context.workspaceId,
+        channelName: input.channelBinding.channelName,
+        agentId: input.agentId,
+        sourceMessageId: agentSpaceMessageId,
+      })
+      : null;
   } catch (error) {
     return finishFailedDispatch({
       ...input,
@@ -602,6 +618,21 @@ function dispatchPreparedFeishuInboundEventSync(input: FeishuInboundPreparedDisp
       error,
     });
   }
+
+  const threadBinding = input.agentBotIntegration && input.agentId && agentSpaceMessageId
+    ? recordFeishuThreadBindingSync({
+      workspaceId: input.context.workspaceId,
+      integration: input.agentBotIntegration,
+      channelBinding: input.channelBinding,
+      message: input.message,
+      agentId: input.agentId,
+      botBindingId: input.botBindingId,
+      actorType: input.actorType,
+      taskQueueId: dispatchedTask?.id,
+      routerSessionId: dispatchedTask?.routerSessionId,
+      agentSpaceMessageId,
+    })
+    : null;
 
   const mapping = createFeishuInboundMapping({
     context: input.context,
@@ -613,6 +644,9 @@ function dispatchPreparedFeishuInboundEventSync(input: FeishuInboundPreparedDisp
     externalGuestActor: input.externalGuestActor,
     agentId: input.agentId,
     botBindingId: input.botBindingId,
+    taskQueueId: dispatchedTask?.id,
+    routerSessionId: dispatchedTask?.routerSessionId,
+    threadBindingId: threadBinding?.id,
     agentSpaceMessageId,
     dispatchStatus: "sent",
     downloadedAttachmentCount: input.attachments.length,
@@ -641,6 +675,22 @@ function dispatchPreparedFeishuInboundEventSync(input: FeishuInboundPreparedDisp
     dispatchStatus: "sent",
     mapping,
   };
+}
+
+function resolveFeishuDispatchedTaskSync(input: {
+  workspaceId: string;
+  channelName: string;
+  agentId: string;
+  sourceMessageId: string;
+}): QueuedTaskRecord | null {
+  return listQueuedTasksSync({ workspaceId: input.workspaceId })
+    .filter((task) => task.agentId === input.agentId)
+    .filter((task) => {
+      const payload = parseJsonRecord(task.inputJson);
+      return payload?.sourceMessageId === input.sourceMessageId &&
+        payload.channelName === input.channelName;
+    })
+    .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())[0] ?? null;
 }
 
 function queueFeishuAgentStatusCardBestEffort(input: {
@@ -1036,6 +1086,9 @@ function createFeishuInboundMapping(input: {
   externalGuestActor?: FeishuExternalGuestActor;
   agentId?: string;
   botBindingId?: string;
+  taskQueueId?: string;
+  routerSessionId?: string;
+  threadBindingId?: string;
   agentSpaceMessageId?: string;
   dispatchStatus: string;
   reasonCode?: string;
@@ -1052,6 +1105,8 @@ function createFeishuInboundMapping(input: {
     externalSenderId: input.message.externalSenderId,
     externalEventId: input.message.externalEventId,
     agentSpaceMessageId: input.agentSpaceMessageId,
+    taskQueueId: input.taskQueueId,
+    routerSessionId: input.routerSessionId,
     metadataJson: {
       provider: FEISHU_PROVIDER_ID,
       eventType: input.message.eventType,
@@ -1063,6 +1118,7 @@ function createFeishuInboundMapping(input: {
       externalGuestPermissionProfile: input.externalGuestActor?.permissionProfile,
       agentId: input.agentId,
       botBindingId: input.botBindingId,
+      threadBindingId: input.threadBindingId,
       dispatchStatus: input.dispatchStatus,
       reasonCode: input.reasonCode,
       errorMessage: input.errorMessage,
@@ -1093,6 +1149,14 @@ function formatFeishuInboundErrorMessage(error: unknown): string {
   return message
     .replace(/\b(app_secret|appSecret|tenant_access_token|tenantAccessToken|verification_token|verificationToken|encrypt_key|encryptKey)\b\s*[:=]\s*("[^"]+"|'[^']+'|[^,\s]+)/g, "$1=[redacted]")
     .replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/g, "Bearer [redacted]");
+}
+
+function parseJsonRecord(value: string): Record<string, unknown> | null {
+  try {
+    return asRecord(JSON.parse(value));
+  } catch {
+    return null;
+  }
 }
 
 function isPromiseLike<T>(value: T | Promise<T>): value is Promise<T> {

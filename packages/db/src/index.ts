@@ -111,6 +111,8 @@ export type {
   ExternalResourceBindingAgentSpaceType,
   ExternalResourceBindingProviderType,
   ExternalResourceBindingRecord,
+  ExternalThreadBindingRecord,
+  ExternalThreadBindingStatus,
   ExternalUserBindingRecord,
 } from "./types.ts";
 
@@ -214,6 +216,7 @@ export {
   listExternalMessageMappingsSync,
   listExternalMessageOutboxSync,
   listExternalResourceBindingsSync,
+  listExternalThreadBindingsSync,
   listExternalUserBindingsSync,
   listPendingExternalMessageOutboxSync,
   markExternalMessageOutboxLockedSync,
@@ -228,6 +231,8 @@ export {
   readExternalMessageMappingByExternalMessageSync,
   readExternalMessageOutboxSync,
   readExternalResourceBindingByKeySync,
+  readExternalThreadBindingByIdSync,
+  readExternalThreadBindingSync,
   readExternalUserBindingByIdSync,
   readExternalUserBindingByExternalUserSync,
   readExternalUserBindingSync,
@@ -242,6 +247,7 @@ export {
   updateExternalUserBindingStatusSync,
   upsertExternalChannelBindingSync,
   upsertExternalResourceBindingSync,
+  upsertExternalThreadBindingSync,
   upsertExternalUserBindingSync,
 } from "./integrations/external-integrations.ts";
 

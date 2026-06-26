@@ -43,6 +43,7 @@ beforeEach(() => {
   getDatabase().exec(`
     DELETE FROM external_message_mapping;
     DELETE FROM external_message_outbox;
+    DELETE FROM external_thread_binding;
     DELETE FROM external_channel_binding;
     DELETE FROM external_integration;
     DELETE FROM workspace;

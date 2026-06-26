@@ -247,6 +247,28 @@ export interface ExternalMessageOutboxRecord {
   sentAt?: string;
 }
 
+export type ExternalThreadBindingStatus = "active" | "closed" | "archived";
+
+export interface ExternalThreadBindingRecord {
+  id: string;
+  workspaceId: string;
+  integrationId: string;
+  channelBindingId?: string;
+  provider: ExternalIntegrationProvider;
+  tenantKey?: string;
+  externalChatId: string;
+  externalThreadId: string;
+  channelName: string;
+  agentId: string;
+  taskQueueId?: string;
+  agentSpaceMessageId?: string;
+  status: ExternalThreadBindingStatus;
+  metadataJson: string;
+  lastMessageAt: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export type ExternalDataOperationRunStatus = "pending" | "running" | "succeeded" | "failed" | "cancelled";
 export type ExternalDataOperationActorType = "user" | "agent" | "system";
 

@@ -63,6 +63,14 @@ export {
   type FeishuExternalParticipantPolicy,
 } from "./external-guests.ts";
 export {
+  listFeishuThreadBindingsForChatSync,
+  readFeishuThreadBindingSync,
+  recordFeishuThreadBindingSync,
+  resolveFeishuThreadBindingKey,
+  type ReadFeishuThreadBindingInput,
+  type RecordFeishuThreadBindingInput,
+} from "./thread-bindings.ts";
+export {
   createFeishuApiClient,
   fetchFeishuTenantAccessToken,
   type FeishuApiClient,

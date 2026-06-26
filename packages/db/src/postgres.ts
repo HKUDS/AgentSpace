@@ -227,6 +227,7 @@ const TABLE_MIGRATION_PLANS: TableMigrationPlan[] = [
   { tableName: "agent_router_session", conflictColumns: ["id"], optionalWhenMissing: true, orderBy: "created_at ASC, id ASC" },
   { tableName: "agent_router_provider_session", conflictColumns: ["id"], jsonColumns: ["metadata_json"], optionalWhenMissing: true, orderBy: "created_at ASC, id ASC" },
   { tableName: "agent_task_queue", conflictColumns: ["id"], jsonColumns: ["input_json", "result_json"], orderBy: "created_at ASC, id ASC" },
+  { tableName: "external_thread_binding", conflictColumns: ["id"], jsonColumns: ["metadata_json"], optionalWhenMissing: true, orderBy: "created_at ASC, id ASC" },
   { tableName: "agent_task_attempt", conflictColumns: ["id"], jsonColumns: ["metadata_json"], optionalWhenMissing: true, orderBy: "created_at ASC, id ASC" },
   { tableName: "agent_router_event", conflictColumns: ["id"], jsonColumns: ["data_json"], optionalWhenMissing: true, orderBy: "created_at ASC, id ASC" },
   { tableName: "agent_router_context_snapshot", conflictColumns: ["id"], jsonColumns: ["source_event_ids_json"], optionalWhenMissing: true, orderBy: "created_at ASC, id ASC" },
