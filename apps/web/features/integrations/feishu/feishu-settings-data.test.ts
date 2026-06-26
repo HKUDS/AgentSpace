@@ -53,8 +53,8 @@ vi.mock("@agent-space/services", () => ({
     guestPolicy: "external_guest_allow + external_guest_reply_all + external_guest_require_identity + external_guest_ignore + external_guest_mention_required",
     workerRestart: "two_correlated_websocket_replies",
     workerCardAction: "processed_approval_card_action",
-    dataPlane: "doc_read + agent_runtime_doc_read_from_lark_cli_manifest + approved_doc_write + sheet_read + approved_sheet_write_with_agentspace_sync + base_read + approved_base_mutation_with_agentspace_sync",
-    failureVisibility: "provider_failure_row + degraded_or_error_health",
+    dataPlane: "doc_read + agent_runtime_doc_read_from_lark_cli_manifest + approved_doc_write + sheet_read + approved_sheet_write_with_agentspace_sync + base_read + approved_base_mutation_with_agentspace_sync + user_actor + external_guest_actor + external_guest_write_denied",
+    failureVisibility: "provider_failure_row + degraded_or_error_health + agent_bot_failure_evidence",
   },
   FEISHU_OPEN_PLATFORM_CONSOLE_URLS: {
     appList: "https://open.feishu.cn/app",
@@ -469,11 +469,11 @@ describe("Feishu settings data", () => {
         },
         {
           key: "data_plane",
-          required: "doc_read + agent_runtime_doc_read_from_lark_cli_manifest + approved_doc_write + sheet_read + approved_sheet_write_with_agentspace_sync + base_read + approved_base_mutation_with_agentspace_sync",
+          required: "doc_read + agent_runtime_doc_read_from_lark_cli_manifest + approved_doc_write + sheet_read + approved_sheet_write_with_agentspace_sync + base_read + approved_base_mutation_with_agentspace_sync + user_actor + external_guest_actor + external_guest_write_denied",
         },
         {
           key: "failure_visibility",
-          required: "provider_failure_row + degraded_or_error_health",
+          required: "provider_failure_row + degraded_or_error_health + agent_bot_failure_evidence",
         },
         {
           key: "openapi_artifact",

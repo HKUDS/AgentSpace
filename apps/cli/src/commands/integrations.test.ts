@@ -4317,11 +4317,11 @@ test("Feishu smoke plan converts readiness into live smoke checklist without ext
     },
       {
         key: "data_plane",
-        required: "doc_read + agent_runtime_doc_read_from_lark_cli_manifest + approved_doc_write + sheet_read + approved_sheet_write_with_agentspace_sync + base_read + approved_base_mutation_with_agentspace_sync",
+        required: "doc_read + agent_runtime_doc_read_from_lark_cli_manifest + approved_doc_write + sheet_read + approved_sheet_write_with_agentspace_sync + base_read + approved_base_mutation_with_agentspace_sync + user_actor + external_guest_actor + external_guest_write_denied",
       },
     {
       key: "failure_visibility",
-      required: "provider_failure_row + degraded_or_error_health",
+      required: "provider_failure_row + degraded_or_error_health + agent_bot_failure_evidence",
     },
     {
       key: "openapi_artifact",
