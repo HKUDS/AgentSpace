@@ -36,6 +36,95 @@ import {
   assertCanUseBoundEmployeeRuntimeInChannelForActorSync,
   assertCanUseEmployeeInChannelForActorSync,
 } from "../runtime-access/runtime-access.ts";
+import {
+  decideWorkspaceDataPolicyForExternalMessageSync,
+  type WorkspaceDataPolicyDecision,
+} from "../policies/workspace-data.ts";
+
+export interface ExternalMessageInputContext {
+  provider: string;
+  providerLabel?: string;
+  externalEventId?: string;
+  externalMessageId?: string;
+  externalChatId?: string;
+  trust: "untrusted_user_message";
+  workspaceDataPolicy?: WorkspaceDataPolicyDecision;
+}
+
+export function applyWorkspaceDataPolicyToExternalMessageInput(
+  input: ExternalMessageInputContext | undefined,
+  workspaceId = DEFAULT_WORKSPACE_ID,
+  options?: {
+    hasAttachments?: boolean;
+    contentHash?: string;
+  },
+): ExternalMessageInputContext | undefined {
+  if (!input) {
+    return undefined;
+  }
+
+  return {
+    ...input,
+    workspaceDataPolicy: input.workspaceDataPolicy ?? decideWorkspaceDataPolicyForExternalMessageSync({
+      workspaceId,
+      source: {
+        type: "external_message",
+        provider: input.provider,
+        providerLabel: input.providerLabel,
+        externalEventId: input.externalEventId,
+        externalMessageId: input.externalMessageId,
+        externalChatId: input.externalChatId,
+        trust: input.trust,
+      },
+      content: {
+        kind: "message",
+        hasAttachments: options?.hasAttachments,
+        contentHash: options?.contentHash,
+      },
+    }),
+  };
+}
+
+export function assertWorkspaceDataPolicyAllowsExternalMessageInput(
+  input: ExternalMessageInputContext | undefined,
+): void {
+  if (!input) {
+    return;
+  }
+  const policy = input.workspaceDataPolicy;
+  if (
+    !policy ||
+    policy.decision !== "allow" ||
+    !policy.allowedUses.storeInWorkspace ||
+    !policy.allowedUses.includeInAgentContext
+  ) {
+    throw new Error(`External message rejected by workspace data policy: ${policy?.reasonCode ?? "workspace_data.policy_missing"}`);
+  }
+}
+
+export function buildExternalMessageData(input: ExternalMessageInputContext | undefined): Record<string, string> | undefined {
+  const governedInput = applyWorkspaceDataPolicyToExternalMessageInput(input);
+  if (!governedInput) {
+    return undefined;
+  }
+  const policy = governedInput.workspaceDataPolicy;
+  return {
+    external_provider: governedInput.provider,
+    ...(governedInput.providerLabel ? { external_provider_label: governedInput.providerLabel } : {}),
+    ...(governedInput.externalEventId ? { external_event_id: governedInput.externalEventId } : {}),
+    ...(governedInput.externalMessageId ? { external_message_id: governedInput.externalMessageId } : {}),
+    ...(governedInput.externalChatId ? { external_chat_id: governedInput.externalChatId } : {}),
+    external_trust: governedInput.trust,
+    ...(policy ? {
+      workspace_data_policy_decision: policy.decision,
+      workspace_data_policy_reason: policy.reasonCode,
+      workspace_data_classification: policy.classification,
+      workspace_data_store: String(policy.allowedUses.storeInWorkspace),
+      workspace_data_search: String(policy.allowedUses.includeInSearch),
+      workspace_data_agent_context: String(policy.allowedUses.includeInAgentContext),
+    } : {}),
+  };
+}
 
 export function pushWorkspaceMessageIfChannel(
   state: AgentSpaceState,
@@ -184,6 +273,7 @@ export function enqueueChannelMentionStepSync(
     mentionedAgentLabels: string[];
     handoffDocumentIds?: string[];
     handoffDocumentVersionIds?: string[];
+    externalInput?: ExternalMessageInputContext;
     workspaceId?: string;
     requesterUserId?: string;
     requesterDisplayName?: string;
@@ -195,6 +285,10 @@ export function enqueueChannelMentionStepSync(
   }
 
   const workspaceId = input.workspaceId ?? DEFAULT_WORKSPACE_ID;
+  const externalInput = applyWorkspaceDataPolicyToExternalMessageInput(input.externalInput, workspaceId, {
+    hasAttachments: Boolean(input.attachments && input.attachments.length > 0),
+  });
+  assertWorkspaceDataPolicyAllowsExternalMessageInput(externalInput);
   if (input.requesterUserId) {
     assertCanUseEmployeeInChannelForActorSync({
       workspaceId,
@@ -246,6 +340,7 @@ export function enqueueChannelMentionStepSync(
       channelHistory: buildChannelHistorySnapshot(state, input.channelName),
       channelHistoryPath: getChannelHistoryFilePath(input.channelName, workspaceId),
       channelSessionId: resumedSessionId,
+      ...(externalInput ? { externalInput } : {}),
       attachments:
         input.attachments?.map((attachment) => ({
           fileName: attachment.fileName,

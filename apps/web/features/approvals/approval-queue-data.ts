@@ -4,6 +4,7 @@ import {
   listKnowledgeProposalsForWorkspaceSync,
   listDocumentPermissionRequestsSync,
   readWorkspaceStateSnapshotSync,
+  sanitizeFeishuDataOperationApprovalMetadata,
 } from "@agent-space/services";
 import {
   DEFAULT_WORKSPACE_ID,
@@ -130,7 +131,7 @@ function buildApprovalItems(workspaceId: string, actor?: ApprovalQueueActor): Ap
       channelName: approval.channelName,
       status: approval.status,
       contentPreview: approval.contentPreview,
-      metadata: approval.metadata,
+      metadata: sanitizeApprovalMetadata(approval),
       reviewerComment: approval.reviewerComment,
       createdAt: approval.createdAt,
       reviewedAt: approval.reviewedAt,
@@ -291,6 +292,13 @@ function buildApprovalItems(workspaceId: string, actor?: ApprovalQueueActor): Ap
     ...agentAccessApprovals,
     ...knowledgeProposalApprovals,
   ].sort((left, right) => compareByDateDesc(left.createdAt, right.createdAt));
+}
+
+function sanitizeApprovalMetadata(approval: ApprovalRequest): Record<string, unknown> | undefined {
+  if (approval.type === "external_data_operation") {
+    return sanitizeFeishuDataOperationApprovalMetadata(approval.metadata);
+  }
+  return approval.metadata;
 }
 
 function canActorSeeDocumentPermissionRequest(

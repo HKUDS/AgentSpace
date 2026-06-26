@@ -6,10 +6,12 @@ const {
   mockApproveDocumentPermissionRequestSync,
   mockApproveKnowledgeProposalForActorSync,
   mockCreateApprovalRequestSync,
+  mockListApprovalsSync,
   mockRejectAgentAccessRequestForActorSync,
   mockRejectChannelAccessRequestForActorSync,
   mockRejectDocumentPermissionRequestSync,
   mockRejectKnowledgeProposalForActorSync,
+  mockReviewFeishuDataOperationApproval,
   mockReviewApprovalSync,
   mockRequireCurrentWorkspaceContext,
   mockRevalidateWorkspacePaths,
@@ -19,10 +21,12 @@ const {
   mockApproveDocumentPermissionRequestSync: vi.fn(),
   mockApproveKnowledgeProposalForActorSync: vi.fn(),
   mockCreateApprovalRequestSync: vi.fn(),
+  mockListApprovalsSync: vi.fn(),
   mockRejectAgentAccessRequestForActorSync: vi.fn(),
   mockRejectChannelAccessRequestForActorSync: vi.fn(),
   mockRejectDocumentPermissionRequestSync: vi.fn(),
   mockRejectKnowledgeProposalForActorSync: vi.fn(),
+  mockReviewFeishuDataOperationApproval: vi.fn(),
   mockReviewApprovalSync: vi.fn(),
   mockRequireCurrentWorkspaceContext: vi.fn(),
   mockRevalidateWorkspacePaths: vi.fn(),
@@ -34,10 +38,12 @@ vi.mock("@agent-space/services", () => ({
   approveDocumentPermissionRequestSync: mockApproveDocumentPermissionRequestSync,
   approveKnowledgeProposalForActorSync: mockApproveKnowledgeProposalForActorSync,
   createApprovalRequestSync: mockCreateApprovalRequestSync,
+  listApprovalsSync: mockListApprovalsSync,
   rejectAgentAccessRequestForActorSync: mockRejectAgentAccessRequestForActorSync,
   rejectChannelAccessRequestForActorSync: mockRejectChannelAccessRequestForActorSync,
   rejectDocumentPermissionRequestSync: mockRejectDocumentPermissionRequestSync,
   rejectKnowledgeProposalForActorSync: mockRejectKnowledgeProposalForActorSync,
+  reviewFeishuDataOperationApproval: mockReviewFeishuDataOperationApproval,
   reviewApprovalSync: mockReviewApprovalSync,
 }));
 
@@ -58,10 +64,13 @@ describe("approval actions", () => {
     mockApproveDocumentPermissionRequestSync.mockReset();
     mockApproveKnowledgeProposalForActorSync.mockReset();
     mockCreateApprovalRequestSync.mockReset();
+    mockListApprovalsSync.mockReset();
+    mockListApprovalsSync.mockReturnValue([]);
     mockRejectAgentAccessRequestForActorSync.mockReset();
     mockRejectChannelAccessRequestForActorSync.mockReset();
     mockRejectDocumentPermissionRequestSync.mockReset();
     mockRejectKnowledgeProposalForActorSync.mockReset();
+    mockReviewFeishuDataOperationApproval.mockReset();
     mockReviewApprovalSync.mockReset();
     mockRequireCurrentWorkspaceContext.mockReset();
     mockRevalidateWorkspacePaths.mockReset();
@@ -113,6 +122,40 @@ describe("approval actions", () => {
       workspaceId: "workspace-1",
       modules: ["approvals", "inbox", "agents", "im", "settings"],
       resources: [{ type: "approval", id: "approval-1" }],
+      shell: "counters",
+    });
+  });
+
+  it("executes Feishu data operation approvals from the merged approval queue", async () => {
+    mockRequireCurrentWorkspaceContext.mockResolvedValue(buildWorkspaceContext("admin"));
+    mockListApprovalsSync.mockReturnValue([{
+      id: "approval-feishu-1",
+      type: "external_data_operation",
+      sourceId: "external-data-operation-1",
+      agentId: "Atlas",
+      channelName: "tour-visit",
+      status: "pending",
+      contentPreview: "Atlas requested a Feishu Sheet update.",
+      metadata: {
+        provider: "feishu",
+        operationRunId: "external-data-operation-1",
+      },
+      createdAt: "2026-06-24T00:00:00.000Z",
+    }]);
+
+    const result = await reviewApprovalQueueItemAction("workspace_approval", "approval-feishu-1", "approved", "Looks good");
+
+    expect(mockReviewFeishuDataOperationApproval).toHaveBeenCalledWith({
+      workspaceId: "workspace-1",
+      approvalId: "approval-feishu-1",
+      decision: "approved",
+      reviewerComment: "Looks good",
+    });
+    expect(mockReviewApprovalSync).not.toHaveBeenCalled();
+    expect(result.invalidation).toEqual({
+      workspaceId: "workspace-1",
+      modules: ["approvals", "inbox", "agents", "im", "settings"],
+      resources: [{ type: "approval", id: "approval-feishu-1" }],
       shell: "counters",
     });
   });

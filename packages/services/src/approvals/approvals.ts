@@ -292,6 +292,14 @@ function buildApprovalConversationSummary(approval: ApprovalRequest): string {
     }
     return `${approval.agentId}'s ${toolName} permission was ${approval.status}: ${approval.contentPreview}`;
   }
+  if (approval.type === "external_data_operation") {
+    const provider = readMetadataString(approval.metadata, "provider") ?? "external";
+    const operationType = readMetadataString(approval.metadata, "operationType") ?? "data operation";
+    if (approval.status === "pending") {
+      return `${approval.agentId} requested approval for ${provider} ${operationType}: ${approval.contentPreview}`;
+    }
+    return `${approval.agentId}'s ${provider} ${operationType} approval was ${approval.status}: ${approval.contentPreview}`;
+  }
   if (approval.status === "pending") {
     return `${approval.agentId} submitted a ${approval.type} for approval.`;
   }
@@ -311,6 +319,10 @@ function buildApprovalMessageData(approval: ApprovalRequest): Record<string, str
     provider: readMetadataString(metadata, "provider"),
     runtime_id: readMetadataString(metadata, "runtimeId"),
     session_id: readMetadataString(metadata, "sessionId"),
+    operation_run_id: readMetadataString(metadata, "operationRunId"),
+    operation_type: readMetadataString(metadata, "operationType"),
+    provider_resource_type: readMetadataString(metadata, "providerResourceType"),
+    payload_hash: readMetadataString(metadata, "payloadHash"),
     reviewed_at: approval.reviewedAt,
     reviewer_comment: approval.reviewerComment,
   });

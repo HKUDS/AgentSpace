@@ -614,6 +614,75 @@ test("runProviderTask keeps built-in Claude tool grants narrow when running as r
   }
 });
 
+test("runProviderTask exposes Feishu lark-cli diagnostic grants only when enabled", async () => {
+  const workDir = mkdtempSync(join(tmpdir(), "agent-space-claude-feishu-lark-cli-"));
+  const providerBinDir = join(workDir, "provider-bin");
+  const larkBinDir = join(workDir, "lark-bin");
+  const binPath = join(providerBinDir, "claude");
+  const larkPath = join(larkBinDir, "lark-cli");
+  const argsPath = join(workDir, "claude-args.txt");
+  const originalPath = process.env.PATH;
+  const originalEnabled = process.env.AGENT_SPACE_FEISHU_LARK_CLI_ENABLED;
+  mkdirSync(providerBinDir, { recursive: true });
+  mkdirSync(larkBinDir, { recursive: true });
+  writeFileSync(
+    binPath,
+    [
+      "#!/bin/sh",
+      "printf '%s\\n' \"$@\" > \"$CLAUDE_ARGS_PATH\"",
+      "IFS= read -r _prompt",
+      "printf '%s\\n' '{\"type\":\"result\",\"result\":\"feishu cli ok\",\"session_id\":\"session-feishu-cli\"}'",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+  writeFileSync(larkPath, "#!/bin/sh\necho lark-cli 1.0.0\n", "utf8");
+  chmodSync(binPath, 0o755);
+  chmodSync(larkPath, 0o755);
+
+  const runtime: ProviderRuntimeRecord = {
+    id: "runtime-claude-feishu-lark-cli-test",
+    workspaceId: "default",
+    provider: "claude",
+    name: "Claude",
+    status: "online",
+    metadata: {
+      executablePath: binPath,
+      mode: "remote",
+    },
+  };
+
+  try {
+    process.env.PATH = `${providerBinDir}${delimiter}${larkBinDir}`;
+    process.env.AGENT_SPACE_FEISHU_LARK_CLI_ENABLED = "true";
+    await withProcessGetuid(0, async () => {
+      const result = await runProviderTask(runtime, "hi", workDir, {
+        contextEnv: {
+          CLAUDE_ARGS_PATH: argsPath,
+        },
+        taskTimeoutMs: 1_000,
+      });
+      const args = readFileSync(argsPath, "utf8").trim().split(/\r?\n/);
+
+      assert.equal(result.output, "feishu cli ok");
+      assert.equal(result.sessionId, "session-feishu-cli");
+      assert.equal(args.includes("Bash(lark-cli --version)"), true);
+      assert.equal(args.includes("Bash(lark-cli auth status)"), true);
+      assert.equal(args.includes("Bash(lark-cli schema *)"), true);
+      assert.equal(args.includes("Bash(lark-cli docs *)"), false);
+      assert.equal(args.includes("Bash(lark-cli *)"), false);
+    });
+  } finally {
+    if (originalEnabled === undefined) {
+      delete process.env.AGENT_SPACE_FEISHU_LARK_CLI_ENABLED;
+    } else {
+      process.env.AGENT_SPACE_FEISHU_LARK_CLI_ENABLED = originalEnabled;
+    }
+    process.env.PATH = originalPath;
+    rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
 test("runProviderTask exposes CLI-Hub runtime app capabilities without adapter-specific code", async () => {
   const workDir = mkdtempSync(join(tmpdir(), "agent-space-claude-clihub-capability-"));
   const providerBinDir = join(workDir, "provider-bin");

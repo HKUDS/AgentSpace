@@ -73,14 +73,20 @@ import {
   persistWorkspaceAttachmentFromFileSync,
   postMessageSync,
   pruneOrphanWorkspaceAttachmentsSync,
+  queueFeishuAgentStatusCardOutboxSync,
+  queueFeishuChannelReplyOutboxSync,
   readWorkspaceStateSync,
   replacePendingChannelMessageSync,
   resolveAgentDocumentContextSync,
   resolveCompatibleDirectChannelRecord,
+  listFeishuLarkCliResourceGrantsForChannelSync,
+  applyFeishuLarkCliResultManifestOperations,
+  applyFeishuRuntimeDataOperationRequests,
   writeConversationExecutionWorkspaceStateSync,
   upsertDirectConversationStateSync,
   updateTaskStatusSync,
   writeWorkspaceStateSync,
+  type FeishuAgentStatusCardStatus,
 } from "@agent-space/services";
 import type { ActiveEmployee, MessageAttachment } from "@agent-space/domain/workspace";
 import type { DaemonTaskInputBundle, RuntimeToolCapability } from "@agent-space/domain";
@@ -742,6 +748,44 @@ function canAgentCreateGoogleSheet(input: {
   }));
 }
 
+function enqueueFeishuReplyOutboxBestEffort(input: {
+  workspaceId: string;
+  channelName: string;
+  text: string;
+  attachments?: MessageAttachment[];
+  agentSpaceMessageId?: string;
+  sourceAgentSpaceMessageId?: string;
+  statusCard?: {
+    status: FeishuAgentStatusCardStatus;
+    agentNames: string[];
+    message?: string;
+    taskId?: string;
+  };
+}): string[] {
+  try {
+    const statusCardItems = input.statusCard
+      ? queueFeishuAgentStatusCardOutboxSync({
+          workspaceId: input.workspaceId,
+          channelName: input.channelName,
+          status: input.statusCard.status,
+          agentNames: input.statusCard.agentNames,
+          message: input.statusCard.message,
+          taskId: input.statusCard.taskId,
+          agentSpaceMessageId: input.agentSpaceMessageId,
+          sourceAgentSpaceMessageId: input.sourceAgentSpaceMessageId,
+        })
+      : [];
+    const replyOutboxItems = queueFeishuChannelReplyOutboxSync(input);
+    const queuedCount = statusCardItems.length + replyOutboxItems.length;
+    return queuedCount > 0
+      ? [`Feishu outbound queued: ${queuedCount} message(s).`]
+      : [];
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return [`Feishu outbound enqueue failed: ${message}`];
+  }
+}
+
 interface ProviderTaskEvent {
   type: string;
   content?: string;
@@ -934,6 +978,10 @@ async function executeQueuedTask(runtime: AgentRuntimeRecord, queuedTask: Queued
     agentName,
     channelName: effectiveChannelName,
   });
+  const feishuLarkCliResourceGrants = listFeishuLarkCliResourceGrantsForChannelSync({
+    workspaceId: task.workspaceId,
+    channelName: effectiveChannelName,
+  });
   const routerSessionContext = buildRouterSessionPromptContext(task);
   const preparedContext = prepareDaemonTaskContext({
     runtime,
@@ -944,6 +992,7 @@ async function executeQueuedTask(runtime: AgentRuntimeRecord, queuedTask: Queued
     contactContext,
     payloadOverride: effectivePayload,
     routerSessionContext,
+    feishuLarkCliResourceGrants,
   });
 
   const tokenAcc: TokenAccumulator = {
@@ -972,6 +1021,7 @@ async function executeQueuedTask(runtime: AgentRuntimeRecord, queuedTask: Queued
             agentName,
             channelName: effectivePayload.channelName ?? effectivePayload.channel,
           }),
+          feishuLarkCliResourceGrants,
         }),
         onEvent: (event) => {
           appendTaskMessageSync({
@@ -1012,6 +1062,21 @@ async function executeQueuedTask(runtime: AgentRuntimeRecord, queuedTask: Queued
       sourceChannelName: effectiveChannelName,
       requestedByUserId: task.requestedByUserId,
       requestedByDisplayName: task.requestedByDisplayName,
+    });
+    const feishuLarkCliResultOperations = applyFeishuLarkCliResultManifestOperations({
+      workDir,
+      workspaceId: task.workspaceId,
+      actorName: agentName,
+      resourceGrants: feishuLarkCliResourceGrants,
+    });
+    const feishuRuntimeDataOperationRequests = await applyFeishuRuntimeDataOperationRequests({
+      workDir,
+      workspaceId: task.workspaceId,
+      actorName: agentName,
+      sourceTaskQueueId: task.id,
+      sourceChannelName: effectiveChannelName,
+      sourceAgentSpaceMessageId: effectivePayload.sourceMessageId,
+      resourceGrants: feishuLarkCliResourceGrants,
     });
     const knowledgeProposalOperations = applyKnowledgeProposalOperations({
       workDir,
@@ -1062,6 +1127,34 @@ async function executeQueuedTask(runtime: AgentRuntimeRecord, queuedTask: Queued
         content: message,
       });
     }
+    for (const message of feishuLarkCliResultOperations.statusMessages) {
+      appendTaskMessageSync({
+        taskId: task.id,
+        type: "status",
+        content: message,
+      });
+    }
+    for (const warning of feishuLarkCliResultOperations.warnings) {
+      appendTaskMessageSync({
+        taskId: task.id,
+        type: "status",
+        content: warning,
+      });
+    }
+    for (const message of feishuRuntimeDataOperationRequests.statusMessages) {
+      appendTaskMessageSync({
+        taskId: task.id,
+        type: "status",
+        content: message,
+      });
+    }
+    for (const warning of feishuRuntimeDataOperationRequests.warnings) {
+      appendTaskMessageSync({
+        taskId: task.id,
+        type: "status",
+        content: warning,
+      });
+    }
     for (const message of knowledgeProposalOperations.statusMessages) {
       appendTaskMessageSync({
         taskId: task.id,
@@ -1091,6 +1184,9 @@ async function executeQueuedTask(runtime: AgentRuntimeRecord, queuedTask: Queued
         skillImports: skillImportOperations.imports,
         documentUpdates: documentOperations.documentUpdates,
         externalDocumentLinks: documentRuntimeOutputOperations.externalDocumentLinks,
+        feishuLarkCliDataOperationRunIds: feishuLarkCliResultOperations.operationRunIds,
+        feishuRuntimeDataOperationRunIds: feishuRuntimeDataOperationRequests.operationRunIds,
+        feishuRuntimeDataOperationApprovalIds: feishuRuntimeDataOperationRequests.approvalIds,
         documentPermissionRequests: documentRuntimeOutputOperations.permissionRequests,
         knowledgeProposals: knowledgeProposalOperations.knowledgeProposals,
       },
@@ -1145,6 +1241,26 @@ async function executeQueuedTask(runtime: AgentRuntimeRecord, queuedTask: Queued
           content: warning,
         });
       }
+      for (const statusMessage of enqueueFeishuReplyOutboxBestEffort({
+        workspaceId: task.workspaceId,
+        channelName: payload.channel,
+        text: outputEnvelope.text,
+        attachments: outputEnvelope.attachments,
+        agentSpaceMessageId: replyResult.message.id,
+        sourceAgentSpaceMessageId: payload.sourceMessageId,
+        statusCard: {
+          status: "complete",
+          agentNames: [agentName],
+          message: outputEnvelope.text,
+          taskId: task.id,
+        },
+      })) {
+        appendTaskMessageSync({
+          taskId: task.id,
+          type: "status",
+          content: statusMessage,
+        });
+      }
       if (payload.contactId) {
         writeConversationExecutionWorkspaceStateSync({
           channelName: payload.channel,
@@ -1183,6 +1299,26 @@ async function executeQueuedTask(runtime: AgentRuntimeRecord, queuedTask: Queued
           taskId: task.id,
           type: "status",
           content: warning,
+        });
+      }
+      for (const statusMessage of enqueueFeishuReplyOutboxBestEffort({
+        workspaceId: task.workspaceId,
+        channelName: payload.channel,
+        text: outputEnvelope.text,
+        attachments: outputEnvelope.attachments,
+        agentSpaceMessageId: replyResult.message.id,
+        sourceAgentSpaceMessageId: payload.sourceMessageId,
+        statusCard: {
+          status: "complete",
+          agentNames: [agentName],
+          message: outputEnvelope.text,
+          taskId: task.id,
+        },
+      })) {
+        appendTaskMessageSync({
+          taskId: task.id,
+          type: "status",
+          content: statusMessage,
         });
       }
       writeConversationExecutionWorkspaceStateSync({

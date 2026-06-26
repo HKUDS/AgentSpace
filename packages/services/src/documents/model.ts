@@ -361,7 +361,9 @@ function normalizeChannelDocumentStorageMode(value: unknown): ChannelDocumentSto
 }
 
 function normalizeChannelDocumentExternalProvider(value: unknown): ChannelDocumentExternalProvider | undefined {
-  return value === "google_workspace" || value === "notion" || value === "microsoft_365" ? value : undefined;
+  return value === "google_workspace" || value === "feishu" || value === "notion" || value === "microsoft_365"
+    ? value
+    : undefined;
 }
 
 function normalizeChannelDocumentJsonContent(value: unknown): ChannelDocumentJsonContent | undefined {

@@ -360,6 +360,7 @@ function translateApprovalType(tx: (zh: string, en: string) => string, type: str
     document_update: ["文档更新", "Document Update"],
     message_draft: ["消息草稿", "Message Draft"],
     runtime_tool: ["工具权限", "Tool Permission"],
+    external_data_operation: ["外部数据操作", "External Data Operation"],
     channel_access: ["群访问申请", "Channel Access"],
     document_permission: ["文档权限申请", "Document Permission"],
     agent_access: ["Agent 权限申请", "Agent Access"],

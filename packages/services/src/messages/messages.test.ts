@@ -275,6 +275,47 @@ test("sendChannelHumanMessageSync keeps mentions and attachments on the same sou
   assert.equal(humanMessage?.mentions?.[0]?.token, "Atlas");
 });
 
+test("sendChannelHumanMessageSync stores untrusted external source metadata on the human message", () => {
+  seedWorkspace();
+
+  sendChannelHumanMessageSync(
+    "tour visit",
+    "Tianyu",
+    "来自飞书的一条普通消息",
+    undefined,
+    undefined,
+    DEFAULT_WORKSPACE_ID,
+    undefined,
+    {
+      provider: "feishu",
+      providerLabel: "Feishu/Lark",
+      externalEventId: "evt-1",
+      externalMessageId: "om-1",
+      externalChatId: "oc-general",
+      trust: "untrusted_user_message",
+    },
+  );
+
+  const humanMessage = readWorkspaceStateSync(DEFAULT_WORKSPACE_ID).messages.find((message) =>
+    message.role === "human" &&
+    message.summary === "来自飞书的一条普通消息"
+  );
+  assert.deepEqual(humanMessage?.data, {
+    external_provider: "feishu",
+    external_provider_label: "Feishu/Lark",
+    external_event_id: "evt-1",
+    external_message_id: "om-1",
+    external_chat_id: "oc-general",
+    external_trust: "untrusted_user_message",
+    workspace_data_policy_decision: "allow",
+    workspace_data_policy_reason: "workspace_data.external_untrusted_user_message_allowed",
+    workspace_data_classification: "external_untrusted_user_content",
+    workspace_data_store: "true",
+    workspace_data_search: "true",
+    workspace_data_agent_context: "true",
+  });
+});
+
 test("sendChannelHumanMessageSync stores the requester user id and publishes realtime message events", () => {
   seedWorkspace();
   const suffix = Math.random().toString(36).slice(2, 8);

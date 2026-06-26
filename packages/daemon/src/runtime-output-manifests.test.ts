@@ -130,6 +130,21 @@ test("runtime output helpers append document and sheets operations for preview",
       assignmentMode: "selected_agents",
       reason: "Reusable workflow",
     });
+    writeFileSync(
+      join(workDir, "runtime-output", "feishu-data-operation-requests.json"),
+      JSON.stringify({
+        kind: "agent-space.feishu.data-operation.requests",
+        schemaVersion: 1,
+        generatedBy: "agent-space-cli",
+        requests: [{
+          operationType: "sheets.update_range",
+          providerResourceType: "sheet",
+          providerResourceToken: "shtcnABC123",
+          parameters: { range: "Sheet1!A1:B1" },
+        }],
+      }),
+      "utf8",
+    );
 
     const preview = createRuntimeOutputPreview(workDir);
     assert.deepEqual(preview.errors, []);
@@ -138,6 +153,7 @@ test("runtime output helpers append document and sheets operations for preview",
     assert.equal(preview.manifests.externalSheets.operations, 1);
     assert.equal(preview.manifests.externalSheetResults.results, 1);
     assert.equal(preview.manifests.externalGoogleDocs.operations, 2);
+    assert.equal(preview.manifests.feishuDataOperationRequests.requests, 1);
     assert.deepEqual(preview.manifests.externalGoogleDocs.operationSummaries.map((operation) => operation.operationType), [
       "append_text",
       "batch_update",
@@ -274,10 +290,28 @@ test("document access manifests must be generated through the output CLI helpers
       reason: "Need to share it.",
       documentId: "doc-1",
     });
+    writeFileSync(
+      join(workDir, "runtime-output", "feishu-data-operation-requests.json"),
+      JSON.stringify({
+        kind: "agent-space.feishu.data-operation.requests",
+        schemaVersion: 1,
+        generatedBy: "agent-space-cli",
+        requests: [{
+          operationType: "sheets.update_range",
+          providerResourceType: "sheet",
+          providerResourceToken: "shtcnABC123",
+        }],
+      }),
+      "utf8",
+    );
 
     assert.deepEqual(validateRuntimeOutputManifests(workDir).errors, []);
     assert.equal(
       collectRuntimeOutputBundleFiles(workDir).some((file) => file.path === "runtime-output/artifacts/sheets/create-sheet.json"),
+      true,
+    );
+    assert.equal(
+      collectRuntimeOutputBundleFiles(workDir).some((file) => file.path === "runtime-output/feishu-data-operation-requests.json"),
       true,
     );
   } finally {

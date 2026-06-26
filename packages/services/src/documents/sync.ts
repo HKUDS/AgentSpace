@@ -544,6 +544,7 @@ export function createExternalGoogleDocChannelDocumentSync(input: {
 
 export function updateExternalChannelDocumentMetadataSync(input: {
   documentId: string;
+  title?: string;
   externalRevisionId?: string;
   externalSyncStatus?: ChannelDocument["externalSyncStatus"];
   externalMimeType?: string;
@@ -557,6 +558,16 @@ export function updateExternalChannelDocumentMetadataSync(input: {
   }
 
   const now = new Date().toISOString();
+  if (input.title !== undefined) {
+    const nextTitle = input.title.trim();
+    if (nextTitle && nextTitle !== document.title) {
+      renameChannelDocument({
+        state,
+        documentId: document.id,
+        nextTitle,
+      });
+    }
+  }
   if (input.externalRevisionId !== undefined) {
     document.externalRevisionId = input.externalRevisionId.trim() || undefined;
   }

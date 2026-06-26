@@ -1,4 +1,10 @@
 import type { WorkspaceRole } from "@agent-space/db";
+import type {
+  FeishuAvailableChannelItem,
+  FeishuAvailableUserItem,
+  FeishuIntegrationCreationGuide,
+  FeishuIntegrationSettingsItem,
+} from "@/features/integrations/feishu/feishu-types";
 import type { PermissionCenterData } from "@agent-space/services";
 
 export type SettingsTx = (zh: string, en: string) => string;
@@ -51,3 +57,8 @@ export interface SettingsChannelInvitationItem {
   createdAt: string;
   expiresAt?: string;
 }
+
+export type SettingsFeishuIntegrationItem = FeishuIntegrationSettingsItem;
+export type SettingsFeishuIntegrationCreationGuide = FeishuIntegrationCreationGuide;
+export type SettingsFeishuAvailableChannelItem = FeishuAvailableChannelItem;
+export type SettingsFeishuAvailableUserItem = FeishuAvailableUserItem;

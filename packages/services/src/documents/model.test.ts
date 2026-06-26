@@ -58,6 +58,33 @@ test("channel document normalization preserves sheet external metadata", () => {
   assert.equal(document.externalRevisionId, "revision-1");
 });
 
+test("channel document normalization preserves Feishu external metadata", () => {
+  const document = normalizeChannelDocument({
+    id: "feishu-doc-1",
+    channelName: "tour visit",
+    title: "Launch brief",
+    slug: "launch-brief",
+    kind: "document",
+    storageMode: "external",
+    externalProvider: "feishu",
+    externalFileId: "doccnTest123",
+    externalUrl: "https://example.feishu.cn/docx/doccnTest123",
+    currentVersionId: "version-1",
+    summary: "Launch brief",
+    lastEditorType: "human",
+    createdBy: "Tianyu",
+    updatedBy: "Tianyu",
+    createdAt: "2026-06-24T00:00:00.000Z",
+    updatedAt: "2026-06-24T00:00:00.000Z",
+  });
+
+  assert.ok(document);
+  assert.equal(document.storageMode, "external");
+  assert.equal(document.externalProvider, "feishu");
+  assert.equal(document.externalFileId, "doccnTest123");
+  assert.equal(document.externalSyncStatus, "unknown");
+});
+
 test("legacy channel document normalization falls back to native markdown", () => {
   const document = normalizeChannelDocument({
     id: "legacy-doc",

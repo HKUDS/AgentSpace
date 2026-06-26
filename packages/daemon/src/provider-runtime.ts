@@ -6,6 +6,7 @@ import { arch, platform, version as nodeVersion } from "node:process";
 import type { DaemonProvider, ProviderErrorCategory, ProviderErrorCode, RuntimeAppContextEntry, RuntimeToolCapability } from "@agent-space/domain";
 import { formatDaemonProviderLabel } from "@agent-space/domain";
 import { connectSandbox, resolveSandboxTaskTimeoutMs, type ExecController } from "@agent-space/sandbox";
+import { buildFeishuLarkCliDiagnosticRuntimeToolCapability } from "@agent-space/services";
 import {
   buildDefaultClaudeAllowedTools,
   runAgentRouter,
@@ -397,6 +398,18 @@ function buildBuiltinRuntimeToolCapabilities(contextEnv?: Record<string, string>
       diagnosticCommands: [`command -v ${shellQuote(command)}`],
       env: pickEnv(contextEnv, [googleTokenEnvName]),
       source: "builtin",
+    });
+  }
+
+  const feishuLarkCliCapability = buildFeishuLarkCliDiagnosticRuntimeToolCapability({
+    environment: process.env,
+    source: "builtin",
+  });
+  if (feishuLarkCliCapability) {
+    capabilities.push({
+      ...feishuLarkCliCapability,
+      binPath: isPathLike(feishuLarkCliCapability.command) ? feishuLarkCliCapability.command : feishuLarkCliCapability.binPath,
+      binDir: resolveCommandDirFromCurrentEnv(feishuLarkCliCapability.command),
     });
   }
 

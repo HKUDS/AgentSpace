@@ -178,7 +178,7 @@ export interface ChannelRecord {
 
 export type ChannelDocumentKind = "markdown" | "sheet" | "deck" | "document";
 export type ChannelDocumentStorageMode = "native" | "external";
-export type ChannelDocumentExternalProvider = "google_workspace" | "notion" | "microsoft_365";
+export type ChannelDocumentExternalProvider = "google_workspace" | "feishu" | "notion" | "microsoft_365";
 export type ExternalDocumentProvider = ChannelDocumentExternalProvider;
 export type ChannelDocumentJsonContent = Record<string, unknown> | unknown[];
 export type ExternalDocumentSyncStatus = "ok" | "permission_error" | "missing" | "unknown";
@@ -294,7 +294,7 @@ export type ApprovalStatus = "pending" | "approved" | "rejected" | "revised";
 
 export interface ApprovalRequest {
   id: string;
-  type: "task_output" | "document_update" | "message_draft" | "runtime_tool" | "knowledge_proposal";
+  type: "task_output" | "document_update" | "message_draft" | "runtime_tool" | "knowledge_proposal" | "external_data_operation";
   sourceId: string;
   agentId: string;
   channelName: string;
@@ -370,6 +370,22 @@ export interface KnowledgePage {
 
 export type DataColumnType = "text" | "number" | "select" | "date" | "person" | "checkbox";
 export type DataTableStatus = "active" | "archived";
+export type DataTableExternalProvider = "feishu" | "google_workspace";
+
+export interface DataTableExternalPreview {
+  kind?: string;
+  rowCount?: number;
+  columnCount?: number;
+  rowsPreview?: unknown[][];
+  recordCount?: number;
+  fieldNames?: string[];
+  recordsPreview?: Array<{
+    recordId?: string;
+    fieldsPreview: Record<string, unknown>;
+  }>;
+  truncated?: boolean;
+  updatedAt?: string;
+}
 
 export interface DataColumn {
   id: string;
@@ -393,6 +409,14 @@ export interface DataTable {
   channelName?: string;
   columns: DataColumn[];
   rows: DataRow[];
+  externalProvider?: DataTableExternalProvider;
+  externalResourceType?: string;
+  externalResourceToken?: string;
+  externalUrl?: string;
+  externalSyncStatus?: ExternalDocumentSyncStatus;
+  externalUpdatedAt?: string;
+  externalMetadata?: Record<string, unknown>;
+  externalPreview?: DataTableExternalPreview;
   status: DataTableStatus;
   createdBy: string;
   createdAt: string;

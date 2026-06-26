@@ -18,7 +18,15 @@ import {
   upsertConversationExecutionWorkspaceState,
 } from "../shared/conversation-execution-workspaces.ts";
 import { createOpaqueId, sameValue, uniqueNames } from "../shared/helpers.ts";
-import { getChannelHistoryFilePath, pushWorkspaceMessageToChannel, sortDirectConversations } from "../shared/messaging.ts";
+import {
+  applyWorkspaceDataPolicyToExternalMessageInput,
+  assertWorkspaceDataPolicyAllowsExternalMessageInput,
+  buildExternalMessageData,
+  getChannelHistoryFilePath,
+  pushWorkspaceMessageToChannel,
+  sortDirectConversations,
+  type ExternalMessageInputContext,
+} from "../shared/messaging.ts";
 import {
   assertCanUseBoundEmployeeRuntimeForActorSync,
   assertCanUseEmployeeForActorSync,
@@ -39,6 +47,7 @@ export function sendContactMessageWithAttachmentsSync(
   attachments?: MessageAttachment[],
   workspaceId?: string,
   requesterUserId?: string,
+  externalInput?: ExternalMessageInputContext,
 ): AgentSpaceState {
   const state = ensureWorkspaceStateSync(workspaceId);
   const effectiveWorkspaceId = workspaceId ?? DEFAULT_WORKSPACE_ID;
@@ -59,6 +68,7 @@ export function sendContactMessageWithAttachmentsSync(
     attachments,
     workspaceId,
     requesterUserId,
+    externalInput,
   );
 }
 
@@ -69,6 +79,7 @@ export function sendContactMessageForHumanWithAttachmentsSync(
   attachments?: MessageAttachment[],
   workspaceId?: string,
   requesterUserId?: string,
+  externalInput?: ExternalMessageInputContext,
 ): AgentSpaceState {
   const state = ensureWorkspaceStateSync(workspaceId);
   const effectiveWorkspaceId = workspaceId ?? DEFAULT_WORKSPACE_ID;
@@ -93,6 +104,10 @@ export function sendContactMessageForHumanWithAttachmentsSync(
   if (!trimmed) {
     throw new Error("Message content is required.");
   }
+  const governedExternalInput = applyWorkspaceDataPolicyToExternalMessageInput(externalInput, effectiveWorkspaceId, {
+    hasAttachments: Boolean(attachments && attachments.length > 0),
+  });
+  assertWorkspaceDataPolicyAllowsExternalMessageInput(governedExternalInput);
 
   const directChannel = ensureDirectChannelRecord(state, {
     humanMemberName,
@@ -105,10 +120,12 @@ export function sendContactMessageForHumanWithAttachmentsSync(
   });
   const humanMessage = pushWorkspaceMessageToChannel(state, directChannel.name, {
     speaker: humanMemberName,
+    speakerUserId: requesterUserId,
     role: "human",
     summary: trimmed,
     status: "completed",
     attachments,
+    data: buildExternalMessageData(governedExternalInput),
   }, effectiveWorkspaceId);
   const lastExecution = readLatestConversationExecutionSync(
     contact.name,
@@ -151,6 +168,7 @@ export function sendContactMessageForHumanWithAttachmentsSync(
         })),
       channelHistoryPath: getChannelHistoryFilePath(directChannel.name, effectiveWorkspaceId),
       channelSessionId: resumedSessionId,
+      ...(governedExternalInput ? { externalInput: governedExternalInput } : {}),
       attachments:
         attachments?.map((attachment) => ({
           fileName: attachment.fileName,
@@ -176,7 +194,10 @@ export function sendContactMessageForHumanWithAttachmentsSync(
       role: "agent",
       summary: "Thinking",
       code: "agent.pending",
-      data: { agent_name: contact.name },
+      data: {
+        agent_name: contact.name,
+        source_message_id: humanMessage.id,
+      },
       status: "pending",
     }, effectiveWorkspaceId);
     state.ledger.unshift({

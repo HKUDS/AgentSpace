@@ -18,6 +18,7 @@ import {
   getRuntimeOutputPermissionRequestsPath,
   getRuntimeOutputExternalSheetsPath,
   getRuntimeOutputExternalSheetsResultsPath,
+  getRuntimeOutputFeishuDataOperationRequestsPath,
   getRuntimeOutputManifestPath,
   getRuntimeOutputKnowledgeProposalsPath,
   getRuntimeOutputSkillImportsPath,
@@ -27,6 +28,7 @@ import {
   RUNTIME_OUTPUT_EXTERNAL_GOOGLE_DOCS_RELATIVE_PATH,
   RUNTIME_OUTPUT_EXTERNAL_SHEETS_RELATIVE_PATH,
   RUNTIME_OUTPUT_EXTERNAL_SHEETS_RESULTS_RELATIVE_PATH,
+  RUNTIME_OUTPUT_FEISHU_DATA_OPERATION_REQUESTS_RELATIVE_PATH,
   RUNTIME_OUTPUT_MANIFEST_RELATIVE_PATH,
   RUNTIME_OUTPUT_KNOWLEDGE_PROPOSALS_RELATIVE_PATH,
   RUNTIME_OUTPUT_PERMISSION_REQUESTS_RELATIVE_PATH,
@@ -51,6 +53,7 @@ export const RUNTIME_OUTPUT_MANIFEST_RELATIVE_PATHS = [
   RUNTIME_OUTPUT_EXTERNAL_SHEETS_RELATIVE_PATH,
   RUNTIME_OUTPUT_EXTERNAL_SHEETS_RESULTS_RELATIVE_PATH,
   RUNTIME_OUTPUT_EXTERNAL_GOOGLE_DOCS_RELATIVE_PATH,
+  RUNTIME_OUTPUT_FEISHU_DATA_OPERATION_REQUESTS_RELATIVE_PATH,
 ] as const;
 
 type RuntimeOutputManifestPath = typeof RUNTIME_OUTPUT_MANIFEST_RELATIVE_PATHS[number];
@@ -301,6 +304,10 @@ export interface RuntimeOutputPreview {
       operations: number;
     };
     permissionRequests: {
+      exists: boolean;
+      requests: number;
+    };
+    feishuDataOperationRequests: {
       exists: boolean;
       requests: number;
     };
@@ -626,6 +633,7 @@ export function validateRuntimeOutputManifests(workDir: string): RuntimeOutputVa
   validateExternalGoogleDocsManifest(workDir, errors);
   validateExternalDocumentsManifest(workDir, errors);
   validatePermissionRequestsManifest(workDir, errors);
+  validateFeishuDataOperationRequestsManifest(workDir, errors);
   return {
     valid: errors.length === 0,
     warnings,
@@ -648,6 +656,7 @@ export function createRuntimeOutputPreview(workDir: string): RuntimeOutputPrevie
       externalGoogleDocs: summarizeExternalGoogleDocsManifest(resolvedWorkDir),
       externalDocuments: summarizeExternalDocumentsManifest(resolvedWorkDir),
       permissionRequests: summarizePermissionRequestsManifest(resolvedWorkDir),
+      feishuDataOperationRequests: summarizeFeishuDataOperationRequestsManifest(resolvedWorkDir),
     },
     warnings: validation.warnings,
     errors: validation.errors,
@@ -1416,6 +1425,52 @@ function validatePermissionRequestsManifest(workDir: string, errors: string[]): 
   }
 }
 
+function validateFeishuDataOperationRequestsManifest(workDir: string, errors: string[]): void {
+  const manifestPath = getRuntimeOutputFeishuDataOperationRequestsPath(workDir);
+  if (!existsSync(manifestPath)) {
+    return;
+  }
+  const parsed = parseJsonManifest(manifestPath, RUNTIME_OUTPUT_FEISHU_DATA_OPERATION_REQUESTS_RELATIVE_PATH, errors);
+  if (parsed === undefined) {
+    return;
+  }
+  if (!isRecord(parsed)) {
+    errors.push(`${RUNTIME_OUTPUT_FEISHU_DATA_OPERATION_REQUESTS_RELATIVE_PATH} must be an object.`);
+    return;
+  }
+  if (parsed.kind !== "agent-space.feishu.data-operation.requests") {
+    errors.push(`${RUNTIME_OUTPUT_FEISHU_DATA_OPERATION_REQUESTS_RELATIVE_PATH}.kind must be agent-space.feishu.data-operation.requests.`);
+  }
+  if (parsed.schemaVersion !== 1) {
+    errors.push(`${RUNTIME_OUTPUT_FEISHU_DATA_OPERATION_REQUESTS_RELATIVE_PATH}.schemaVersion must be 1.`);
+  }
+  if (parsed.generatedBy !== "agent-space-cli") {
+    errors.push(`${RUNTIME_OUTPUT_FEISHU_DATA_OPERATION_REQUESTS_RELATIVE_PATH}.generatedBy must be agent-space-cli; use agent-space output feishu data-operation-approval.`);
+  }
+  if (!Array.isArray(parsed.requests)) {
+    errors.push(`${RUNTIME_OUTPUT_FEISHU_DATA_OPERATION_REQUESTS_RELATIVE_PATH}.requests must be an array.`);
+    return;
+  }
+  for (const [index, request] of parsed.requests.entries()) {
+    const label = `${RUNTIME_OUTPUT_FEISHU_DATA_OPERATION_REQUESTS_RELATIVE_PATH}.requests[${index}]`;
+    if (!isRecord(request)) {
+      errors.push(`${label} must be an object.`);
+      continue;
+    }
+    for (const key of ["operationType", "providerResourceType", "providerResourceToken"]) {
+      if (typeof request[key] !== "string" || request[key].trim().length === 0) {
+        errors.push(`${label}.${key} is required.`);
+      }
+    }
+    if (request.parameters !== undefined && !isRecord(request.parameters)) {
+      errors.push(`${label}.parameters must be an object.`);
+    }
+    if (request.contentPreview !== undefined && typeof request.contentPreview !== "string") {
+      errors.push(`${label}.contentPreview must be a string.`);
+    }
+  }
+}
+
 function summarizeAgentOutputManifest(workDir: string): RuntimeOutputPreview["manifests"]["agentOutput"] {
   const manifestPath = getRuntimeOutputManifestPath(workDir);
   if (!existsSync(manifestPath)) {
@@ -1561,6 +1616,18 @@ function summarizeExternalDocumentsManifest(workDir: string): RuntimeOutputPrevi
 
 function summarizePermissionRequestsManifest(workDir: string): RuntimeOutputPreview["manifests"]["permissionRequests"] {
   const manifestPath = getRuntimeOutputPermissionRequestsPath(workDir);
+  if (!existsSync(manifestPath)) {
+    return { exists: false, requests: 0 };
+  }
+  const parsed = parseJsonManifestQuiet(manifestPath);
+  return {
+    exists: true,
+    requests: isRecord(parsed) && Array.isArray(parsed.requests) ? parsed.requests.length : 0,
+  };
+}
+
+function summarizeFeishuDataOperationRequestsManifest(workDir: string): RuntimeOutputPreview["manifests"]["feishuDataOperationRequests"] {
+  const manifestPath = getRuntimeOutputFeishuDataOperationRequestsPath(workDir);
   if (!existsSync(manifestPath)) {
     return { exists: false, requests: 0 };
   }

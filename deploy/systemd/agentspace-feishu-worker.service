@@ -1,0 +1,18 @@
+[Unit]
+Description=AgentSpace Feishu WebSocket Worker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/srv/AgentSpace
+ExecStart=/usr/bin/npm run cli -- integrations feishu worker --workspace-id ${AGENT_SPACE_WORKSPACE_ID}
+Restart=always
+RestartSec=5
+TimeoutStopSec=20
+User=www-data
+Environment=NODE_ENV=production
+EnvironmentFile=/etc/agentspace/feishu-worker.env
+
+[Install]
+WantedBy=multi-user.target

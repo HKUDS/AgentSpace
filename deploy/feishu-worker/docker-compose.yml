@@ -1,0 +1,10 @@
+services:
+  feishu-worker:
+    image: node:24-bookworm-slim
+    restart: unless-stopped
+    working_dir: /srv/AgentSpace
+    command: ["npm", "run", "cli", "--", "integrations", "feishu", "worker"]
+    env_file:
+      - ./feishu-worker.env
+    volumes:
+      - ../..:/srv/AgentSpace

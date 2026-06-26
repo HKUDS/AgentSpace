@@ -1,7 +1,7 @@
 import type { SettingsSectionId } from "@/features/settings/settings-sections";
 import type { SettingsTx } from "@/features/settings/settings-types";
 
-export type SettingsSectionTone = "personal" | "security" | "workspace" | "access";
+export type SettingsSectionTone = "personal" | "security" | "workspace" | "access" | "integration";
 
 export interface SettingsSectionMeta {
   cardDescription: string;
@@ -62,6 +62,17 @@ export function getSettingsSectionMeta(
         scopeLabel: tx("按角色过滤", "Role filtered"),
         title: tx("统一权限管理", "Unified permissions"),
         tone: "security",
+      };
+    case "integrations":
+      return {
+        cardDescription: tx("绑定自己的飞书身份；管理员可配置外部协作入口。", "Bind your Feishu identity; admins can configure external collaboration entry points."),
+        description: tx("成员管理自己的外部身份绑定，管理员创建和检查外部 IM 与文档数据面的工作区级集成。", "Members manage their own external identity binding; admins create and inspect workspace-level IM and document data-plane integrations."),
+        groupLabel: tx("外部集成", "External integrations"),
+        navLabel: tx("外部集成", "Integrations"),
+        pageTitle: tx("设置", "Settings"),
+        scopeLabel: tx("个人绑定 / Admin", "Personal binding / Admin"),
+        title: tx("外部集成", "External integrations"),
+        tone: "integration",
       };
     case "workspace":
       return {

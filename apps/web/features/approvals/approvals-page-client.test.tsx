@@ -126,7 +126,7 @@ describe("ApprovalsPageClient", () => {
     const user = userEvent.setup();
 
     render(
-      <LanguageProvider>
+      <LanguageProvider initialLanguage="zh">
         <FeedbackToastProvider>
           <ApprovalsPageClient data={data} />
         </FeedbackToastProvider>
@@ -152,7 +152,7 @@ describe("ApprovalsPageClient", () => {
 
   it("renders channel access approvals in the merged approvals list", () => {
     render(
-      <LanguageProvider>
+      <LanguageProvider initialLanguage="zh">
         <FeedbackToastProvider>
           <ApprovalsPageClient data={data} />
         </FeedbackToastProvider>
@@ -166,7 +166,7 @@ describe("ApprovalsPageClient", () => {
   it("renders knowledge proposal detail with markdown body", async () => {
     const user = userEvent.setup();
     render(
-      <LanguageProvider>
+      <LanguageProvider initialLanguage="zh">
         <FeedbackToastProvider>
           <ApprovalsPageClient data={data} />
         </FeedbackToastProvider>
@@ -203,7 +203,7 @@ describe("ApprovalsPageClient", () => {
     window.history.pushState({}, "", "/w/workspace-alpha/approvals");
 
     render(
-      <LanguageProvider>
+      <LanguageProvider initialLanguage="zh">
         <FeedbackToastProvider>
           <WorkspaceModuleNavigationProvider navigateWorkspaceModule={navigateWorkspaceModule}>
             <ApprovalsPageClient data={data} onDataChanged={onDataChanged} onInvalidation={onInvalidation} />

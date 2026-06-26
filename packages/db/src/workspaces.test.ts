@@ -122,6 +122,14 @@ test("hardDeleteWorkspaceSync removes all workspace-scoped records without touch
   assert.equal(countWhere(db, "agent_knowledge_page", "workspace_id", purgeTarget.id), 0);
   assert.equal(countWhere(db, "skill_import_event", "workspace_id", purgeTarget.id), 0);
   assert.equal(countWhere(db, "budget", "workspace_id", purgeTarget.id), 0);
+  assert.equal(countWhere(db, "external_integration", "workspace_id", purgeTarget.id), 0);
+  assert.equal(countWhere(db, "external_user_binding", "workspace_id", purgeTarget.id), 0);
+  assert.equal(countWhere(db, "external_channel_binding", "workspace_id", purgeTarget.id), 0);
+  assert.equal(countWhere(db, "external_resource_binding", "workspace_id", purgeTarget.id), 0);
+  assert.equal(countWhere(db, "external_message_mapping", "workspace_id", purgeTarget.id), 0);
+  assert.equal(countWhere(db, "external_message_outbox", "workspace_id", purgeTarget.id), 0);
+  assert.equal(countWhere(db, "external_data_operation_run", "workspace_id", purgeTarget.id), 0);
+  assert.equal(countWhere(db, "external_integration_event", "workspace_id", purgeTarget.id), 0);
   assert.equal(
     (
       db.prepare(
@@ -156,6 +164,14 @@ test("hardDeleteWorkspaceSync removes all workspace-scoped records without touch
   assert.equal(countWhere(db, "google_oauth_credential", "workspace_id", survivor.id), 1);
   assert.equal(countWhere(db, "skill", "workspace_id", survivor.id), 1);
   assert.equal(countWhere(db, "agent_knowledge_page", "workspace_id", survivor.id), 1);
+  assert.equal(countWhere(db, "external_integration", "workspace_id", survivor.id), 1);
+  assert.equal(countWhere(db, "external_user_binding", "workspace_id", survivor.id), 1);
+  assert.equal(countWhere(db, "external_channel_binding", "workspace_id", survivor.id), 1);
+  assert.equal(countWhere(db, "external_resource_binding", "workspace_id", survivor.id), 1);
+  assert.equal(countWhere(db, "external_message_mapping", "workspace_id", survivor.id), 1);
+  assert.equal(countWhere(db, "external_message_outbox", "workspace_id", survivor.id), 1);
+  assert.equal(countWhere(db, "external_data_operation_run", "workspace_id", survivor.id), 1);
+  assert.equal(countWhere(db, "external_integration_event", "workspace_id", survivor.id), 1);
 });
 
 test("hardDeleteWorkspaceSync rejects the default workspace", () => {
@@ -224,6 +240,205 @@ function seedWorkspaceRecords(workspaceId: string, suffix: string): void {
     `INSERT INTO workspace_channel (id, workspace_id, name, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?)`,
   ).run(`channel-${suffix}`, workspaceId, `channel-${suffix}`, now, now);
+
+  db.prepare(
+    `INSERT INTO external_integration (
+       id,
+       workspace_id,
+       provider,
+       display_name,
+       status,
+       transport_mode,
+       app_id,
+       encrypted_credentials_json,
+       config_json,
+       capabilities_json,
+       scopes_json,
+       created_at,
+       updated_at,
+       last_health_status
+     ) VALUES (?, ?, 'feishu', ?, 'active', 'http_webhook', ?, '{}', '{}', '{}', '[]', ?, ?, 'unknown')`,
+  ).run(`external-integration-${suffix}`, workspaceId, `Feishu ${suffix}`, `cli_${suffix}`, now, now);
+
+  db.prepare(
+    `INSERT INTO external_user_binding (
+       id,
+       workspace_id,
+       integration_id,
+       user_id,
+       external_user_id,
+       display_name,
+       status,
+       metadata_json,
+       created_at,
+       updated_at
+     ) VALUES (?, ?, ?, ?, ?, ?, 'active', '{}', ?, ?)`,
+  ).run(
+    `external-user-binding-${suffix}`,
+    workspaceId,
+    `external-integration-${suffix}`,
+    `user-${suffix}`,
+    `ou_${suffix}`,
+    `User ${suffix}`,
+    now,
+    now,
+  );
+
+  db.prepare(
+    `INSERT INTO external_channel_binding (
+       id,
+       workspace_id,
+       integration_id,
+       channel_name,
+       external_chat_id,
+       external_chat_type,
+       external_chat_name,
+       status,
+       sync_mode,
+       metadata_json,
+       created_at,
+       updated_at
+     ) VALUES (?, ?, ?, ?, ?, 'group', ?, 'active', 'mirror', '{}', ?, ?)`,
+  ).run(
+    `external-channel-binding-${suffix}`,
+    workspaceId,
+    `external-integration-${suffix}`,
+    `channel-${suffix}`,
+    `oc_${suffix}`,
+    `Chat ${suffix}`,
+    now,
+    now,
+  );
+
+  db.prepare(
+    `INSERT INTO external_resource_binding (
+       id,
+       workspace_id,
+       integration_id,
+       provider_resource_type,
+       provider_resource_token,
+       provider_resource_url,
+       agent_space_resource_type,
+       agent_space_resource_id,
+       channel_name,
+       display_name,
+       status,
+       permissions_json,
+       metadata_json,
+       created_at,
+       updated_at
+     ) VALUES (?, ?, ?, 'sheet', ?, ?, 'data_table', ?, ?, ?, 'active', '{"read":true}', '{}', ?, ?)`,
+  ).run(
+    `external-resource-binding-${suffix}`,
+    workspaceId,
+    `external-integration-${suffix}`,
+    `sht_${suffix}`,
+    `https://example.feishu.cn/sheets/sht_${suffix}`,
+    `table-${suffix}`,
+    `channel-${suffix}`,
+    `Sheet ${suffix}`,
+    now,
+    now,
+  );
+
+  db.prepare(
+    `INSERT INTO external_message_mapping (
+       id,
+       workspace_id,
+       integration_id,
+       channel_binding_id,
+       direction,
+       external_message_id,
+       external_thread_id,
+       external_sender_id,
+       external_event_id,
+       agent_space_message_id,
+       metadata_json,
+       created_at
+     ) VALUES (?, ?, ?, ?, 'inbound', ?, ?, ?, ?, ?, '{}', ?)`,
+  ).run(
+    `external-message-mapping-${suffix}`,
+    workspaceId,
+    `external-integration-${suffix}`,
+    `external-channel-binding-${suffix}`,
+    `om_${suffix}`,
+    `om_root_${suffix}`,
+    `ou_${suffix}`,
+    `evt_mapping_${suffix}`,
+    `message-${suffix}`,
+    now,
+  );
+
+  db.prepare(
+    `INSERT INTO external_message_outbox (
+       id,
+       workspace_id,
+       integration_id,
+       channel_binding_id,
+       target_external_chat_id,
+       payload_json,
+       status,
+       attempts,
+       created_at,
+       updated_at
+     ) VALUES (?, ?, ?, ?, ?, '{"msg_type":"text"}', 'pending', 0, ?, ?)`,
+  ).run(
+    `external-message-outbox-${suffix}`,
+    workspaceId,
+    `external-integration-${suffix}`,
+    `external-channel-binding-${suffix}`,
+    `oc_${suffix}`,
+    now,
+    now,
+  );
+
+  db.prepare(
+    `INSERT INTO external_data_operation_run (
+       id,
+       workspace_id,
+       integration_id,
+       resource_binding_id,
+       operation_type,
+       provider_resource_type,
+       provider_resource_token,
+       actor_type,
+       actor_id,
+       status,
+       request_json,
+       result_json,
+       created_at,
+       updated_at
+     ) VALUES (?, ?, ?, ?, 'sheets.update_range', 'sheet', ?, 'agent', ?, 'pending', '{"payloadHash":"sha256:test"}', '{}', ?, ?)`,
+  ).run(
+    `external-data-operation-${suffix}`,
+    workspaceId,
+    `external-integration-${suffix}`,
+    `external-resource-binding-${suffix}`,
+    `sht_${suffix}`,
+    `employee-${suffix}`,
+    now,
+    now,
+  );
+
+  db.prepare(
+    `INSERT INTO external_integration_event (
+       id,
+       workspace_id,
+       integration_id,
+       provider,
+       external_event_id,
+       event_type,
+       status,
+       payload_json,
+       received_at
+     ) VALUES (?, ?, ?, 'feishu', ?, 'im.message.receive_v1', 'received', '{}', ?)`,
+  ).run(
+    `external-integration-event-${suffix}`,
+    workspaceId,
+    `external-integration-${suffix}`,
+    `evt_${suffix}`,
+    now,
+  );
 
   db.prepare(
     `INSERT INTO workspace_employee (workspace_id, name, created_at, updated_at)

@@ -17,7 +17,13 @@ type JsonColumnName =
   | "state_json"
   | "metadata_json"
   | "config_json"
+  | "encrypted_credentials_json"
+  | "capabilities_json"
+  | "scopes_json"
+  | "permissions_json"
   | "input_json"
+  | "payload_json"
+  | "request_json"
   | "result_json"
   | "registry_json"
   | "command_plan_json"
@@ -32,6 +38,7 @@ interface TableMigrationPlan {
   sourceTableName?: string;
   conflictColumns: string[];
   jsonColumns?: JsonColumnName[];
+  optionalWhenMissing?: boolean;
   orderBy?: string;
 }
 
@@ -127,6 +134,62 @@ const TABLE_MIGRATION_PLANS: TableMigrationPlan[] = [
   { tableName: "google_oauth_credential", conflictColumns: ["workspace_id", "user_id"], orderBy: "created_at ASC, id ASC" },
   { tableName: "agent_google_workspace_delegation", conflictColumns: ["workspace_id", "employee_name", "user_id"], orderBy: "created_at ASC, id ASC" },
   {
+    tableName: "external_integration",
+    conflictColumns: ["id"],
+    jsonColumns: ["encrypted_credentials_json", "config_json", "capabilities_json", "scopes_json"],
+    optionalWhenMissing: true,
+    orderBy: "created_at ASC, id ASC",
+  },
+  {
+    tableName: "external_user_binding",
+    conflictColumns: ["id"],
+    jsonColumns: ["metadata_json"],
+    optionalWhenMissing: true,
+    orderBy: "created_at ASC, id ASC",
+  },
+  {
+    tableName: "external_channel_binding",
+    conflictColumns: ["id"],
+    jsonColumns: ["metadata_json"],
+    optionalWhenMissing: true,
+    orderBy: "created_at ASC, id ASC",
+  },
+  {
+    tableName: "external_resource_binding",
+    conflictColumns: ["id"],
+    jsonColumns: ["permissions_json", "metadata_json"],
+    optionalWhenMissing: true,
+    orderBy: "created_at ASC, id ASC",
+  },
+  {
+    tableName: "external_message_mapping",
+    conflictColumns: ["id"],
+    jsonColumns: ["metadata_json"],
+    optionalWhenMissing: true,
+    orderBy: "created_at ASC, id ASC",
+  },
+  {
+    tableName: "external_message_outbox",
+    conflictColumns: ["id"],
+    jsonColumns: ["payload_json"],
+    optionalWhenMissing: true,
+    orderBy: "created_at ASC, id ASC",
+  },
+  {
+    tableName: "external_data_operation_run",
+    conflictColumns: ["id"],
+    jsonColumns: ["request_json", "result_json"],
+    optionalWhenMissing: true,
+    orderBy: "created_at ASC, id ASC",
+  },
+  {
+    tableName: "external_integration_event",
+    conflictColumns: ["id"],
+    jsonColumns: ["payload_json"],
+    optionalWhenMissing: true,
+    orderBy: "received_at ASC, id ASC",
+  },
+  {
     tableName: "workspace_snapshot",
     sourceTableName: "legacy_workspace",
     conflictColumns: ["id"],
@@ -148,7 +211,7 @@ const TABLE_MIGRATION_PLANS: TableMigrationPlan[] = [
   { tableName: "workspace_runtime_grant", conflictColumns: ["workspace_id", "runtime_id", "user_id", "permission"], orderBy: "created_at ASC, id ASC" },
   { tableName: "document_agent_access", conflictColumns: ["workspace_id", "document_id", "subject_type", "subject_id"], orderBy: "created_at ASC, id ASC" },
   { tableName: "document_permission_request", conflictColumns: ["id"], orderBy: "created_at ASC, id ASC" },
-  { tableName: "agent_access_request", conflictColumns: ["id"], jsonColumns: ["audit_data_json"], orderBy: "created_at ASC, id ASC" },
+  { tableName: "agent_access_request", conflictColumns: ["id"], jsonColumns: ["audit_data_json"], optionalWhenMissing: true, orderBy: "created_at ASC, id ASC" },
   { tableName: "workspace_notification", conflictColumns: ["id"], jsonColumns: ["metadata_json"], orderBy: "created_at ASC, id ASC" },
   { tableName: "employee_runtime_binding", conflictColumns: ["workspace_id", "employee_name"], orderBy: "created_at ASC, workspace_id ASC, employee_name ASC" },
   { tableName: "runtime_app_catalog_item", conflictColumns: ["source", "name"], jsonColumns: ["registry_json"], orderBy: "synced_at ASC, source ASC, name ASC" },
@@ -161,12 +224,12 @@ const TABLE_MIGRATION_PLANS: TableMigrationPlan[] = [
   { tableName: "agent_skill", conflictColumns: ["workspace_id", "employee_name", "skill_id"], orderBy: "created_at ASC, workspace_id ASC, employee_name ASC, skill_id ASC" },
   { tableName: "knowledge_page_assignment_policy", conflictColumns: ["workspace_id", "knowledge_page_id"], orderBy: "updated_at ASC, workspace_id ASC, knowledge_page_id ASC" },
   { tableName: "agent_knowledge_page", conflictColumns: ["workspace_id", "employee_name", "knowledge_page_id"], orderBy: "created_at ASC, workspace_id ASC, employee_name ASC, knowledge_page_id ASC" },
-  { tableName: "agent_router_session", conflictColumns: ["id"], orderBy: "created_at ASC, id ASC" },
-  { tableName: "agent_router_provider_session", conflictColumns: ["id"], jsonColumns: ["metadata_json"], orderBy: "created_at ASC, id ASC" },
+  { tableName: "agent_router_session", conflictColumns: ["id"], optionalWhenMissing: true, orderBy: "created_at ASC, id ASC" },
+  { tableName: "agent_router_provider_session", conflictColumns: ["id"], jsonColumns: ["metadata_json"], optionalWhenMissing: true, orderBy: "created_at ASC, id ASC" },
   { tableName: "agent_task_queue", conflictColumns: ["id"], jsonColumns: ["input_json", "result_json"], orderBy: "created_at ASC, id ASC" },
-  { tableName: "agent_task_attempt", conflictColumns: ["id"], jsonColumns: ["metadata_json"], orderBy: "created_at ASC, id ASC" },
-  { tableName: "agent_router_event", conflictColumns: ["id"], jsonColumns: ["data_json"], orderBy: "created_at ASC, id ASC" },
-  { tableName: "agent_router_context_snapshot", conflictColumns: ["id"], jsonColumns: ["source_event_ids_json"], orderBy: "created_at ASC, id ASC" },
+  { tableName: "agent_task_attempt", conflictColumns: ["id"], jsonColumns: ["metadata_json"], optionalWhenMissing: true, orderBy: "created_at ASC, id ASC" },
+  { tableName: "agent_router_event", conflictColumns: ["id"], jsonColumns: ["data_json"], optionalWhenMissing: true, orderBy: "created_at ASC, id ASC" },
+  { tableName: "agent_router_context_snapshot", conflictColumns: ["id"], jsonColumns: ["source_event_ids_json"], optionalWhenMissing: true, orderBy: "created_at ASC, id ASC" },
   { tableName: "task_execution_event", conflictColumns: ["id"], jsonColumns: ["data_json"], orderBy: "created_at ASC, id ASC" },
   { tableName: "task_message", conflictColumns: ["id"], jsonColumns: ["input_json"], orderBy: "created_at ASC, task_id ASC, seq ASC" },
   { tableName: "model_pricing", conflictColumns: ["model_id"], orderBy: "model_id ASC" },
@@ -547,7 +610,9 @@ function readSqliteTableRowsSync(
 ): MigrationRow[] {
   const sourceTableName = plan.sourceTableName ?? plan.tableName;
   if (!sqliteTableExists(sourceDb, sourceTableName)) {
-    warnings.push(`SQLite source table "${sourceTableName}" does not exist and was skipped.`);
+    if (!plan.optionalWhenMissing) {
+      warnings.push(`SQLite source table "${sourceTableName}" does not exist and was skipped.`);
+    }
     return [];
   }
 

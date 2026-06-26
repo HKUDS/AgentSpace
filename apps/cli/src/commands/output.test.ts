@@ -4,6 +4,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { discardTaskOutputAttachments, loadTaskOutputEnvelope } from "agent-space-daemon";
+import {
+  FEISHU_RUNTIME_DATA_OPERATION_REQUESTS_KIND,
+  FEISHU_RUNTIME_DATA_OPERATION_REQUESTS_RELATIVE_PATH,
+} from "@agent-space/services";
 import { runOutputCommand } from "./output.ts";
 
 test("output attach creates and appends agent-output attachments", async () => {
@@ -609,6 +613,63 @@ test("output external-document create-google-sheet rejects mismatched gws result
       1,
     );
     assert.equal(existsSync(join(workDir, "runtime-output", "external-documents.json")), false);
+  } finally {
+    rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
+test("output feishu data-operation-approval writes controlled approval request manifest", async () => {
+  const workDir = mkdtempSync(join(tmpdir(), "agent-space-output-command-"));
+  try {
+    assert.equal(
+      await runOutputCommand(
+        "feishu",
+        [
+          "data-operation-approval",
+          "--operation",
+          "sheets.update_range",
+          "--type",
+          "sheet",
+          "--resource",
+          "shtcnABC123",
+          "--range",
+          "Sheet1!A1:B1",
+          "--values-json",
+          "[[\"AgentSpace smoke\"]]",
+          "--preview",
+          "Update smoke range",
+          "--work-dir",
+          workDir,
+        ],
+        "text",
+      ),
+      0,
+    );
+    assert.equal(await runOutputCommand("validate", ["--work-dir", workDir], "text"), 0);
+
+    const manifest = JSON.parse(
+      readFileSync(join(workDir, FEISHU_RUNTIME_DATA_OPERATION_REQUESTS_RELATIVE_PATH), "utf8"),
+    ) as {
+      kind?: string;
+      generatedBy?: string;
+      requests?: Array<{
+        operationType?: string;
+        providerResourceType?: string;
+        providerResourceToken?: string;
+        parameters?: Record<string, unknown>;
+        contentPreview?: string;
+      }>;
+    };
+    assert.equal(manifest.kind, FEISHU_RUNTIME_DATA_OPERATION_REQUESTS_KIND);
+    assert.equal(manifest.generatedBy, "agent-space-cli");
+    assert.equal(manifest.requests?.[0]?.operationType, "sheets.update_range");
+    assert.equal(manifest.requests?.[0]?.providerResourceType, "sheet");
+    assert.equal(manifest.requests?.[0]?.providerResourceToken, "shtcnABC123");
+    assert.deepEqual(manifest.requests?.[0]?.parameters, {
+      range: "Sheet1!A1:B1",
+      values: [["AgentSpace smoke"]],
+    });
+    assert.equal(manifest.requests?.[0]?.contentPreview, "Update smoke range");
   } finally {
     rmSync(workDir, { recursive: true, force: true });
   }

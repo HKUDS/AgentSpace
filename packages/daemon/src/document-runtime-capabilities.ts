@@ -1,10 +1,15 @@
 import type { RuntimeToolCapability } from "@agent-space/domain";
-import type { AgentDocumentContext } from "@agent-space/services";
+import {
+  buildFeishuLarkCliRuntimeToolCapability,
+  type AgentDocumentContext,
+  type FeishuLarkCliResourceGrant,
+} from "@agent-space/services";
 
 export function buildDocumentRuntimeToolCapabilities(
   agentDocumentContexts: AgentDocumentContext[],
   options?: {
     canCreateGoogleSheet?: boolean;
+    feishuLarkCliResourceGrants?: FeishuLarkCliResourceGrant[];
   },
 ): RuntimeToolCapability[] {
   const hasReadableGoogleWorkspaceDocument = agentDocumentContexts.some(({ document, allowedActions }) =>
@@ -31,6 +36,9 @@ export function buildDocumentRuntimeToolCapabilities(
     document.externalProvider === "google_workspace",
   );
   const hasEditableDocument = agentDocumentContexts.some(({ allowedActions }) => allowedActions.includes("edit"));
+  const hasWritableFeishuResource = options?.feishuLarkCliResourceGrants?.some((grant) =>
+    grant.allowedOperations?.includes("write")
+  ) ?? false;
 
   const capabilities: RuntimeToolCapability[] = [
     {
@@ -55,6 +63,7 @@ export function buildDocumentRuntimeToolCapabilities(
         ...(hasForwardableGoogleSheet ? ["agent-space output external-document link-google-sheet *"] : []),
         ...(options?.canCreateGoogleSheet ? ["agent-space output external-document create-google-sheet *"] : []),
         ...(hasWritableGoogleDoc ? ["agent-space output google-docs *"] : []),
+        ...(hasWritableFeishuResource ? ["agent-space output feishu data-operation-approval *"] : []),
       ],
       source: "workspace",
     },
@@ -85,6 +94,16 @@ export function buildDocumentRuntimeToolCapabilities(
       ],
       source: "workspace",
     });
+  }
+
+  const feishuLarkCliCapability = buildFeishuLarkCliRuntimeToolCapability({
+    id: "document-permission:feishu-lark-cli",
+    source: "workspace",
+    includeDiagnostics: Boolean(options?.feishuLarkCliResourceGrants?.length),
+    resourceGrants: options?.feishuLarkCliResourceGrants ?? [],
+  });
+  if (feishuLarkCliCapability) {
+    capabilities.push(feishuLarkCliCapability);
   }
 
   return capabilities;

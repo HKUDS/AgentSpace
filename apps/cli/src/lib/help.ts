@@ -20,6 +20,8 @@ Commands:
   workspace init            Initialize workspace; use --reset to clear current state
   im channels               List IM channels
   im feed                   Show recent collaboration feed
+  integrations outbox       Drain external integration outbox
+  integrations feishu       Start/dry-run Feishu worker and inspect readiness/smoke plan
   channel list              List channels
   channel create            Create a new channel
   employee list             List active digital employees
@@ -62,6 +64,13 @@ Examples:
   agent-space workspace status
   agent-space workspace context list-entities --json
   agent-space im channels --json
+  agent-space integrations outbox drain --workspace-id default --limit 10 --json
+  agent-space integrations feishu worker --dry-run --include-webhook --json
+  agent-space integrations feishu readiness --workspace-id default --strict --require data-plane --json
+  agent-space integrations feishu health-check --workspace-id default --json
+  agent-space integrations feishu evidence --workspace-id default --openapi-evidence runtime-output/feishu-smoke/live.json --strict --require all --json
+  agent-space integrations feishu smoke-plan --workspace-id default --app-url https://agentspace.example.com --json
+  agent-space integrations feishu smoke-env --workspace-id default --integration feishu-1 --app-url https://agentspace.example.com
   agent-space employee create --name Vega --role "发布协调员" --traits 发布窗口,跨组协调
   agent-space employee create --name Nova --role "值守协调员" --channel general
   agent-space material add --source "客户录音" --status "待转写"
@@ -123,6 +132,32 @@ export function printCommandHelp(command: string): void {
     console.log(`Usage:
   agent-space im channels [--json]
   agent-space im feed [--json]`);
+    return;
+  }
+
+  if (command === "integrations") {
+    console.log(`Usage:
+  agent-space integrations outbox drain [--workspace-id <id>] [--integration <id>] [--limit <n>] [--base-url <url>] [--locked-by <id>] [--json]
+  agent-space integrations feishu worker [--workspace-id <id>] [--integration <id>] [--limit <n>] [--base-url <url>] [--domain <host>] [--locked-by <id>] [--dry-run] [--include-webhook] [--drain-outbox|--once] [--json]
+  agent-space integrations feishu readiness [--workspace-id <id>] [--integration <id>] [--strict] [--require bot|data-plane|worker] [--json]
+  agent-space integrations feishu smoke-plan [--workspace-id <id>] [--integration <id>] [--app-url <url>] [--strict] [--require bot|data-plane|worker] [--json]
+  agent-space integrations feishu smoke-env [--workspace-id <id>] [--integration <id>] [--app-url <url>] [--json]
+  agent-space integrations feishu health-check [--workspace-id <id>] [--integration <id>] [--base-url <url>] [--dry-run] [--strict] [--json]
+  agent-space integrations feishu evidence [--workspace-id <id>] [--integration <id>] [--openapi-evidence <path>] [--strict] [--require bot|data-plane|worker|failure|all] [--json]
+  agent-space integrations feishu data-operation --workspace-id <id> --integration <id> --operation read-doc|read-sheet|query-base|plan-sheet-write|plan-base-update --resource <url-or-token> [--range <sheet-range>] [--json]
+  agent-space integrations feishu bind-channel --workspace-id <id> --integration <id> --channel <name> --chat-id <oc_xxx> [--json]
+  agent-space integrations feishu bind-user --workspace-id <id> --integration <id> --user-id <agent-space-user-id> --open-id <ou_xxx> [--json]
+  agent-space integrations feishu bind-resource --workspace-id <id> --integration <id> --type doc|sheet|base|base_table|base_view --resource <url-or-token> --agent-space-type channel_document|data_table|knowledge_page [--allow-write] [--json]
+
+Examples:
+  agent-space integrations feishu worker --dry-run --include-webhook --json
+  agent-space integrations feishu worker --workspace-id default --integration feishu-1 --once --json
+  agent-space integrations feishu readiness --workspace-id default --strict --require data-plane --json
+  agent-space integrations feishu smoke-plan --workspace-id default --app-url https://agentspace.example.com --json
+  agent-space integrations feishu smoke-env --workspace-id default --integration feishu-1 --app-url https://agentspace.example.com
+  agent-space integrations feishu health-check --workspace-id default --json
+  agent-space integrations feishu evidence --workspace-id default --openapi-evidence runtime-output/feishu-smoke/live.json --strict --require all --json
+  agent-space integrations feishu bind-channel --workspace-id default --integration feishu-1 --channel general --chat-id oc_xxx --json`);
     return;
   }
 
@@ -188,6 +223,7 @@ export function printCommandHelp(command: string): void {
   agent-space output sheets-result add --document-id <id> --operation read|append_rows|update_values|batch_update --result-json runtime-output/artifacts/sheets/result.json [--range <A1>] [--summary <text>] [--request-summary <text>] [--json]
   agent-space output google-docs append-text --document-id <doc-id> --intent <text> --text-file runtime-output/artifacts/docs/summary.md [--request-summary <text>] [--json]
   agent-space output google-docs batch-update --document-id <doc-id> --intent <text> --requests-json runtime-output/artifacts/docs/requests.json [--request-summary <text>] [--json]
+  agent-space output feishu data-operation-approval --operation docs.update_document|sheets.update_range|base.mutate_records --type doc|sheet|base_table --resource <bound-feishu-token> [--parameters-json <json>] [--preview <text>] [--json]
   agent-space output validate [--work-dir <path>] [--json]
   agent-space output preview [--work-dir <path>] [--json]`);
     return;

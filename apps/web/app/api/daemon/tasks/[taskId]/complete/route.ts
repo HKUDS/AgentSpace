@@ -1,4 +1,5 @@
 import { appendTaskMessageSync, completeQueuedTaskSync, failQueuedTaskSync, readAgentRuntimeSync } from "@agent-space/db";
+import type { MessageAttachment } from "@agent-space/domain/workspace";
 import {
   applyDocumentRuntimeOutputOperations,
   applyChannelDocumentOperations,
@@ -16,7 +17,12 @@ import {
   failChannelDocumentRunStepSync,
   formatConversationFailureSummary,
   formatTaskFailureSummary,
+  applyFeishuLarkCliResultManifestOperations,
+  applyFeishuRuntimeDataOperationRequests,
+  listFeishuLarkCliResourceGrantsForChannelSync,
   postMessageSync,
+  queueFeishuAgentStatusCardOutboxSync,
+  queueFeishuChannelReplyOutboxSync,
   readWorkspaceStateSync,
   replacePendingChannelMessageSync,
   resolveCompatibleDirectChannelRecord,
@@ -26,6 +32,7 @@ import {
   upsertDirectConversationStateSync,
   updateTaskStatusSync,
   writeWorkspaceStateSync,
+  type FeishuAgentStatusCardStatus,
 } from "@agent-space/services";
 import { readTaskForWorkspace, requireDaemonAuth } from "../../../_lib/auth";
 import {
@@ -108,6 +115,25 @@ export async function POST(
       requestedByUserId: task.requestedByUserId,
       requestedByDisplayName: task.requestedByDisplayName,
     });
+    const feishuLarkCliResourceGrants = listFeishuLarkCliResourceGrantsForChannelSync({
+      workspaceId: task.workspaceId,
+      channelName: effectiveChannelName,
+    });
+    const feishuLarkCliResultOperations = applyFeishuLarkCliResultManifestOperations({
+      workDir: stagingDir,
+      workspaceId: task.workspaceId,
+      actorName: payload.assignee ?? task.agentId,
+      resourceGrants: feishuLarkCliResourceGrants,
+    });
+    const feishuRuntimeDataOperationRequests = await applyFeishuRuntimeDataOperationRequests({
+      workDir: stagingDir,
+      workspaceId: task.workspaceId,
+      actorName: payload.assignee ?? task.agentId,
+      sourceTaskQueueId: task.id,
+      sourceChannelName: effectiveChannelName,
+      sourceAgentSpaceMessageId: payload.sourceMessageId,
+      resourceGrants: feishuLarkCliResourceGrants,
+    });
     const createdSheetPermissionSync = await syncAgentCreatedGoogleSheetPermissions({
       workspaceId: task.workspaceId,
       actorName: payload.assignee ?? task.agentId,
@@ -183,6 +209,34 @@ export async function POST(
         content: message,
       });
     }
+    for (const message of feishuLarkCliResultOperations.statusMessages) {
+      appendTaskMessageSync({
+        taskId: task.id,
+        type: "status",
+        content: message,
+      });
+    }
+    for (const warning of feishuLarkCliResultOperations.warnings) {
+      appendTaskMessageSync({
+        taskId: task.id,
+        type: "status",
+        content: warning,
+      });
+    }
+    for (const message of feishuRuntimeDataOperationRequests.statusMessages) {
+      appendTaskMessageSync({
+        taskId: task.id,
+        type: "status",
+        content: message,
+      });
+    }
+    for (const warning of feishuRuntimeDataOperationRequests.warnings) {
+      appendTaskMessageSync({
+        taskId: task.id,
+        type: "status",
+        content: warning,
+      });
+    }
     for (const message of knowledgeProposalOperations.statusMessages) {
       appendTaskMessageSync({
         taskId: task.id,
@@ -241,6 +295,9 @@ export async function POST(
         skillImports: skillImportOperations.imports,
         documentUpdates: documentOperations.documentUpdates,
         externalDocumentLinks: documentRuntimeOutputOperations.externalDocumentLinks,
+        feishuLarkCliDataOperationRunIds: feishuLarkCliResultOperations.operationRunIds,
+        feishuRuntimeDataOperationRunIds: feishuRuntimeDataOperationRequests.operationRunIds,
+        feishuRuntimeDataOperationApprovalIds: feishuRuntimeDataOperationRequests.approvalIds,
         documentPermissionRequests: documentRuntimeOutputOperations.permissionRequests,
         knowledgeProposals: knowledgeProposalOperations.knowledgeProposals,
         externalSheetOperations: externalSheetOperations.operations,
@@ -283,6 +340,26 @@ export async function POST(
           taskId: task.id,
           type: "status",
           content: warning,
+        });
+      }
+      for (const statusMessage of enqueueFeishuReplyOutboxBestEffort({
+        workspaceId: task.workspaceId,
+        channelName: payload.channel,
+        text: finalOutputText,
+        attachments: outputEnvelope.attachments,
+        agentSpaceMessageId: replyResult.message.id,
+        sourceAgentSpaceMessageId: payload.sourceMessageId,
+        statusCard: {
+          status: "complete",
+          agentNames: [payload.assignee ?? task.agentId],
+          message: finalOutputText,
+          taskId: task.id,
+        },
+      })) {
+        appendTaskMessageSync({
+          taskId: task.id,
+          type: "status",
+          content: statusMessage,
         });
       }
       writeConversationExecutionWorkspaceStateSync({
@@ -335,6 +412,26 @@ export async function POST(
           taskId: task.id,
           type: "status",
           content: warning,
+        });
+      }
+      for (const statusMessage of enqueueFeishuReplyOutboxBestEffort({
+        workspaceId: task.workspaceId,
+        channelName: payload.channel,
+        text: finalOutputText,
+        attachments: outputEnvelope.attachments,
+        agentSpaceMessageId: replyResult.message.id,
+        sourceAgentSpaceMessageId: payload.sourceMessageId,
+        statusCard: {
+          status: "complete",
+          agentNames: [payload.assignee ?? task.agentId],
+          message: finalOutputText,
+          taskId: task.id,
+        },
+      })) {
+        appendTaskMessageSync({
+          taskId: task.id,
+          type: "status",
+          content: statusMessage,
         });
       }
       writeConversationExecutionWorkspaceStateSync({
@@ -400,19 +497,32 @@ export async function POST(
       );
     }
     if (effectiveChannelName && payload.channel) {
+      const failureSummary = formatConversationFailureSummary({
+        agentName: payload.assignee ?? task.agentId,
+        channelName: payload.channel,
+        errorText: message,
+        isDirectConversation: Boolean(payload.contactId),
+      });
       replacePendingChannelMessageSync({
         channel: payload.channel,
         pendingSpeaker: payload.assignee ?? task.agentId,
         speaker: "系统提示",
         role: "agent",
-        summary: formatConversationFailureSummary({
-          agentName: payload.assignee ?? task.agentId,
-          channelName: payload.channel,
-          errorText: message,
-          isDirectConversation: Boolean(payload.contactId),
-        }),
+        summary: failureSummary,
         status: "error",
       }, task.workspaceId);
+      for (const statusMessage of enqueueFeishuReplyOutboxBestEffort({
+        workspaceId: task.workspaceId,
+        channelName: payload.channel,
+        text: failureSummary,
+        sourceAgentSpaceMessageId: payload.sourceMessageId,
+      })) {
+        appendTaskMessageSync({
+          taskId: task.id,
+          type: "status",
+          content: statusMessage,
+        });
+      }
       writeConversationExecutionWorkspaceStateSync({
         channelName: payload.channel,
         agentId: payload.assignee ?? task.agentId,
@@ -445,16 +555,29 @@ export async function POST(
         workDir: body.workDir,
       }, task.workspaceId);
     } else if (payload.channel) {
+      const failureSummary = formatTaskFailureSummary({
+        title: payload.title || task.id,
+        errorText: message,
+      });
       postMessageSync({
         channel: payload.channel,
         speaker: "系统提示",
         role: "agent",
-        summary: formatTaskFailureSummary({
-          title: payload.title || task.id,
-          errorText: message,
-        }),
+        summary: failureSummary,
         status: "error",
       }, task.workspaceId);
+      for (const statusMessage of enqueueFeishuReplyOutboxBestEffort({
+        workspaceId: task.workspaceId,
+        channelName: payload.channel,
+        text: failureSummary,
+        sourceAgentSpaceMessageId: payload.sourceMessageId,
+      })) {
+        appendTaskMessageSync({
+          taskId: task.id,
+          type: "status",
+          content: statusMessage,
+        });
+      }
       writeConversationExecutionWorkspaceStateSync({
         channelName: payload.channel,
         agentId: payload.assignee ?? task.agentId,
@@ -474,6 +597,42 @@ export async function POST(
     return Response.json({ error: message }, { status: 500 });
   } finally {
     clearDaemonTaskOutputStaging(task.id, task.workspaceId);
+  }
+}
+
+function enqueueFeishuReplyOutboxBestEffort(input: {
+  workspaceId: string;
+  channelName: string;
+  text: string;
+  attachments?: MessageAttachment[];
+  agentSpaceMessageId?: string;
+  sourceAgentSpaceMessageId?: string;
+  statusCard?: {
+    status: FeishuAgentStatusCardStatus;
+    agentNames: string[];
+    message?: string;
+    taskId?: string;
+  };
+}): string[] {
+  try {
+    const statusCardItems = input.statusCard
+      ? queueFeishuAgentStatusCardOutboxSync({
+          workspaceId: input.workspaceId,
+          channelName: input.channelName,
+          status: input.statusCard.status,
+          agentNames: input.statusCard.agentNames,
+          message: input.statusCard.message,
+          taskId: input.statusCard.taskId,
+          agentSpaceMessageId: input.agentSpaceMessageId,
+          sourceAgentSpaceMessageId: input.sourceAgentSpaceMessageId,
+        })
+      : [];
+    const replyOutboxItems = queueFeishuChannelReplyOutboxSync(input);
+    const queuedCount = statusCardItems.length + replyOutboxItems.length;
+    return queuedCount > 0 ? [`Feishu outbound queued: ${queuedCount} message(s).`] : [];
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return [`Feishu outbound enqueue failed: ${message}`];
   }
 }
 

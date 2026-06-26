@@ -11,15 +11,22 @@ import {
   listRuntimeGrantsSync,
   listDaemonSnapshotsSync,
   listQueuedTasksSync,
+  readQueuedTaskSync,
   listRuntimeInstalledAppsSync,
   listTaskExecutionEventsSync,
   readWorkspaceSync,
   registerDaemonRuntimesSync,
   createRuntimeAppOperationSync,
   completeRuntimeAppOperationSync,
+  createExternalIntegrationSync,
+  listExternalDataOperationRunsSync,
+  createExternalMessageMappingSync,
   upsertRuntimeAppCatalogItemsSync,
   upsertAgentGoogleWorkspaceDelegationSync,
   upsertGoogleOAuthCredentialSync,
+  listPendingExternalMessageOutboxSync,
+  upsertExternalChannelBindingSync,
+  upsertExternalResourceBindingSync,
 } from "@agent-space/db";
 import { getDatabase } from "@agent-space/db/database";
 import {
@@ -28,6 +35,8 @@ import {
   createEmployeeSync,
   createExternalGoogleSheetChannelDocumentSync,
   createWorkspaceSkillSync,
+  FEISHU_LARK_CLI_RESULT_MANIFEST_KIND,
+  FEISHU_LARK_CLI_RESULT_MANIFEST_RELATIVE_PATH,
   grantDocumentAgentAccessSync,
   initializeOrganizationSync,
   readWorkspaceStateSync,
@@ -119,6 +128,14 @@ beforeEach(() => {
   db.exec("DELETE FROM daemon_api_token");
   db.exec("DELETE FROM agent_google_workspace_delegation");
   db.exec("DELETE FROM google_oauth_credential");
+  db.exec("DELETE FROM external_message_outbox");
+  db.exec("DELETE FROM external_message_mapping");
+  db.exec("DELETE FROM external_data_operation_run");
+  db.exec("DELETE FROM external_resource_binding");
+  db.exec("DELETE FROM external_channel_binding");
+  db.exec("DELETE FROM external_user_binding");
+  db.exec("DELETE FROM external_integration_event");
+  db.exec("DELETE FROM external_integration");
   vi.unstubAllEnvs();
   mockGetGoogleWorkspaceAccessTokenForAgent.mockReset();
   mockGetGoogleWorkspaceAccessTokenForAgent.mockResolvedValue({
@@ -1285,6 +1302,161 @@ describe("daemon API routes", () => {
     expect(run?.resultArtifactPath).toContain("external-sheet-results");
   });
 
+  it("processes Feishu lark-cli result manifests into data operation evidence", async () => {
+    const daemonToken = createDaemonApiTokenSync({
+      label: "remote-daemon",
+      createdBy: "Tianyu",
+    });
+
+    const registerResponse = await registerPOST(
+      new Request("http://localhost/api/daemon/register", {
+        method: "POST",
+        headers: daemonHeaders(daemonToken.token),
+        body: JSON.stringify({
+          daemonKey: "build-box-feishu-lark-cli-result",
+          deviceName: "Build Box Feishu Lark CLI Result",
+          runtimes: [
+            {
+              provider: "codex",
+              name: "Remote Codex",
+              version: "test",
+            },
+          ],
+        }),
+      }),
+    );
+    const registerPayload = await registerResponse.json();
+    const runtimeId = registerPayload.runtimes[0].id as string;
+
+    createEmployeeSync({
+      name: "Atlas",
+      role: "Planner",
+    });
+    addChannelEmployeesSync({ channelName: "tour visit", employeeNames: ["Atlas"] });
+    bindEmployeeRuntimeSync("Atlas", runtimeId);
+
+    const integration = createExternalIntegrationSync({
+      provider: "feishu",
+      displayName: "Feishu",
+      transportMode: "http_webhook",
+      appId: "cli_test",
+      encryptedCredentialsJson: {},
+      configJson: {},
+      capabilitiesJson: {},
+      scopesJson: [],
+    });
+    const resourceBinding = upsertExternalResourceBindingSync({
+      integrationId: integration.id,
+      providerResourceType: "doc",
+      providerResourceToken: "doccnRoute123",
+      providerResourceUrl: "https://example.feishu.cn/docx/doccnRoute123",
+      agentSpaceResourceType: "channel_document",
+      agentSpaceResourceId: "channel-document-feishu-doc",
+      channelName: "tour visit",
+      displayName: "Quarterly Roadmap",
+      permissionsJson: {
+        canWrite: false,
+      },
+      metadataJson: {},
+    });
+
+    const queued = enqueueNativeTaskSync({
+      assignee: "Atlas",
+      title: "Read Feishu doc",
+      priority: "medium",
+      triggerType: "manual",
+      metadata: {
+        title: "Read Feishu doc",
+        channel: "tour visit",
+        channelName: "tour visit",
+      },
+    });
+
+    const outputBundleResponse = await outputBundlePOST(
+      new Request(`http://localhost/api/daemon/tasks/${queued?.id}/output-bundle`, {
+        method: "POST",
+        headers: daemonHeaders(daemonToken.token),
+        body: JSON.stringify({
+          version: 1,
+          format: "json-inline-v1",
+          files: [
+            {
+              path: FEISHU_LARK_CLI_RESULT_MANIFEST_RELATIVE_PATH,
+              contentBase64: Buffer.from(
+                JSON.stringify({
+                  kind: FEISHU_LARK_CLI_RESULT_MANIFEST_KIND,
+                  schemaVersion: 1,
+                  ok: true,
+                  operationType: "docs.read_document",
+                  providerResourceType: "doc",
+                  providerResourceToken: "doccnRoute123",
+                  responseSummary: "Fetched Quarterly Roadmap content.",
+                  data: {
+                    documentId: "doccnRoute123",
+                    blockCount: 8,
+                  },
+                }),
+                "utf8",
+              ).toString("base64"),
+            },
+          ],
+        }),
+      }),
+      { params: Promise.resolve({ taskId: queued!.id }) },
+    );
+
+    expect(outputBundleResponse.status).toBe(202);
+
+    const completeResponse = await completePOST(
+      new Request(`http://localhost/api/daemon/tasks/${queued?.id}/complete`, {
+        method: "POST",
+        headers: daemonHeaders(daemonToken.token),
+        body: JSON.stringify({
+          outputText: "已读取飞书文档。",
+        }),
+      }),
+      { params: Promise.resolve({ taskId: queued!.id }) },
+    );
+    const completePayload = await completeResponse.json();
+
+    expect(completeResponse.status).toBe(200);
+    expect(completePayload.task.status).toBe("completed");
+
+    const runs = listExternalDataOperationRunsSync({
+      workspaceId: "default",
+      integrationId: integration.id,
+      resourceBindingId: resourceBinding.id,
+      limit: 5,
+    });
+    expect(runs).toHaveLength(1);
+    const run = runs[0]!;
+    expect(run).toMatchObject({
+      status: "succeeded",
+      operationType: "docs.read_document",
+      providerResourceType: "doc",
+      providerResourceToken: "doccnRoute123",
+      actorType: "agent",
+      actorId: "Atlas",
+    });
+    const resultJson = JSON.parse(run.resultJson) as {
+      responseSummaryRedacted?: boolean;
+      runtimeResultManifest?: {
+        path?: string;
+      };
+    };
+    expect(resultJson.responseSummaryRedacted).toBe(true);
+    expect(resultJson.runtimeResultManifest?.path).toBe(FEISHU_LARK_CLI_RESULT_MANIFEST_RELATIVE_PATH);
+    expect(JSON.stringify(resultJson)).not.toContain("Quarterly Roadmap");
+    expect(JSON.stringify(resultJson)).not.toContain("doccnRoute123");
+
+    const completedTask = readQueuedTaskSync(queued!.id);
+    expect(completedTask?.resultJson).toBeTruthy();
+    const taskResult = JSON.parse(completedTask!.resultJson!) as {
+      feishuLarkCliDataOperationRunIds?: string[];
+    };
+    expect(taskResult.feishuLarkCliDataOperationRunIds).toEqual([run.id]);
+  });
+
   it("processes agent-created Google Sheet manifests into channel documents", async () => {
     const daemonToken = createDaemonApiTokenSync({
       label: "remote-daemon",
@@ -1905,6 +2077,109 @@ describe("daemon API routes", () => {
     expect(channelMessages[0]?.summary).not.toContain("在群聊");
   });
 
+  it("queues a Feishu outbox reply when a remote mention_chat task fails", async () => {
+    const daemonToken = createDaemonApiTokenSync({
+      label: "remote-daemon",
+      createdBy: "Tianyu",
+    });
+
+    const registerResponse = await registerPOST(
+      new Request("http://localhost/api/daemon/register", {
+        method: "POST",
+        headers: daemonHeaders(daemonToken.token),
+        body: JSON.stringify({
+          daemonKey: "build-box-feishu-fail",
+          deviceName: "Build Box Feishu Fail",
+          runtimes: [
+            {
+              provider: "codex",
+              name: "Remote Codex",
+              version: "test",
+            },
+          ],
+        }),
+      }),
+    );
+    const registerPayload = await registerResponse.json();
+    const runtimeId = registerPayload.runtimes[0].id as string;
+
+    createEmployeeSync({
+      name: "Atlas",
+      role: "Planner",
+    });
+    bindEmployeeRuntimeSync("Atlas", runtimeId);
+    addChannelEmployeesSync({ channelName: "tour visit", employeeNames: ["Atlas"] });
+    sendChannelHumanMessageSync("tour visit", "Tianyu", "@Atlas 请补全大阪行程安排。");
+    const sourceMessage = readWorkspaceStateSync().messages.find(
+      (message) =>
+        message.channel === "tour visit" &&
+        message.role === "human" &&
+        message.summary === "@Atlas 请补全大阪行程安排。",
+    );
+    expect(sourceMessage?.id).toBeTruthy();
+
+    const integration = createExternalIntegrationSync({
+      provider: "feishu",
+      displayName: "Feishu",
+      transportMode: "http_webhook",
+      appId: "cli_test",
+      encryptedCredentialsJson: {},
+      configJson: {},
+      capabilitiesJson: {},
+      scopesJson: [],
+    });
+    const channelBinding = upsertExternalChannelBindingSync({
+      integrationId: integration.id,
+      channelName: "tour visit",
+      externalChatId: "oc_tour",
+      externalChatType: "group",
+      externalChatName: "tour visit",
+      status: "active",
+      syncMode: "mirror",
+    });
+    createExternalMessageMappingSync({
+      integrationId: integration.id,
+      channelBindingId: channelBinding.id,
+      direction: "inbound",
+      externalMessageId: "om_source",
+      externalThreadId: "om_root",
+      externalSenderId: "ou_tianyu",
+      agentSpaceMessageId: sourceMessage!.id,
+      metadataJson: {},
+    });
+
+    const queued = listQueuedTasksSync().find((task) => task.agentId === "Atlas" && task.triggerType === "mention_chat");
+    expect(queued?.id).toBeTruthy();
+
+    const failResponse = await failPOST(
+      new Request(`http://localhost/api/daemon/tasks/${queued?.id}/fail`, {
+        method: "POST",
+        headers: daemonHeaders(daemonToken.token),
+        body: JSON.stringify({
+          errorText: "temporary failure",
+        }),
+      }),
+      { params: Promise.resolve({ taskId: queued!.id }) },
+    );
+
+    expect(failResponse.status).toBe(200);
+    const outbox = listPendingExternalMessageOutboxSync({
+      integrationId: integration.id,
+      limit: 10,
+    });
+    expect(outbox).toHaveLength(1);
+    expect(outbox[0]?.channelBindingId).toBe(channelBinding.id);
+    expect(outbox[0]?.agentSpaceMessageId).toBeUndefined();
+    expect(outbox[0]?.targetExternalChatId).toBe("oc_tour");
+    expect(outbox[0]?.targetExternalThreadId).toBe("om_root");
+    const outboundPayload = JSON.parse(outbox[0]!.payloadJson) as {
+      reply_to_message_id?: string;
+      content?: string;
+    };
+    expect(outboundPayload.reply_to_message_id).toBe("om_root");
+    expect(JSON.parse(outboundPayload.content ?? "{}").text).toContain("temporary failure");
+  });
+
   it("completes a remote mention_chat task and replaces the pending channel reply", async () => {
     const daemonToken = createDaemonApiTokenSync({
       label: "remote-daemon",
@@ -1960,6 +2235,43 @@ describe("daemon API routes", () => {
     );
     writeWorkspaceStateSync(stateWithMembership);
     sendChannelHumanMessageSync("tour visit", "Tianyu", "@Atlas 请补全大阪行程安排。");
+    const sourceMessage = readWorkspaceStateSync().messages.find(
+      (message) =>
+        message.channel === "tour visit" &&
+        message.role === "human" &&
+        message.summary === "@Atlas 请补全大阪行程安排。",
+    );
+    expect(sourceMessage?.id).toBeTruthy();
+
+    const integration = createExternalIntegrationSync({
+      provider: "feishu",
+      displayName: "Feishu",
+      transportMode: "http_webhook",
+      appId: "cli_test",
+      encryptedCredentialsJson: {},
+      configJson: {},
+      capabilitiesJson: {},
+      scopesJson: [],
+    });
+    const channelBinding = upsertExternalChannelBindingSync({
+      integrationId: integration.id,
+      channelName: "tour visit",
+      externalChatId: "oc_tour",
+      externalChatType: "group",
+      externalChatName: "tour visit",
+      status: "active",
+      syncMode: "mirror",
+    });
+    createExternalMessageMappingSync({
+      integrationId: integration.id,
+      channelBindingId: channelBinding.id,
+      direction: "inbound",
+      externalMessageId: "om_source",
+      externalThreadId: "om_root",
+      externalSenderId: "ou_tianyu",
+      agentSpaceMessageId: sourceMessage!.id,
+      metadataJson: {},
+    });
 
     const queued = listQueuedTasksSync().find((task) => task.agentId === "Atlas" && task.triggerType === "mention_chat");
     expect(queued?.id).toBeTruthy();
@@ -1996,5 +2308,37 @@ describe("daemon API routes", () => {
     expect(payload.sourceMessageId).toBe(atlasReply?.id);
     expect(payload.sourceTaskQueueId).toBe(queued?.id);
     expect(payload.channelMessage).toBe("@Nova 我已经补全了大阪段的安排，请你继续检查预算。");
+
+    const outbox = listPendingExternalMessageOutboxSync({
+      integrationId: integration.id,
+      limit: 10,
+    });
+    expect(outbox).toHaveLength(2);
+    for (const item of outbox) {
+      expect(item.channelBindingId).toBe(channelBinding.id);
+      expect(item.agentSpaceMessageId).toBe(atlasReply?.id);
+      expect(item.targetExternalChatId).toBe("oc_tour");
+      expect(item.targetExternalThreadId).toBe("om_root");
+    }
+    const outboundPayloads = outbox.map((item) => JSON.parse(item.payloadJson) as {
+      receive_id_type?: string;
+      receive_id?: string;
+      reply_to_message_id?: string;
+      msg_type?: string;
+      content?: string;
+    });
+    const textPayload = outboundPayloads.find((payload) => payload.msg_type === "text");
+    const cardPayload = outboundPayloads.find((payload) => payload.msg_type === "interactive");
+    expect(textPayload).toBeTruthy();
+    expect(cardPayload).toBeTruthy();
+    for (const payloadItem of outboundPayloads) {
+      expect(payloadItem.receive_id_type).toBe("chat_id");
+      expect(payloadItem.receive_id).toBe("oc_tour");
+      expect(payloadItem.reply_to_message_id).toBe("om_root");
+    }
+    expect(JSON.parse(textPayload?.content ?? "{}")).toMatchObject({
+      text: "@Nova 我已经补全了大阪段的安排，请你继续检查预算。",
+    });
+    expect(cardPayload?.content).toContain("Atlas");
   });
 });

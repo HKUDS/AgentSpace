@@ -7,6 +7,7 @@ import { runDevCommand } from "./commands/dev.ts";
 import { runDoctorCommand } from "./commands/doctor.ts";
 import { runEmployeeCommand } from "./commands/employee.ts";
 import { runImCommand } from "./commands/im.ts";
+import { runIntegrationsCommand } from "./commands/integrations/index.ts";
 import { runMaterialCommand } from "./commands/material.ts";
 import { runMessageCommand } from "./commands/message.ts";
 import { runOutputCommand } from "./commands/output.ts";
@@ -61,6 +62,10 @@ export async function main(): Promise<number> {
 
   if (command === "im") {
     return runImCommand(actualSubcommand, format);
+  }
+
+  if (command === "integrations") {
+    return runIntegrationsCommand(actualSubcommand, actualArgs, format);
   }
 
   if (command === "channel") {

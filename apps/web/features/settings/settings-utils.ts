@@ -110,6 +110,117 @@ export function translateSettingsActionError(error: unknown, tx: SettingsTx): st
       return tx("该群邀请已经处理过。", "This channel invitation has already been handled.");
     case "channel.invitation.email_mismatch":
       return tx("当前账号邮箱与群邀请邮箱不一致。", "This account email does not match the channel invitation email.");
+    case "feishu.integration.missing_app_id":
+      return tx("请填写飞书 App ID。", "Feishu App ID is required.");
+    case "feishu.integration.missing_app_secret":
+      return tx("请填写飞书 App Secret。", "Feishu App Secret is required.");
+    case "feishu.integration.missing_verification_token":
+      return tx("请填写飞书 Verification Token。", "Feishu Verification Token is required.");
+    case "feishu.integration.invalid_transport_mode":
+      return tx("请选择有效的飞书连接方式。", "Select a valid Feishu transport.");
+    case "feishu.integration.not_found":
+      return tx("未找到该飞书集成。", "Feishu integration not found.");
+    case "feishu.integration.disabled":
+      return tx("该飞书集成已停用。", "This Feishu integration is disabled.");
+    case "feishu.integration.duplicate_app_tenant":
+      return tx(
+        "该飞书 App ID 和 Tenant Key 已经连接到当前工作区。",
+        "This Feishu App ID and Tenant Key are already connected to this workspace.",
+      );
+    case "feishu.integration.credential_encryption_key_missing":
+      return tx(
+        "AgentSpace 未配置飞书凭据加密密钥。请设置 AGENT_SPACE_FEISHU_CREDENTIAL_ENCRYPTION_KEY。",
+        "AgentSpace is missing the Feishu credential encryption key. Set AGENT_SPACE_FEISHU_CREDENTIAL_ENCRYPTION_KEY.",
+      );
+    case "feishu.integration.credential_encryption_key_invalid":
+      return tx(
+        "AgentSpace 飞书凭据加密密钥无效。请使用 base64 编码的 32 字节密钥。",
+        "AgentSpace Feishu credential encryption key is invalid. Use a base64-encoded 32-byte key.",
+      );
+    case "feishu.integration.placeholder_value":
+      return tx(
+        "请将飞书配置里的模板占位值替换为开放平台中的真实值。",
+        "Replace Feishu setup placeholders with real values from the developer console.",
+      );
+    case "feishu.credentials_missing":
+      return tx("飞书 App ID 或 App Secret 不完整。", "Feishu App ID or App Secret is incomplete.");
+    case "feishu.channel_binding.missing_channel":
+      return tx("请选择 AgentSpace 频道。", "Select an AgentSpace channel.");
+    case "feishu.channel_binding.missing_external_chat_id":
+      return tx("请填写飞书群聊 ID。", "Feishu chat ID is required.");
+    case "feishu.channel_binding.placeholder_value":
+      return tx(
+        "请将飞书群绑定里的模板占位值替换为真实群聊 ID。",
+        "Replace Feishu channel binding placeholders with a real chat ID.",
+      );
+    case "feishu.channel_binding.channel_not_found":
+      return tx("未找到该 AgentSpace 频道。", "AgentSpace channel not found.");
+    case "feishu.channel_binding.external_chat_taken":
+      return tx(
+        "这个飞书会话已映射到其他 AgentSpace 频道，请先让管理员检查现有映射。",
+        "This Feishu chat is already mapped to another AgentSpace channel. Ask an admin to review the existing mapping first.",
+      );
+    case "feishu.user_binding.missing_user":
+      return tx("请选择 AgentSpace 用户。", "Select an AgentSpace user.");
+    case "feishu.user_binding.missing_external_user_id":
+      return tx("请填写飞书 Open ID。", "Feishu Open ID is required.");
+    case "feishu.user_binding.placeholder_value":
+      return tx(
+        "请将飞书用户绑定里的模板占位值替换为真实 Open ID。",
+        "Replace Feishu user binding placeholders with a real Open ID.",
+      );
+    case "feishu.user_binding.user_not_found":
+      return tx("未找到该工作区成员。", "Workspace member not found.");
+    case "feishu.user_binding.external_user_taken":
+      return tx(
+        "这个飞书 Open ID 已绑定到其他 AgentSpace 用户，请联系管理员处理。",
+        "This Feishu Open ID is already bound to another AgentSpace user. Ask an admin to review it.",
+      );
+    case "feishu.user_binding.not_found":
+      return tx("未找到该飞书用户绑定。", "Feishu user binding not found.");
+    case "feishu.user_binding.forbidden":
+      return tx("成员只能绑定或解绑自己的飞书用户。", "Members can only bind or unbind their own Feishu user.");
+    case "feishu.resource_binding.invalid_resource":
+      return tx("无法识别飞书资源链接或 token。", "Could not recognize the Feishu resource URL or token.");
+    case "feishu.resource_binding.placeholder_value":
+      return tx(
+        "请将飞书资源绑定里的模板占位值替换为真实文档、表格或多维表链接。",
+        "Replace Feishu resource binding placeholders with a real Doc, Sheet, or Base URL.",
+      );
+    case "feishu.resource_binding.scope_missing":
+      return tx(
+        "该飞书集成缺少绑定此资源所需的 Docs / Sheets / Base 权限，请先在飞书开放平台补充权限并重新健康检查。",
+        "This Feishu integration is missing the Docs / Sheets / Base scopes required for this resource. Update scopes in the Feishu developer console and rerun the health check.",
+      );
+    case "feishu.resource_binding.base_app_token_missing":
+      return tx(
+        "飞书 Base 表/视图绑定需要包含 Base app token 的链接；仅填写 table/view id 不足以支撑 AgentSpace 数据面治理。",
+        "Feishu Base table/view bindings require a Base URL that includes the app token; a raw table/view id is not enough for AgentSpace data-plane governance.",
+      );
+    case "feishu.resource_binding.base_table_id_missing":
+      return tx(
+        "飞书 Base 视图绑定需要同时包含 table 和 view 上下文，请使用完整 Base 视图链接。",
+        "Feishu Base view bindings require both table and view context. Use the full Base view URL.",
+      );
+    case "feishu.resource_binding.missing_agent_space_resource_type":
+      return tx("请选择 AgentSpace 资源类型。", "Select an AgentSpace resource type.");
+    case "feishu.resource_binding.missing_agent_space_resource_id":
+      return tx("请填写 AgentSpace 资源 ID。", "AgentSpace resource ID is required.");
+    case "feishu.resource_binding.channel_not_found":
+      return tx("未找到要关联的 AgentSpace 频道。", "Linked AgentSpace channel not found.");
+    case "feishu.resource_binding.external_resource_taken":
+      return tx(
+        "这个飞书资源已绑定到其他 AgentSpace 资源，请先让管理员检查现有映射。",
+        "This Feishu resource is already bound to another AgentSpace resource. Ask an admin to review the existing mapping first.",
+      );
+    case "feishu.resource_binding.missing_channel_document_channel":
+      return tx("创建频道文档映射时请选择关联频道。", "Choose a linked channel when creating a channel document mapping.");
+    case "feishu.resource_binding.channel_document_mismatch":
+      return tx("目标频道文档不是同一个飞书外部文档。", "The target channel document is not the same Feishu external document.");
+    case "feishu.resource_binding.unsupported_data_table_resource":
+      return tx("只有飞书 Sheet 或 Base 可以映射为数据表。", "Only Feishu Sheet or Base resources can map to data tables.");
+    case "feishu.resource_binding.data_table_mismatch":
+      return tx("目标数据表不是同一个飞书外部表。", "The target data table is not the same Feishu external table.");
     default:
       return message || tx("操作失败。", "Action failed.");
   }

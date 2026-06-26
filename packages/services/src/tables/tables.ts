@@ -62,6 +62,74 @@ export function createDataTableSync(input: {
   return writeWorkspaceStateSync(state, workspaceId);
 }
 
+export function createExternalDataTableSync(input: {
+  name: string;
+  channelName?: string;
+  columns?: Array<{
+    name: string;
+    type: DataColumn["type"];
+    options?: string[];
+    required?: boolean;
+  }>;
+  rows?: DataRow[];
+  createdBy?: string;
+  externalProvider: NonNullable<DataTable["externalProvider"]>;
+  externalResourceType: string;
+  externalResourceToken: string;
+  externalUrl?: string;
+  externalSyncStatus?: DataTable["externalSyncStatus"];
+  externalUpdatedAt?: string;
+  externalMetadata?: Record<string, unknown>;
+  externalPreview?: DataTable["externalPreview"];
+}, workspaceId?: string): DataTable {
+  const state = ensureWorkspaceStateSync(workspaceId);
+  const name = input.name.trim();
+  const externalResourceToken = input.externalResourceToken.trim();
+  if (!name) {
+    throw new Error("Table name is required.");
+  }
+  if (!externalResourceToken) {
+    throw new Error("External data table resource token is required.");
+  }
+
+  const now = new Date().toISOString();
+  const table: DataTable = {
+    id: createOpaqueId(),
+    name,
+    channelName: input.channelName?.trim() || undefined,
+    columns: (input.columns ?? []).map((col) => ({
+      id: createOpaqueId(),
+      name: col.name.trim(),
+      type: col.type,
+      options: col.options,
+      required: col.required,
+    })),
+    rows: input.rows ?? [],
+    externalProvider: input.externalProvider,
+    externalResourceType: input.externalResourceType.trim(),
+    externalResourceToken,
+    externalUrl: input.externalUrl?.trim() || undefined,
+    externalSyncStatus: input.externalSyncStatus ?? "unknown",
+    externalUpdatedAt: input.externalUpdatedAt?.trim() || now,
+    externalMetadata: input.externalMetadata,
+    externalPreview: input.externalPreview,
+    status: "active",
+    createdBy: input.createdBy ?? "",
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  state.dataTables ??= [];
+  state.dataTables.push(table);
+  state.ledger.unshift({
+    title: "External data table linked",
+    note: `Linked external table "${name}".`,
+  });
+
+  const persisted = writeWorkspaceStateSync(state, workspaceId);
+  return persisted.dataTables.find((item) => item.id === table.id) ?? table;
+}
+
 export function updateDataTableSync(
   id: string,
   input: {
@@ -113,6 +181,72 @@ export function updateDataTableSync(
   });
 
   return writeWorkspaceStateSync(state, workspaceId);
+}
+
+export function updateExternalDataTableMetadataSync(
+  id: string,
+  input: {
+    name?: string;
+    channelName?: string;
+    externalProvider?: NonNullable<DataTable["externalProvider"]>;
+    externalResourceType?: string;
+    externalResourceToken?: string;
+    externalUrl?: string;
+    externalSyncStatus?: DataTable["externalSyncStatus"];
+    externalUpdatedAt?: string;
+    externalMetadata?: Record<string, unknown>;
+    externalPreview?: DataTable["externalPreview"];
+  },
+  workspaceId?: string,
+): DataTable {
+  const state = ensureWorkspaceStateSync(workspaceId);
+  const table = (state.dataTables ?? []).find((item) => item.id === id);
+  if (!table) {
+    throw new Error(`Table "${id}" does not exist.`);
+  }
+
+  if (input.name !== undefined) {
+    const name = input.name.trim();
+    if (!name) {
+      throw new Error("Table name is required.");
+    }
+    table.name = name;
+  }
+  if (input.channelName !== undefined) {
+    table.channelName = input.channelName.trim() || undefined;
+  }
+  if (input.externalProvider !== undefined) {
+    table.externalProvider = input.externalProvider;
+  }
+  if (input.externalResourceType !== undefined) {
+    table.externalResourceType = input.externalResourceType.trim() || undefined;
+  }
+  if (input.externalResourceToken !== undefined) {
+    table.externalResourceToken = input.externalResourceToken.trim() || undefined;
+  }
+  if (input.externalUrl !== undefined) {
+    table.externalUrl = input.externalUrl.trim() || undefined;
+  }
+  if (input.externalSyncStatus !== undefined) {
+    table.externalSyncStatus = input.externalSyncStatus;
+  }
+  if (input.externalUpdatedAt !== undefined) {
+    table.externalUpdatedAt = input.externalUpdatedAt.trim() || undefined;
+  }
+  if (input.externalMetadata !== undefined) {
+    table.externalMetadata = input.externalMetadata;
+  }
+  if (input.externalPreview !== undefined) {
+    table.externalPreview = input.externalPreview;
+  }
+  table.updatedAt = new Date().toISOString();
+  state.ledger.unshift({
+    title: "External data table metadata updated",
+    note: `Updated external metadata for table "${table.name}".`,
+  });
+
+  const persisted = writeWorkspaceStateSync(state, workspaceId);
+  return persisted.dataTables.find((item) => item.id === table.id) ?? table;
 }
 
 export function deleteDataTableSync(id: string, workspaceId?: string): AgentSpaceState {

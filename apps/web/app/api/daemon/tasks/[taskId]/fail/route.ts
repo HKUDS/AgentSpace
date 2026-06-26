@@ -7,6 +7,7 @@ import {
   formatConversationFailureSummary,
   formatTaskFailureSummary,
   postMessageSync,
+  queueFeishuChannelReplyOutboxSync,
   readWorkspaceStateSync,
   replacePendingChannelMessageSync,
   resolveCompatibleDirectChannelRecord,
@@ -77,19 +78,32 @@ export async function POST(
     );
   }
   if (effectiveChannelName && payload.channel) {
+    const failureSummary = formatConversationFailureSummary({
+      agentName: payload.assignee ?? task.agentId,
+      channelName: payload.channel,
+      errorText: body.errorText.trim(),
+      isDirectConversation: Boolean(payload.contactId),
+    });
     replacePendingChannelMessageSync({
       channel: payload.channel,
       pendingSpeaker: payload.assignee ?? task.agentId,
       speaker: "系统提示",
       role: "agent",
-      summary: formatConversationFailureSummary({
-        agentName: payload.assignee ?? task.agentId,
-        channelName: payload.channel,
-        errorText: body.errorText.trim(),
-        isDirectConversation: Boolean(payload.contactId),
-      }),
+      summary: failureSummary,
       status: "error",
     }, task.workspaceId);
+    for (const statusMessage of enqueueFeishuReplyOutboxBestEffort({
+      workspaceId: task.workspaceId,
+      channelName: payload.channel,
+      text: failureSummary,
+      sourceAgentSpaceMessageId: payload.sourceMessageId,
+    })) {
+      appendTaskMessageSync({
+        taskId: task.id,
+        type: "status",
+        content: statusMessage,
+      });
+    }
     writeConversationExecutionWorkspaceStateSync({
       channelName: payload.channel,
       agentId: payload.assignee ?? task.agentId,
@@ -128,16 +142,29 @@ export async function POST(
       task.workspaceId,
     );
   } else if (payload.channel) {
+    const failureSummary = formatTaskFailureSummary({
+      title: payload.title || task.id,
+      errorText: body.errorText.trim(),
+    });
     postMessageSync({
       channel: payload.channel,
       speaker: "系统提示",
       role: "agent",
-      summary: formatTaskFailureSummary({
-        title: payload.title || task.id,
-        errorText: body.errorText.trim(),
-      }),
+      summary: failureSummary,
       status: "error",
     }, task.workspaceId);
+    for (const statusMessage of enqueueFeishuReplyOutboxBestEffort({
+      workspaceId: task.workspaceId,
+      channelName: payload.channel,
+      text: failureSummary,
+      sourceAgentSpaceMessageId: payload.sourceMessageId,
+    })) {
+      appendTaskMessageSync({
+        taskId: task.id,
+        type: "status",
+        content: statusMessage,
+      });
+    }
     writeConversationExecutionWorkspaceStateSync({
       channelName: payload.channel,
       agentId: payload.assignee ?? task.agentId,
@@ -161,6 +188,22 @@ export async function POST(
       errorText: body.errorText.trim(),
     },
   });
+}
+
+function enqueueFeishuReplyOutboxBestEffort(input: {
+  workspaceId: string;
+  channelName: string;
+  text: string;
+  agentSpaceMessageId?: string;
+  sourceAgentSpaceMessageId?: string;
+}): string[] {
+  try {
+    const outboxItems = queueFeishuChannelReplyOutboxSync(input);
+    return outboxItems.length > 0 ? [`Feishu outbound queued: ${outboxItems.length} message(s).`] : [];
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return [`Feishu outbound enqueue failed: ${message}`];
+  }
 }
 
 function formatProviderDiagnosticMessage(body: Partial<FailTaskRequest>): string | undefined {

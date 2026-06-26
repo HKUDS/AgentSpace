@@ -106,6 +106,8 @@ function getSettingsNavIcon(section: SettingsSectionId): AppIconName {
       return "alertCircle";
     case "permissions":
       return "approvals";
+    case "integrations":
+      return "market";
     case "workspace":
       return "containers";
     case "members":

@@ -27,6 +27,10 @@ import {
   type KnowledgeProposalManifestEntry,
   type SkillImportManifestEntry,
 } from "../../../../packages/daemon/src/runtime-output-manifests.ts";
+import {
+  appendFeishuRuntimeDataOperationRequest,
+  type FeishuRuntimeDataOperationRequestManifestEntry,
+} from "@agent-space/services";
 import { prepareSkillImportOperationArtifacts } from "../../../../packages/daemon/src/skill-imports.ts";
 import { getStringFlag, parseArgs } from "../lib/args.ts";
 import { writeData, type OutputFormat } from "../lib/format.ts";
@@ -80,6 +84,9 @@ export async function runOutputCommand(
     }
     if (subcommand === "external-document") {
       return runExternalDocumentCommand(args, format);
+    }
+    if (subcommand === "feishu") {
+      return runFeishuCommand(args, format);
     }
     if (subcommand === "permission") {
       return runPermissionCommand(args, format);
@@ -655,6 +662,76 @@ function buildExternalDocumentCreateGoogleSheetOperation(
   }) as ExternalDocumentCreateGoogleSheetManifestEntry;
 }
 
+function runFeishuCommand(args: string[], format: OutputFormat): number {
+  const [action, ...rest] = args;
+  if (!action || action === "help" || action === "--help") {
+    printFeishuOutputHelp();
+    return action ? 0 : 1;
+  }
+  if (action !== "data-operation-approval") {
+    printFeishuOutputHelp();
+    return 1;
+  }
+  const parsed = parseArgs(rest);
+  const workDir = resolveWorkDir(parsed.flags);
+  const request = buildFeishuRuntimeDataOperationRequest(parsed.flags);
+  const manifest = appendFeishuRuntimeDataOperationRequest(workDir, request);
+  writeCommandResult(format, manifest, `Added Feishu ${request.operationType} approval request.`);
+  return 0;
+}
+
+function buildFeishuRuntimeDataOperationRequest(
+  flags: Record<string, string | boolean>,
+): FeishuRuntimeDataOperationRequestManifestEntry {
+  const parameters = buildFeishuRuntimeDataOperationParameters(flags);
+  return removeUndefinedProperties({
+    operationType: requireStringFlag(flags, "operation"),
+    providerResourceType: requireStringFlag(flags, "type"),
+    providerResourceToken: requireStringFlag(flags, "resource"),
+    parameters,
+    contentPreview: getStringFlag(flags, "preview")?.trim(),
+  }) as FeishuRuntimeDataOperationRequestManifestEntry;
+}
+
+function buildFeishuRuntimeDataOperationParameters(
+  flags: Record<string, string | boolean>,
+): Record<string, unknown> | undefined {
+  const parametersJson = getStringFlag(flags, "parameters-json");
+  const parameters = parametersJson
+    ? parseJsonObjectFlag(parametersJson, "--parameters-json")
+    : {};
+  const valuesJson = getStringFlag(flags, "values-json");
+  const fieldsJson = getStringFlag(flags, "fields-json");
+  const recordsJson = getStringFlag(flags, "records-json");
+  const blocksJson = getStringFlag(flags, "blocks-json");
+  const childrenJson = getStringFlag(flags, "children-json");
+  const blockJson = getStringFlag(flags, "block-json");
+  const additions: Record<string, unknown> = {
+    mutation: getStringFlag(flags, "mutation")?.trim(),
+    action: getStringFlag(flags, "action")?.trim(),
+    range: getStringFlag(flags, "range")?.trim(),
+    values: valuesJson ? parseJsonFlagValue(valuesJson, "--values-json") : undefined,
+    recordId: getStringFlag(flags, "record-id")?.trim(),
+    fields: fieldsJson ? parseJsonObjectFlag(fieldsJson, "--fields-json") : undefined,
+    records: recordsJson ? parseJsonFlagValue(recordsJson, "--records-json") : undefined,
+    title: getStringFlag(flags, "title")?.trim(),
+    folderToken: getStringFlag(flags, "folder-token")?.trim(),
+    parentBlockId: getStringFlag(flags, "parent-block-id")?.trim(),
+    blockId: getStringFlag(flags, "block-id")?.trim(),
+    documentRevisionId: getStringFlag(flags, "document-revision-id")?.trim(),
+    clientToken: getStringFlag(flags, "client-token")?.trim(),
+    blocks: blocksJson ? parseJsonFlagValue(blocksJson, "--blocks-json") : undefined,
+    children: childrenJson ? parseJsonFlagValue(childrenJson, "--children-json") : undefined,
+    block: blockJson ? parseJsonObjectFlag(blockJson, "--block-json") : undefined,
+  };
+  for (const [key, value] of Object.entries(additions)) {
+    if (value !== undefined && value !== "") {
+      parameters[key] = value;
+    }
+  }
+  return Object.keys(parameters).length > 0 ? parameters : undefined;
+}
+
 function runPermissionCommand(args: string[], format: OutputFormat): number {
   const [action, ...rest] = args;
   if (!action || action === "help" || action === "--help") {
@@ -1013,11 +1090,23 @@ function requireNonNegativeInteger(value: string, label: string): number {
 
 function parseJsonFlag(flags: Record<string, string | boolean>, key: string): unknown {
   const value = requireStringFlag(flags, key);
+  return parseJsonFlagValue(value, `--${key}`);
+}
+
+function parseJsonFlagValue(value: string, label: string): unknown {
   try {
     return JSON.parse(value) as unknown;
   } catch (error) {
-    throw new Error(`--${key} must be valid JSON: ${error instanceof Error ? error.message : String(error)}`);
+    throw new Error(`${label} must be valid JSON: ${error instanceof Error ? error.message : String(error)}`);
   }
+}
+
+function parseJsonObjectFlag(value: string, label: string): Record<string, unknown> {
+  const parsed = parseJsonFlagValue(value, label);
+  if (!isRecord(parsed)) {
+    throw new Error(`${label} must be a JSON object.`);
+  }
+  return parsed;
 }
 
 function writeCommandResult(format: OutputFormat, value: unknown, message: string): void {
@@ -1041,6 +1130,7 @@ function printPreview(preview: ReturnType<typeof createRuntimeOutputPreview>): v
   }
   console.log(`external-documents: ${preview.manifests.externalDocuments.exists ? "yes" : "no"} (${preview.manifests.externalDocuments.operations} operations)`);
   console.log(`permission-requests: ${preview.manifests.permissionRequests.exists ? "yes" : "no"} (${preview.manifests.permissionRequests.requests} requests)`);
+  console.log(`feishu-data-operation-requests: ${preview.manifests.feishuDataOperationRequests.exists ? "yes" : "no"} (${preview.manifests.feishuDataOperationRequests.requests} requests)`);
   console.log(`knowledge-proposals: ${preview.manifests.knowledgeProposals.exists ? "yes" : "no"} (${preview.manifests.knowledgeProposals.proposals} proposals)`);
   if (preview.errors.length > 0) {
     console.log("errors:");
@@ -1063,6 +1153,7 @@ function printOutputHelp(): void {
   agent-space output google-docs <command> ...
   agent-space output external-document link-google-sheet ...
   agent-space output external-document create-google-sheet ...
+  agent-space output feishu data-operation-approval ...
   agent-space output permission request-document ...
   agent-space output validate [--work-dir <path>] [--json]
   agent-space output preview [--work-dir <path>] [--json]`);
@@ -1113,6 +1204,18 @@ function printExternalDocumentHelp(): void {
   agent-space output external-document link-google-sheet --source-document-id <doc-id> --target-channel <channel> --title <title> [--summary <text>]
   agent-space output external-document link-google-sheet --external-file-id <spreadsheet-id> --external-url <url> --target-channel <channel> --title <title> [--summary <text>]
   agent-space output external-document create-google-sheet --external-file-id <spreadsheet-id> --external-url <url> --target-channel <channel> --title <title> --gws-result-json runtime-output/artifacts/sheets/create-sheet.json [--summary <text>]`);
+}
+
+function printFeishuOutputHelp(): void {
+  console.log(`Usage:
+  agent-space output feishu data-operation-approval --operation docs.update_document|sheets.update_range|base.mutate_records --type doc|sheet|base_table --resource <bound-feishu-token> [--parameters-json <json>] [--preview <text>] [--work-dir <path>] [--json]
+
+Common parameter helpers:
+  --range <A1> --values-json <json>                  Sheet update range
+  --record-id <id> --fields-json <json>              Base record update
+  --records-json <json>                              Base batch create/update
+  --mutation <value> --blocks-json <json>            Docs append/update mutation
+  --parent-block-id <id> --block-id <id>             Docs mutation target`);
 }
 
 function printPermissionHelp(): void {

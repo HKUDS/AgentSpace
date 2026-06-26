@@ -21,10 +21,14 @@ import { sameValue } from "../shared/helpers.ts";
 import { resolveChannelHumanMemberNames } from "../channels/channels.ts";
 import {
   pushWorkspaceMessageToChannel,
+  applyWorkspaceDataPolicyToExternalMessageInput,
+  assertWorkspaceDataPolicyAllowsExternalMessageInput,
+  buildExternalMessageData,
   buildChannelHistorySnapshot,
   buildMentionCandidates,
   enqueueChannelMentionStepSync,
   getChannelHistoryFilePath,
+  type ExternalMessageInputContext,
 } from "../shared/messaging.ts";
 import {
   createAutoContinuationState,
@@ -249,6 +253,7 @@ export function sendChannelHumanMessageSync(
   replyToMessageId?: string,
   workspaceId?: string,
   requesterUserId?: string,
+  externalInput?: ExternalMessageInputContext,
 ): AgentSpaceState {
   const state = ensureWorkspaceStateSync(workspaceId);
   const effectiveWorkspaceId = workspaceId ?? DEFAULT_WORKSPACE_ID;
@@ -262,6 +267,10 @@ export function sendChannelHumanMessageSync(
   if (!trimmed) {
     throw new Error("Message content is required.");
   }
+  const governedExternalInput = applyWorkspaceDataPolicyToExternalMessageInput(externalInput, effectiveWorkspaceId, {
+    hasAttachments: Boolean(attachments && attachments.length > 0),
+  });
+  assertWorkspaceDataPolicyAllowsExternalMessageInput(governedExternalInput);
 
   const mentionCandidates = buildMentionCandidates(state, channel.name);
   const mentionParse = parseChannelMentionsSync(state, channel.name, trimmed);
@@ -287,6 +296,7 @@ export function sendChannelHumanMessageSync(
     attachments,
     mentions: mentionParse.allMentions,
     replyToMessageId,
+    data: buildExternalMessageData(governedExternalInput),
   }, effectiveWorkspaceId);
 
   if (mentionParse.agentMentions.length === 0) {
@@ -343,6 +353,7 @@ export function sendChannelHumanMessageSync(
         workspaceId: effectiveWorkspaceId,
         requesterUserId,
         requesterDisplayName: speaker,
+        externalInput: governedExternalInput,
       });
 
       if (queued) {
@@ -451,6 +462,7 @@ export function sendChannelHumanMessageSync(
         channelHistory: buildChannelHistorySnapshot(state, channel.name),
         channelHistoryPath: getChannelHistoryFilePath(channel.name, effectiveWorkspaceId),
         channelSessionId: resumedSessionId,
+        ...(governedExternalInput ? { externalInput: governedExternalInput } : {}),
         autoContinuation,
         attachments:
           attachments?.map((attachment) => ({
@@ -507,7 +519,10 @@ export function sendChannelHumanMessageSync(
         role: "agent",
         summary: "Thinking",
         code: "agent.pending",
-        data: { agent_name: agent.name },
+        data: {
+          agent_name: agent.name,
+          source_message_id: humanMessage.id,
+        },
         status: "pending",
       }, effectiveWorkspaceId);
       continue;

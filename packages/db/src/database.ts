@@ -22,13 +22,18 @@ const responseSignal = new Int32Array(workerData.responseSignalBuffer);
 types.setTypeParser(types.builtins.JSON, (value) => value);
 types.setTypeParser(types.builtins.JSONB, (value) => value);
 types.setTypeParser(types.builtins.DATE, (value) => value);
-types.setTypeParser(types.builtins.TIMESTAMP, (value) => value);
-types.setTypeParser(types.builtins.TIMESTAMPTZ, (value) => value);
+types.setTypeParser(types.builtins.TIMESTAMP, normalizeTimestampValue);
+types.setTypeParser(types.builtins.TIMESTAMPTZ, normalizeTimestampValue);
 types.setTypeParser(types.builtins.INT8, (value) => Number(value));
 
 let port = null;
 let client = null;
 let connectedDatabaseUrl = null;
+
+function normalizeTimestampValue(value) {
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? value : parsed.toISOString();
+}
 
 parentPort?.on("message", (message) => {
   if (!isPortMessage(message)) {
@@ -248,6 +253,59 @@ const NORMALIZED_ROW_KEY_ALIASES = new Map([
   ["respondedat", "respondedAt"],
   ["respondedby", "respondedBy"],
   ["accesstokenencrypted", "accessTokenEncrypted"],
+  ["agentspacemessageid", "agentSpaceMessageId"],
+  ["agentspaceresourceid", "agentSpaceResourceId"],
+  ["agentspaceresourcetype", "agentSpaceResourceType"],
+  ["appid", "appId"],
+  ["capabilitiesjson", "capabilitiesJson"],
+  ["channelbindingid", "channelBindingId"],
+  ["channelname", "channelName"],
+  ["configjson", "configJson"],
+  ["createdbyuserid", "createdByUserId"],
+  ["disabledat", "disabledAt"],
+  ["displayname", "displayName"],
+  ["encryptedcredentialsjson", "encryptedCredentialsJson"],
+  ["errorcode", "errorCode"],
+  ["errormessage", "errorMessage"],
+  ["eventtype", "eventType"],
+  ["externalchatid", "externalChatId"],
+  ["externalchatname", "externalChatName"],
+  ["externalchattype", "externalChatType"],
+  ["externaleventid", "externalEventId"],
+  ["externalmessageid", "externalMessageId"],
+  ["externalopenid", "externalOpenId"],
+  ["externalemail", "externalEmail"],
+  ["externalsenderid", "externalSenderId"],
+  ["externalthreadid", "externalThreadId"],
+  ["externalunionid", "externalUnionId"],
+  ["externaluserid", "externalUserId"],
+  ["finishedat", "finishedAt"],
+  ["integrationid", "integrationId"],
+  ["lastattemptat", "lastAttemptAt"],
+  ["lasterror", "lastError"],
+  ["lasthealthcheckedat", "lastHealthCheckedAt"],
+  ["lasthealthstatus", "lastHealthStatus"],
+  ["lastseenat", "lastSeenAt"],
+  ["lockedat", "lockedAt"],
+  ["lockedby", "lockedBy"],
+  ["nextattemptat", "nextAttemptAt"],
+  ["operationtype", "operationType"],
+  ["permissionsjson", "permissionsJson"],
+  ["payloadjson", "payloadJson"],
+  ["processedat", "processedAt"],
+  ["providerresourcetoken", "providerResourceToken"],
+  ["providerresourcetype", "providerResourceType"],
+  ["providerresourceurl", "providerResourceUrl"],
+  ["receivedat", "receivedAt"],
+  ["requestjson", "requestJson"],
+  ["resourcebindingid", "resourceBindingId"],
+  ["scopesjson", "scopesJson"],
+  ["sentat", "sentAt"],
+  ["syncmode", "syncMode"],
+  ["targetexternalchatid", "targetExternalChatId"],
+  ["targetexternalthreadid", "targetExternalThreadId"],
+  ["tenantkey", "tenantKey"],
+  ["transportmode", "transportMode"],
   ["removedat", "removedAt"],
   ["recipientid", "recipientId"],
   ["recipienttype", "recipientType"],

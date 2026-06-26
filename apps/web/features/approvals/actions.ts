@@ -6,10 +6,12 @@ import {
   approveDocumentPermissionRequestSync,
   approveKnowledgeProposalForActorSync,
   createApprovalRequestSync,
+  listApprovalsSync,
   rejectChannelAccessRequestForActorSync,
   rejectAgentAccessRequestForActorSync,
   rejectDocumentPermissionRequestSync,
   rejectKnowledgeProposalForActorSync,
+  reviewFeishuDataOperationApproval,
   reviewApprovalSync,
 } from "@agent-space/services";
 import type { ApprovalRequest } from "@agent-space/domain/workspace";
@@ -85,7 +87,18 @@ export async function reviewApprovalQueueItemAction(
   let knowledgePageId: string | undefined;
   if (kind === "workspace_approval") {
     assertWorkspaceRoleForContext(workspaceContext, "admin");
-    reviewApprovalSync(trimmedActionId, decision, comment, workspaceContext.currentWorkspace.id);
+    const approval = listApprovalsSync(workspaceContext.currentWorkspace.id)
+      .find((item) => item.id === trimmedActionId);
+    if (approval?.type === "external_data_operation" && approval.metadata?.provider === "feishu") {
+      await reviewFeishuDataOperationApproval({
+        workspaceId: workspaceContext.currentWorkspace.id,
+        approvalId: trimmedActionId,
+        decision,
+        reviewerComment: comment,
+      });
+    } else {
+      reviewApprovalSync(trimmedActionId, decision, comment, workspaceContext.currentWorkspace.id);
+    }
   } else if (kind === "channel_access") {
     if (decision === "approved") {
       approveChannelAccessRequestForActorSync({

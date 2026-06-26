@@ -15,6 +15,7 @@ import {
   SettingsPreferencesSection,
   SettingsSecuritySection,
   SettingsWorkspaceSection,
+  SettingsIntegrationsSection,
 } from "@/features/settings/components/settings-section-content";
 import { getSettingsSectionMeta } from "@/features/settings/settings-meta";
 import {
@@ -33,6 +34,10 @@ import type {
   SettingsSessionItem,
   SettingsChannelAccessRequestItem,
   SettingsChannelInvitationItem,
+  SettingsFeishuAvailableChannelItem,
+  SettingsFeishuAvailableUserItem,
+  SettingsFeishuIntegrationCreationGuide,
+  SettingsFeishuIntegrationItem,
   SettingsWorkspaceInvitationItem,
   SettingsWorkspaceMemberItem,
 } from "@/features/settings/settings-types";
@@ -42,6 +47,10 @@ export type {
   SettingsSessionItem,
   SettingsChannelAccessRequestItem,
   SettingsChannelInvitationItem,
+  SettingsFeishuAvailableChannelItem,
+  SettingsFeishuAvailableUserItem,
+  SettingsFeishuIntegrationCreationGuide,
+  SettingsFeishuIntegrationItem,
   SettingsWorkspaceInvitationItem,
   SettingsWorkspaceMemberItem,
 } from "@/features/settings/settings-types";
@@ -61,6 +70,10 @@ export function SettingsPageClient({
   invitations = [],
   channelAccessRequests = [],
   channelInvitations = [],
+  feishuAvailableChannels = [],
+  feishuAvailableUsers = [],
+  feishuIntegrationCreationGuide,
+  feishuIntegrations = [],
   members = [],
   permissions,
   sessions = [],
@@ -80,6 +93,10 @@ export function SettingsPageClient({
   invitations?: SettingsWorkspaceInvitationItem[];
   channelAccessRequests?: SettingsChannelAccessRequestItem[];
   channelInvitations?: SettingsChannelInvitationItem[];
+  feishuAvailableChannels?: SettingsFeishuAvailableChannelItem[];
+  feishuAvailableUsers?: SettingsFeishuAvailableUserItem[];
+  feishuIntegrationCreationGuide?: SettingsFeishuIntegrationCreationGuide;
+  feishuIntegrations?: SettingsFeishuIntegrationItem[];
   members?: SettingsWorkspaceMemberItem[];
   permissions?: SettingsPermissionCenterData;
   sessions?: SettingsSessionItem[];
@@ -214,6 +231,22 @@ export function SettingsPageClient({
               currentUserDisplayName={currentUserDisplayName}
               meta={currentSectionMeta}
               permissions={permissions}
+              tx={tx}
+            />
+          ) : null}
+
+          {resolvedActiveSection === "integrations" ? (
+            <SettingsIntegrationsSection
+              availableChannels={feishuAvailableChannels}
+              availableUsers={feishuAvailableUsers}
+              currentMembershipRole={currentMembershipRole}
+              currentUserId={currentUserId}
+              feishuIntegrationCreationGuide={feishuIntegrationCreationGuide}
+              feishuIntegrations={feishuIntegrations}
+              isPending={isPending}
+              meta={currentSectionMeta}
+              refreshSettingsData={refreshSettingsData}
+              startTransition={startTransition}
               tx={tx}
             />
           ) : null}
