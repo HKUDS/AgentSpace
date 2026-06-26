@@ -230,6 +230,7 @@ export interface FeishuIntegrationSetupGuide {
   evidenceGates: FeishuIntegrationEvidenceGate[];
   commands: {
     healthCheck: string;
+    bindSecondAgentBot?: string;
     botReadiness: string;
     dataPlaneReadiness: string;
     workerReadiness: string;

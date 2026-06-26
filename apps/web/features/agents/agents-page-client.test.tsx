@@ -580,14 +580,15 @@ function buildAgentFeishuBot(
       evidenceGates: [],
       commands: {
         healthCheck: "agent-space integrations feishu health-check --workspace-id workspace-1 --agent planner --strict --json",
+        bindSecondAgentBot: "agent-space integrations feishu bind-agent-bot --workspace-id workspace-1 --agent CHANGE_ME_SECOND_AGENT_NAME --env-file scripts/feishu/.env --app-id-env FEISHU_SECOND_AGENT_APP_ID --app-secret-env FEISHU_SECOND_AGENT_APP_SECRET --json",
         botReadiness: "agent-space integrations feishu agent-bot-readiness --workspace-id workspace-1 --agent planner --strict --require bot --json",
         dataPlaneReadiness: "agent-space integrations feishu agent-bot-readiness --workspace-id workspace-1 --agent planner --strict --require data-plane --json",
         workerReadiness: "agent-space integrations feishu agent-bot-readiness --workspace-id workspace-1 --agent planner --strict --require worker --json",
         autoProvisionPolicy: "agent-space integrations feishu auto-provision-policy --workspace-id workspace-1 --agent planner --bot-added-policy auto_create_channel --first-message-policy auto_create_if_bot_mentioned --unbound-user-mode reply_on_mention --guest-permission-profile channel_context_only --json",
         channelBindings: "agent-space integrations feishu channel-bindings --workspace-id workspace-1 --integration feishu-agent-bot-planner --json",
         smokeEnv: "agent-space integrations feishu smoke-env --workspace-id workspace-1 --integration feishu-agent-bot-planner --app-url https://agent.test > scripts/feishu/.env",
-        checkEnv: "npm run smoke:feishu -- --env-file scripts/feishu/.env --check-env --json",
-        strictLiveSmoke: "npm run smoke:feishu -- --env-file scripts/feishu/.env --live --strict-live --evidence runtime-output/feishu-smoke/live.json --json",
+        checkEnv: "npm run smoke:feishu -- --env-file scripts/feishu/.env --check-env --json --require-todo120-native",
+        strictLiveSmoke: "npm run smoke:feishu -- --env-file scripts/feishu/.env --live --strict-live --evidence runtime-output/feishu-smoke/live.json --json --require-todo120-native",
         verifyOpenApiEvidence: "npm run smoke:feishu -- --verify-evidence runtime-output/feishu-smoke/live.json --json",
         smokePlan: "agent-space integrations feishu smoke-plan --workspace-id workspace-1 --integration feishu-agent-bot-planner --app-url https://agent.test --json",
         evidence: "agent-space integrations feishu evidence --workspace-id workspace-1 --integration feishu-agent-bot-planner --openapi-evidence runtime-output/feishu-smoke/live.json --strict --require all --json",
@@ -821,7 +822,9 @@ describe("AgentsPageClient", () => {
     expect(screen.getByText("Planner Feishu Bot")).toBeInTheDocument();
     expect(screen.getByText("健康")).toBeInTheDocument();
     expect(screen.getByText("agent-space integrations feishu health-check --workspace-id workspace-1 --agent planner --strict --json")).toBeInTheDocument();
-    expect(screen.getByText("npm run smoke:feishu -- --env-file scripts/feishu/.env --live --strict-live --evidence runtime-output/feishu-smoke/live.json --json")).toBeInTheDocument();
+    expect(screen.getByText("agent-space integrations feishu bind-agent-bot --workspace-id workspace-1 --agent CHANGE_ME_SECOND_AGENT_NAME --env-file scripts/feishu/.env --app-id-env FEISHU_SECOND_AGENT_APP_ID --app-secret-env FEISHU_SECOND_AGENT_APP_SECRET --json")).toBeInTheDocument();
+    expect(screen.getByText("npm run smoke:feishu -- --env-file scripts/feishu/.env --check-env --json --require-todo120-native")).toBeInTheDocument();
+    expect(screen.getByText("npm run smoke:feishu -- --env-file scripts/feishu/.env --live --strict-live --evidence runtime-output/feishu-smoke/live.json --json --require-todo120-native")).toBeInTheDocument();
     expect(screen.getByText("agent-space integrations feishu evidence --workspace-id workspace-1 --integration feishu-agent-bot-planner --openapi-evidence runtime-output/feishu-smoke/live.json --strict --require all --json")).toBeInTheDocument();
     expect(screen.getByText("im.chat.member.bot.added_v1")).toBeInTheDocument();
     expect(screen.getByText("im:message")).toBeInTheDocument();

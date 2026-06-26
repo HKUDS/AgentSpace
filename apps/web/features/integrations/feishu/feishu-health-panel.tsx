@@ -344,6 +344,13 @@ function FeishuSetupGuide({
       label: tx("Bot 前置检查", "Bot Readiness"),
       value: guide.commands.botReadiness,
     },
+    ...(guide.commands.bindSecondAgentBot
+      ? [{
+        key: "bind-second-agent-bot",
+        label: tx("绑定第二个 Agent Bot", "Bind Second Agent Bot"),
+        value: guide.commands.bindSecondAgentBot,
+      }]
+      : []),
     {
       key: "data-plane-readiness",
       label: tx("数据面前置检查", "Data Plane Readiness"),

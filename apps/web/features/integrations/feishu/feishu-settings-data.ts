@@ -53,6 +53,7 @@ import type {
 
 const FEISHU_SMOKE_EVIDENCE_PATH = "runtime-output/feishu-smoke/live.json";
 const FEISHU_PUBLIC_APP_URL_PLACEHOLDER = "CHANGE_ME_PUBLIC_AGENTSPACE_URL";
+const FEISHU_SECOND_AGENT_NAME_PLACEHOLDER = "CHANGE_ME_SECOND_AGENT_NAME";
 
 export function listFeishuIntegrationSettingsItems(input: {
   workspaceId: string;
@@ -445,6 +446,7 @@ function buildFeishuIntegrationSetupGuide(input: {
     evidenceGates: buildFeishuEvidenceGates(input.transportMode),
     commands: {
       healthCheck: `agent-space integrations feishu health-check ${agentFlags} --strict --json`,
+      bindSecondAgentBot: `agent-space integrations feishu bind-agent-bot --workspace-id ${input.workspaceId} --agent ${FEISHU_SECOND_AGENT_NAME_PLACEHOLDER} --env-file scripts/feishu/.env --app-id-env FEISHU_SECOND_AGENT_APP_ID --app-secret-env FEISHU_SECOND_AGENT_APP_SECRET --json`,
       botReadiness: `agent-space integrations feishu ${readinessCommand} ${agentFlags} --strict --require bot --json`,
       dataPlaneReadiness: `agent-space integrations feishu ${readinessCommand} ${agentFlags} --strict --require data-plane --json`,
       workerReadiness: `agent-space integrations feishu ${readinessCommand} ${agentFlags} --strict --require worker --json`,
@@ -455,8 +457,8 @@ function buildFeishuIntegrationSetupGuide(input: {
         }
         : {}),
       smokeEnv: `agent-space integrations feishu smoke-env ${flags} ${appUrlFlag} > scripts/feishu/.env`,
-      checkEnv: "npm run smoke:feishu -- --env-file scripts/feishu/.env --check-env --json",
-      strictLiveSmoke: `npm run smoke:feishu -- --env-file scripts/feishu/.env --live --strict-live --evidence ${FEISHU_SMOKE_EVIDENCE_PATH} --json`,
+      checkEnv: "npm run smoke:feishu -- --env-file scripts/feishu/.env --check-env --json --require-todo120-native",
+      strictLiveSmoke: `npm run smoke:feishu -- --env-file scripts/feishu/.env --live --strict-live --evidence ${FEISHU_SMOKE_EVIDENCE_PATH} --json --require-todo120-native`,
       verifyOpenApiEvidence: `npm run smoke:feishu -- --verify-evidence ${FEISHU_SMOKE_EVIDENCE_PATH} --json`,
       smokePlan: `agent-space integrations feishu smoke-plan ${flags} ${appUrlFlag} --json`,
       evidence: `agent-space integrations feishu evidence ${flags} --openapi-evidence ${FEISHU_SMOKE_EVIDENCE_PATH} --strict --require all --json`,

@@ -129,6 +129,12 @@ export function FeishuAgentBotAgentSettingsPanel({
                   label={tx("Bot Readiness", "Bot readiness")}
                   value={currentIntegration.setupGuide.commands.botReadiness}
                 />
+                {currentIntegration.setupGuide.commands.bindSecondAgentBot ? (
+                  <FeishuAgentSettingsCommand
+                    label={tx("绑定第二个 Agent Bot", "Bind second Agent bot")}
+                    value={currentIntegration.setupGuide.commands.bindSecondAgentBot}
+                  />
+                ) : null}
                 <FeishuAgentSettingsCommand
                   label={tx("Data-plane Readiness", "Data-plane readiness")}
                   value={currentIntegration.setupGuide.commands.dataPlaneReadiness}
