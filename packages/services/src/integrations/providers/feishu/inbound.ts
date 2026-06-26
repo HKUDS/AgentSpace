@@ -58,6 +58,9 @@ import {
 } from "./agent-bot-routing.ts";
 import {
   queueFeishuChannelAutoProvisionConfirmationOutboxSync,
+  queueFeishuChannelSetupCardOutboxSync,
+  readFeishuChannelBindingReviewStatus,
+  readFeishuChannelAutoProvisionPolicy,
   resolveOrProvisionFeishuChannelBindingSync,
   shouldAutoProvisionFeishuChannelForBotAdded,
   shouldAutoProvisionFeishuChannelForFirstMessage,
@@ -318,21 +321,38 @@ function prepareFeishuInboundDispatchSync(input: ProcessFeishuInboundEventInput)
     }
   }
   if (!channelBinding || channelBinding.status !== "active") {
+    const setupCardRequired = shouldReplyWithFeishuChannelSetupCard({
+      agentBotRoute,
+      channelAutoProvisionNotice,
+    });
+    const reasonCode = setupCardRequired ? "feishu_channel_setup_card_required" : "external_channel_unbound";
     const mapping = createFeishuInboundMapping({
       context: input.context,
       message,
       agentId: agentBotRoute?.agentId,
       botBindingId: agentBotRoute?.binding.id,
-      reasonCode: "external_channel_unbound",
+      reasonCode,
       dispatchStatus: "ignored",
     });
     const noticeOutbox = input.queueNotices === false
       ? undefined
-      : queueFeishuInboundNoticeSync({
-        context: input.context,
-        message,
-        text: buildFeishuChannelBindingNotice({ workspaceId: input.context.workspaceId }),
-      });
+      : setupCardRequired && agentBotRoute
+        ? queueFeishuChannelSetupCardOutboxSync({
+          workspaceId: input.context.workspaceId,
+          integrationId: input.context.integrationId,
+          targetExternalChatId: message.externalChatId,
+          targetExternalThreadId: message.externalThreadId,
+          agentId: agentBotRoute.agentId,
+          settingsUrl: buildAgentSpaceSettingsIntegrationsDeepLink({
+            workspaceId: input.context.workspaceId,
+            target: "channel-bindings",
+          }),
+        })
+        : queueFeishuInboundNoticeSync({
+          context: input.context,
+          message,
+          text: buildFeishuChannelBindingNotice({ workspaceId: input.context.workspaceId }),
+        });
     return {
       ready: false,
       result: finishIgnored({
@@ -340,7 +360,47 @@ function prepareFeishuInboundDispatchSync(input: ProcessFeishuInboundEventInput)
         event,
         message,
         mappedChannelName: undefined,
-        reasonCode: "external_channel_unbound",
+        reasonCode,
+        mapping,
+        noticeOutbox,
+      }),
+    };
+  }
+
+  const channelReviewStatus = readFeishuChannelBindingReviewStatus(channelBinding);
+  if (channelReviewStatus !== "approved") {
+    const reasonCode = channelReviewStatus === "needs_identity_binding"
+      ? "feishu_channel_binding_needs_identity_binding"
+      : "feishu_channel_binding_pending_admin_review";
+    const mapping = createFeishuInboundMapping({
+      context: input.context,
+      message,
+      channelBindingId: channelBinding.id,
+      mappedChannelName: channelBinding.channelName,
+      agentId: agentBotRoute?.agentId,
+      botBindingId: agentBotRoute?.binding.id,
+      reasonCode,
+      dispatchStatus: "ignored",
+    });
+    const noticeOutbox = channelAutoProvisionNotice ?? (input.queueNotices === false
+      ? undefined
+      : queueFeishuInboundNoticeSync({
+        context: input.context,
+        message,
+        channelBindingId: channelBinding.id,
+        text: buildFeishuChannelReviewNotice({
+          workspaceId: input.context.workspaceId,
+          reviewStatus: channelReviewStatus,
+        }),
+      }));
+    return {
+      ready: false,
+      result: finishIgnored({
+        context: input.context,
+        event,
+        message,
+        mappedChannelName: channelBinding.channelName,
+        reasonCode,
         mapping,
         noticeOutbox,
       }),
@@ -1362,6 +1422,16 @@ function shouldRouteFeishuMessageToAgent(input: {
   ));
 }
 
+function shouldReplyWithFeishuChannelSetupCard(input: {
+  agentBotRoute: FeishuAgentBotRoute | null;
+  channelAutoProvisionNotice?: ExternalMessageOutboxRecord;
+}): boolean {
+  if (!input.agentBotRoute || !input.agentBotRoute.botMentioned || input.channelAutoProvisionNotice) {
+    return false;
+  }
+  return readFeishuChannelAutoProvisionPolicy(input.agentBotRoute.binding).firstMessage === "reply_with_setup_card";
+}
+
 function shouldContinueFeishuAgentThreadSync(input: {
   workspaceId: string;
   message: ExternalMessageEnvelope;
@@ -1488,6 +1558,23 @@ function buildFeishuChannelBindingNotice(input: {
     return "这个飞书群还没有绑定到 AgentSpace channel。请 workspace 管理员在 AgentSpace 设置页完成绑定。";
   }
   return `这个飞书群还没有绑定到 AgentSpace channel。请 workspace 管理员打开 ${settingsUrl} 完成绑定。`;
+}
+
+function buildFeishuChannelReviewNotice(input: {
+  workspaceId: string;
+  reviewStatus: "pending_admin_review" | "needs_identity_binding";
+}): string {
+  const settingsUrl = buildAgentSpaceSettingsIntegrationsDeepLink({
+    workspaceId: input.workspaceId,
+    target: "channel-bindings",
+  });
+  const action = input.reviewStatus === "needs_identity_binding"
+    ? "需要先完成身份绑定审核"
+    : "正在等待管理员审核";
+  if (!settingsUrl) {
+    return `这个飞书群已连接到 AgentSpace channel，但${action}。审核通过前，AgentSpace 不会在这里调度 Agent。`;
+  }
+  return `这个飞书群已连接到 AgentSpace channel，但${action}。审核通过前，AgentSpace 不会在这里调度 Agent。管理员可以打开 ${settingsUrl} 处理。`;
 }
 
 function buildFeishuUserBindingNotice(input: {

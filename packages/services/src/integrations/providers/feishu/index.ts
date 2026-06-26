@@ -47,6 +47,8 @@ export {
 } from "./agent-bot-routing.ts";
 export {
   queueFeishuChannelAutoProvisionConfirmationOutboxSync,
+  queueFeishuChannelSetupCardOutboxSync,
+  readFeishuChannelBindingReviewStatus,
   readFeishuChannelAutoProvisionPolicy,
   resolveOrProvisionFeishuChannelBindingSync,
   shouldAutoProvisionFeishuChannelForBotAdded,

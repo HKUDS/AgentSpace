@@ -1,5 +1,9 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { readExternalIntegrationSync } from "@agent-space/db";
+import {
+  listExternalIntegrationsSync,
+  readExternalIntegrationSync,
+  type ExternalIntegrationRecord,
+} from "@agent-space/db";
 import {
   FEISHU_PROVIDER_ID,
   buildFeishuUrlVerificationResponse,
@@ -14,6 +18,8 @@ import {
   processFeishuInboundEvent,
   recordFeishuCardActionCallbackIgnoredSync,
   recordFeishuCallbackRejectedSync,
+  resolveFeishuCallbackAppId,
+  resolveFeishuCallbackTenantKey,
   validateFeishuCallbackContext,
   verifyFeishuCallbackToken,
   verifyFeishuRequestSignature,
@@ -26,19 +32,24 @@ export const dynamic = "force-dynamic";
 export async function POST(request: NextRequest): Promise<NextResponse> {
   const workspaceId = request.nextUrl.searchParams.get("workspaceId")?.trim();
   const integrationId = request.nextUrl.searchParams.get("integrationId")?.trim();
-  if (!workspaceId || !integrationId) {
+  if (!workspaceId) {
     return NextResponse.json({ error: "Missing Feishu integration context." }, { status: 400 });
-  }
-
-  const integration = readExternalIntegrationSync({ workspaceId, integrationId });
-  if (!integration || integration.provider !== FEISHU_PROVIDER_ID || integration.status !== "active") {
-    return NextResponse.json({ error: "Feishu integration is not active." }, { status: 404 });
   }
 
   const requestPayload = await readJsonPayload(request);
   if (!requestPayload) {
     return NextResponse.json({ error: "Invalid Feishu event payload." }, { status: 400 });
   }
+
+  const integrationResolveResult = resolveFeishuWebhookIntegration({
+    workspaceId,
+    integrationId,
+    payload: requestPayload.payload,
+  });
+  if (!integrationResolveResult.ok) {
+    return NextResponse.json({ error: integrationResolveResult.error }, { status: integrationResolveResult.status });
+  }
+  const integration = integrationResolveResult.integration;
 
   const credentials = readFeishuIntegrationCredentials(integration);
   const payloadResult = resolveFeishuEventPayload({
@@ -71,7 +82,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const result = recordFeishuCallbackRejectedSync({
       context: {
         workspaceId,
-        integrationId,
+        integrationId: integration.id,
         provider: FEISHU_PROVIDER_ID,
       },
       payload,
@@ -91,7 +102,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       const result = recordFeishuCardActionCallbackIgnoredSync({
         context: {
           workspaceId,
-          integrationId,
+          integrationId: integration.id,
           provider: FEISHU_PROVIDER_ID,
         },
         payload,
@@ -113,7 +124,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const result = await processFeishuCardActionCallback({
       context: {
         workspaceId,
-        integrationId,
+        integrationId: integration.id,
         provider: FEISHU_PROVIDER_ID,
       },
       payload,
@@ -141,7 +152,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     result = await processFeishuInboundEvent({
       context: {
         workspaceId,
-        integrationId,
+        integrationId: integration.id,
         provider: FEISHU_PROVIDER_ID,
       },
       payload,
@@ -162,7 +173,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
   const outboxDrain = await drainFeishuWebhookOutbox({
     workspaceId,
-    integrationId,
+    integrationId: integration.id,
   });
 
   return NextResponse.json({
@@ -176,6 +187,87 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     noticeOutboxId: result.noticeOutbox?.id,
     outboxDrain,
   });
+}
+
+type FeishuWebhookIntegrationResolveResult =
+  | {
+    ok: true;
+    integration: ExternalIntegrationRecord;
+  }
+  | {
+    ok: false;
+    status: 400 | 404;
+    error: string;
+  };
+
+function resolveFeishuWebhookIntegration(input: {
+  workspaceId: string;
+  integrationId?: string;
+  payload: Record<string, unknown>;
+}): FeishuWebhookIntegrationResolveResult {
+  const integrationId = input.integrationId?.trim();
+  if (integrationId) {
+    const integration = readExternalIntegrationSync({
+      workspaceId: input.workspaceId,
+      integrationId,
+    });
+    return isActiveFeishuIntegration(integration)
+      ? { ok: true, integration }
+      : { ok: false, status: 404, error: "Feishu integration is not active." };
+  }
+
+  if (isFeishuEncryptedPayload(input.payload)) {
+    return {
+      ok: false,
+      status: 400,
+      error: "Encrypted Feishu events require an integration id in the callback URL.",
+    };
+  }
+
+  const appId = resolveFeishuCallbackAppId(input.payload);
+  if (!appId) {
+    return {
+      ok: false,
+      status: 400,
+      error: "Missing Feishu integration context.",
+    };
+  }
+
+  const tenantKey = resolveFeishuCallbackTenantKey(input.payload);
+  const candidates = listExternalIntegrationsSync({
+    workspaceId: input.workspaceId,
+    provider: FEISHU_PROVIDER_ID,
+  }).filter((integration) =>
+    integration.status === "active" &&
+    integration.appId === appId);
+  const exactTenant = candidates.filter((integration) =>
+    (integration.tenantKey ?? "") === (tenantKey ?? ""));
+  const matches = exactTenant.length > 0
+    ? exactTenant
+    : tenantKey
+      ? []
+      : candidates;
+  if (matches.length === 1 && matches[0]) {
+    return { ok: true, integration: matches[0] };
+  }
+  if (matches.length > 1 || (!tenantKey && candidates.length > 1)) {
+    return {
+      ok: false,
+      status: 400,
+      error: "Feishu callback app_id matches multiple integrations; tenant_key is required.",
+    };
+  }
+  return {
+    ok: false,
+    status: 404,
+    error: "Feishu integration is not active.",
+  };
+}
+
+function isActiveFeishuIntegration(
+  integration: ExternalIntegrationRecord | null,
+): integration is ExternalIntegrationRecord {
+  return Boolean(integration && integration.provider === FEISHU_PROVIDER_ID && integration.status === "active");
 }
 
 async function drainFeishuWebhookOutbox(input: {

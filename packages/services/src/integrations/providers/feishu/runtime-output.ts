@@ -21,12 +21,14 @@ import {
 import type { FeishuApiClient } from "./client.ts";
 import { FEISHU_PROVIDER_ID } from "./constants.ts";
 import type { FeishuBoundDataOperationActor } from "./data-plane.ts";
+import { buildAgentSpaceSettingsIntegrationsDeepLink } from "./links.ts";
 import {
   FEISHU_LARK_CLI_RESULT_MANIFEST_RELATIVE_PATH,
   resolveFeishuLarkCliOperationKind,
   summarizeFeishuLarkCliResultManifest,
   type FeishuLarkCliResourceGrant,
 } from "./lark-cli.ts";
+import { queueFeishuAgentStatusCardOutboxSync } from "./outbound.ts";
 
 export const FEISHU_RUNTIME_DATA_OPERATION_REQUESTS_KIND = "agent-space.feishu.data-operation.requests";
 export const FEISHU_RUNTIME_DATA_OPERATION_REQUESTS_SCHEMA_VERSION = 1;
@@ -98,6 +100,7 @@ export async function applyFeishuRuntimeDataOperationRequests(input: {
   sourceAgentSpaceMessageId?: string;
   resourceGrants: FeishuLarkCliResourceGrant[];
   planWriteOperationWithApproval?: typeof planBoundFeishuWriteDataOperationWithApproval;
+  queueAgentStatusCard?: typeof queueFeishuAgentStatusCardOutboxSync;
   client?: FeishuApiClient;
 }): Promise<FeishuRuntimeDataOperationRequestApplySummary> {
   const manifestPath = join(input.workDir, FEISHU_RUNTIME_DATA_OPERATION_REQUESTS_RELATIVE_PATH);
@@ -129,6 +132,7 @@ export async function applyFeishuRuntimeDataOperationRequests(input: {
   const operationRunIds: string[] = [];
   const approvalIds: string[] = [];
   const planWriteOperationWithApproval = input.planWriteOperationWithApproval ?? planBoundFeishuWriteDataOperationWithApproval;
+  const queueAgentStatusCard = input.queueAgentStatusCard ?? queueFeishuAgentStatusCardOutboxSync;
   const client = input.client ?? createNoopFeishuWritePlanClient();
 
   for (const [index, entry] of manifest.requests.slice(0, 20).entries()) {
@@ -204,6 +208,19 @@ export async function applyFeishuRuntimeDataOperationRequests(input: {
         statusMessages.push(`Feishu ${entry.operationType} approval request created: ${planned.approval.id}.`);
       } else if (planned.result.errorCode) {
         warnings.push(`Feishu runtime data-operation request ${index + 1} did not create an approval: ${planned.result.errorCode}.`);
+        const identityNoticeCount = queueFeishuExternalGuestIdentityRequiredCardBestEffort({
+          workspaceId: input.workspaceId,
+          channelName,
+          actorName: input.actorName,
+          taskId: input.sourceTaskQueueId,
+          sourceAgentSpaceMessageId: input.sourceAgentSpaceMessageId,
+          sourceContext,
+          errorCode: planned.result.errorCode,
+          queueAgentStatusCard,
+        });
+        if (identityNoticeCount > 0) {
+          statusMessages.push("Feishu external guest identity binding notice queued.");
+        }
       } else {
         statusMessages.push(`Feishu ${entry.operationType} data-operation run recorded: ${planned.runId}.`);
       }
@@ -346,6 +363,41 @@ function emptyFeishuRuntimeDataOperationRequestSummary(): FeishuRuntimeDataOpera
     operationRunIds: [],
     approvalIds: [],
   };
+}
+
+function queueFeishuExternalGuestIdentityRequiredCardBestEffort(input: {
+  workspaceId: string;
+  channelName: string;
+  actorName: string;
+  taskId?: string;
+  sourceAgentSpaceMessageId?: string;
+  sourceContext: FeishuRuntimeDataOperationSourceContext;
+  errorCode?: string;
+  queueAgentStatusCard: typeof queueFeishuAgentStatusCardOutboxSync;
+}): number {
+  if (input.errorCode !== "feishu.data_operation_external_guest_requires_identity") {
+    return 0;
+  }
+  try {
+    const agentId = readStringField(input.sourceContext.governance, "agentId") ?? input.actorName;
+    const settingsUrl = buildAgentSpaceSettingsIntegrationsDeepLink({
+      workspaceId: input.workspaceId,
+      target: "user-bindings",
+    });
+    return input.queueAgentStatusCard({
+      workspaceId: input.workspaceId,
+      channelName: input.channelName,
+      agentId,
+      status: "failed",
+      agentNames: [agentId],
+      message: "External guests must bind an AgentSpace identity before writing Feishu Docs, Sheets, or Base resources.",
+      taskId: input.taskId,
+      sourceAgentSpaceMessageId: input.sourceAgentSpaceMessageId,
+      actionUrl: settingsUrl ?? null,
+    }).length;
+  } catch {
+    return 0;
+  }
 }
 
 interface FeishuRuntimeDataOperationSourceContext {

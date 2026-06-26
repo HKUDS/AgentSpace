@@ -1,7 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 
-const { mockReadExternalIntegrationSync } = vi.hoisted(() => ({
+const {
+  mockListExternalIntegrationsSync,
+  mockReadExternalIntegrationSync,
+} = vi.hoisted(() => ({
+  mockListExternalIntegrationsSync: vi.fn(),
   mockReadExternalIntegrationSync: vi.fn(),
 }));
 
@@ -28,6 +32,7 @@ const {
 }));
 
 vi.mock("@agent-space/db", () => ({
+  listExternalIntegrationsSync: mockListExternalIntegrationsSync,
   readExternalIntegrationSync: mockReadExternalIntegrationSync,
 }));
 
@@ -95,6 +100,12 @@ vi.mock("@agent-space/services", () => {
     processFeishuInboundEvent: mockProcessFeishuInboundEvent,
     recordFeishuCardActionCallbackIgnoredSync: mockRecordFeishuCardActionCallbackIgnoredSync,
     recordFeishuCallbackRejectedSync: mockRecordFeishuCallbackRejectedSync,
+    resolveFeishuCallbackAppId: (payload: Record<string, unknown>) =>
+      readHeaderString(payload, "app_id") ??
+      (typeof payload.app_id === "string" ? payload.app_id : undefined),
+    resolveFeishuCallbackTenantKey: (payload: Record<string, unknown>) =>
+      readHeaderString(payload, "tenant_key") ??
+      (typeof payload.tenant_key === "string" ? payload.tenant_key : undefined),
     validateFeishuCallbackContext: (input: {
       payload: Record<string, unknown>;
       expectedAppId?: string | null;
@@ -138,6 +149,7 @@ import { POST } from "./route";
 
 describe("Feishu event route", () => {
   beforeEach(() => {
+    mockListExternalIntegrationsSync.mockReset();
     mockReadExternalIntegrationSync.mockReset();
     mockReadFeishuIntegrationCredentials.mockReset();
     mockAttachmentDownloader.mockReset();
@@ -149,7 +161,7 @@ describe("Feishu event route", () => {
     mockRecordFeishuCallbackRejectedSync.mockReset();
     mockCreateFeishuInboundAttachmentDownloader.mockReturnValue(mockAttachmentDownloader);
 
-    mockReadExternalIntegrationSync.mockReturnValue({
+    const integration = {
       id: "external-integration-1",
       workspaceId: "workspace-1",
       provider: "feishu",
@@ -163,7 +175,9 @@ describe("Feishu event route", () => {
       scopesJson: "[]",
       createdAt: "2026-06-24T00:00:00.000Z",
       updatedAt: "2026-06-24T00:00:00.000Z",
-    });
+    };
+    mockReadExternalIntegrationSync.mockReturnValue(integration);
+    mockListExternalIntegrationsSync.mockReturnValue([integration]);
     mockReadFeishuIntegrationCredentials.mockReturnValue({
       appSecret: "secret",
       verificationToken: "verify-token",
@@ -222,6 +236,82 @@ describe("Feishu event route", () => {
     await expect(response.json()).resolves.toMatchObject({
       error: "Missing Feishu integration context.",
     });
+  });
+
+  it("resolves unencrypted event callbacks by Feishu app id when integration id is omitted", async () => {
+    const payload = {
+      header: {
+        token: "verify-token",
+        event_id: "evt-app-resolved-1",
+        event_type: "im.message.receive_v1",
+        app_id: "cli_test",
+      },
+      event: {},
+    };
+    mockProcessFeishuInboundEvent.mockResolvedValueOnce({
+      event: {
+        externalEventId: "evt-app-resolved-1",
+        status: "processed",
+      },
+      dispatchStatus: "sent",
+      message: {
+        externalMessageId: "om-app-resolved-1",
+      },
+      mappedChannelName: "ops",
+    });
+
+    const response = await POST(buildRequest(
+      "https://example.com/api/integrations/feishu/events?workspaceId=workspace-1",
+      payload,
+    ));
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      ok: true,
+      eventId: "evt-app-resolved-1",
+      dispatchStatus: "sent",
+      messageId: "om-app-resolved-1",
+    });
+    expect(mockReadExternalIntegrationSync).not.toHaveBeenCalled();
+    expect(mockListExternalIntegrationsSync).toHaveBeenCalledWith({
+      workspaceId: "workspace-1",
+      provider: "feishu",
+    });
+    expect(mockProcessFeishuInboundEvent).toHaveBeenCalledWith({
+      context: {
+        workspaceId: "workspace-1",
+        integrationId: "external-integration-1",
+        provider: "feishu",
+      },
+      payload,
+      attachmentDownloader: mockAttachmentDownloader,
+    });
+  });
+
+  it("requires integration id for encrypted callbacks because app id is inside encrypted payload", async () => {
+    const response = await POST(buildRequest(
+      "https://example.com/api/integrations/feishu/events?workspaceId=workspace-1",
+      {
+        encrypt: Buffer.from(JSON.stringify({
+          header: {
+            token: "verify-token",
+            app_id: "cli_test",
+          },
+        }), "utf8").toString("base64url"),
+      },
+      {
+        "x-lark-request-timestamp": "1782280800",
+        "x-lark-request-nonce": "nonce-1",
+        "x-lark-signature": "valid-signature",
+      },
+    ));
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      error: "Encrypted Feishu events require an integration id in the callback URL.",
+    });
+    expect(mockReadFeishuIntegrationCredentials).not.toHaveBeenCalled();
+    expect(mockProcessFeishuInboundEvent).not.toHaveBeenCalled();
   });
 
   it("rejects requests with the wrong verification token", async () => {

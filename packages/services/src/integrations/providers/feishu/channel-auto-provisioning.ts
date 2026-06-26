@@ -85,6 +85,12 @@ export function shouldAutoProvisionFeishuChannelForBotAdded(
   return readFeishuChannelAutoProvisionPolicy(integration).botAdded !== "disabled";
 }
 
+export function readFeishuChannelBindingReviewStatus(
+  binding: ExternalChannelBindingRecord,
+): FeishuChannelReviewStatus {
+  return readReviewStatus(binding) ?? "approved";
+}
+
 export function resolveOrProvisionFeishuChannelBindingSync(
   input: ResolveOrProvisionFeishuChannelBindingInput,
 ): FeishuChannelAutoProvisionResult {
@@ -231,6 +237,31 @@ export function queueFeishuChannelAutoProvisionConfirmationOutboxSync(input: {
   });
 }
 
+export function queueFeishuChannelSetupCardOutboxSync(input: {
+  workspaceId: string;
+  integrationId: string;
+  targetExternalChatId: string;
+  targetExternalThreadId?: string;
+  agentId: string;
+  settingsUrl?: string;
+}) {
+  const outbound = buildFeishuInteractiveCardOutboundMessage({
+    targetExternalChatId: input.targetExternalChatId,
+    targetExternalThreadId: input.targetExternalThreadId,
+    card: buildFeishuChannelSetupCard({
+      agentId: input.agentId,
+      settingsUrl: input.settingsUrl,
+    }),
+  });
+  return createExternalMessageOutboxSync({
+    workspaceId: input.workspaceId,
+    integrationId: input.integrationId,
+    targetExternalChatId: outbound.targetExternalChatId,
+    targetExternalThreadId: outbound.targetExternalThreadId,
+    payloadJson: outbound.payload,
+  });
+}
+
 function ensureAgentInChannelSync(input: {
   workspaceId: string;
   channelName: string;
@@ -328,6 +359,45 @@ function buildFeishuChannelAutoProvisionConfirmationCard(input: {
         `Review: ${input.reviewStatus}`,
       ].join("\n"),
     }],
+  };
+}
+
+function buildFeishuChannelSetupCard(input: {
+  agentId: string;
+  settingsUrl?: string;
+}): Record<string, unknown> {
+  const elements: Record<string, unknown>[] = [{
+    tag: "markdown",
+    content: [
+      "**AgentSpace channel setup required**",
+      `Agent: ${input.agentId}`,
+      "这个飞书群还没有连接 AgentSpace channel。管理员完成 channel 绑定后，AgentSpace 才会在这里调度 Agent。",
+    ].join("\n"),
+  }];
+  if (input.settingsUrl) {
+    elements.push({
+      tag: "action",
+      actions: [{
+        tag: "button",
+        text: {
+          tag: "plain_text",
+          content: "Open AgentSpace",
+        },
+        type: "primary",
+        url: input.settingsUrl,
+      }],
+    });
+  }
+  return {
+    config: { wide_screen_mode: true },
+    header: {
+      template: "yellow",
+      title: {
+        tag: "plain_text",
+        content: `${input.agentId} · AgentSpace`,
+      },
+    },
+    elements,
   };
 }
 

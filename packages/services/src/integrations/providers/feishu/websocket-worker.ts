@@ -98,6 +98,14 @@ export type FeishuWebSocketWorkerSessionFactory = (
   input: FeishuWebSocketWorkerSessionFactoryInput
 ) => Promise<FeishuWebSocketWorkerSession>;
 
+export const FEISHU_WEBSOCKET_WORKER_EVENT_TYPES = [
+  "im.message.receive_v1",
+  "card.action.trigger",
+  "im.message.message_card.action_v1",
+  "message_card.action",
+  "im.chat.member.bot.added_v1",
+] as const;
+
 export interface FeishuWebSocketWorkerDependencies {
   listIntegrations?: typeof listExternalIntegrationsSync;
   readIntegrationCredentials?: (integration: ExternalIntegrationRecord) => FeishuPlainCredentials;
@@ -331,24 +339,17 @@ async function createFeishuSdkWebSocketWorkerSession(
   input: FeishuWebSocketWorkerSessionFactoryInput,
 ): Promise<FeishuWebSocketWorkerSession> {
   const lark = await import("@larksuiteoapi/node-sdk");
+  const eventHandlers = Object.fromEntries(FEISHU_WEBSOCKET_WORKER_EVENT_TYPES.map((eventType) => [
+    eventType,
+    async (event: unknown) => {
+      await input.onEvent(eventType, event);
+    },
+  ]));
   const dispatcher = new lark.EventDispatcher({
     verificationToken: input.verificationToken,
     encryptKey: input.encryptKey,
     loggerLevel: lark.LoggerLevel.info,
-  }).register({
-    "im.message.receive_v1": async (event: unknown) => {
-      await input.onEvent("im.message.receive_v1", event);
-    },
-    "card.action.trigger": async (event: unknown) => {
-      await input.onEvent("card.action.trigger", event);
-    },
-    "im.message.message_card.action_v1": async (event: unknown) => {
-      await input.onEvent("im.message.message_card.action_v1", event);
-    },
-    "message_card.action": async (event: unknown) => {
-      await input.onEvent("message_card.action", event);
-    },
-  });
+  }).register(eventHandlers);
   const client = new lark.WSClient({
     appId: input.appId,
     appSecret: input.appSecret,

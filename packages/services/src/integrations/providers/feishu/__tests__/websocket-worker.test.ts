@@ -3,6 +3,7 @@ import test from "node:test";
 import type { ExternalIntegrationRecord } from "@agent-space/db";
 import {
   buildFeishuWebSocketEventPayload,
+  FEISHU_WEBSOCKET_WORKER_EVENT_TYPES,
   processFeishuWebSocketEvent,
   startFeishuWebSocketWorker,
   type FeishuWebSocketWorkerMetrics,
@@ -53,6 +54,10 @@ test("wraps Feishu SDK message events into the inbound webhook payload shape", (
       tenant_key: "tenant-1",
     },
   });
+});
+
+test("websocket worker subscribes to Feishu bot-added auto-provisioning events", () => {
+  assert.ok(FEISHU_WEBSOCKET_WORKER_EVENT_TYPES.includes("im.chat.member.bot.added_v1"));
 });
 
 test("keeps already-normalized Feishu webhook payloads unchanged", () => {
@@ -164,6 +169,79 @@ test("processFeishuWebSocketEvent routes SDK events through inbound processing w
   assert.equal(metrics.outboxProcessedCount, 2);
   assert.equal(metrics.outboxSentCount, 2);
   assert.equal(metrics.failedCount, 0);
+});
+
+test("processFeishuWebSocketEvent routes bot-added events through inbound auto-provisioning", async () => {
+  const metrics = createMetrics();
+  let inboundPayload: Record<string, unknown> | undefined;
+  let drainInput: Record<string, unknown> | undefined;
+
+  await processFeishuWebSocketEvent({
+    context: {
+      workspaceId: "workspace-1",
+      integrationId: "integration-1",
+      provider: FEISHU_PROVIDER_ID,
+    },
+    integrationId: "integration-1",
+    appId: "cli_test",
+    appSecret: "app-secret",
+    eventType: "im.chat.member.bot.added_v1",
+    event: {
+      chat_id: "oc_auto",
+      chat_type: "group",
+      chat_name: "Auto Provision Room",
+    },
+    metrics,
+    lockedBy: "worker-1",
+    dependencies: {
+      createInboundAttachmentDownloader() {
+        return (() => undefined) as never;
+      },
+      async processInboundEvent(input) {
+        inboundPayload = input.payload;
+        assert.equal(input.context.integrationId, "integration-1");
+        return {
+          event: {
+            externalEventId: "feishu-ws-bot-added",
+            status: "processed",
+          },
+          message: null,
+          mappedChannelName: "feishu-auto-provision-room",
+          dispatchStatus: "sent",
+          reasonCode: "feishu_bot_added_channel_provisioned",
+        } as never;
+      },
+      async drainOutboxMessages(input) {
+        drainInput = input as Record<string, unknown>;
+        return {
+          processedCount: 1,
+          sentCount: 1,
+          failedCount: 0,
+          errors: [],
+        };
+      },
+    },
+  });
+
+  const header = inboundPayload?.header as Record<string, unknown> | undefined;
+  assert.match(String(header?.event_id), /^feishu-ws-\d+$/);
+  assert.deepEqual({
+    event_type: header?.event_type,
+    create_time: header?.create_time,
+    token: header?.token,
+    app_id: header?.app_id,
+    tenant_key: header?.tenant_key,
+  }, {
+    event_type: "im.chat.member.bot.added_v1",
+    create_time: undefined,
+    token: undefined,
+    app_id: undefined,
+    tenant_key: undefined,
+  });
+  assert.equal((inboundPayload?.event as Record<string, unknown> | undefined)?.chat_id, "oc_auto");
+  assert.equal(drainInput?.integrationId, "integration-1");
+  assert.equal(metrics.processedCount, 1);
+  assert.equal(metrics.outboxSentCount, 1);
 });
 
 test("processFeishuWebSocketEvent routes approval card actions through approval callbacks", async () => {

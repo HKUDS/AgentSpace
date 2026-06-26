@@ -249,6 +249,7 @@ export function buildFeishuAgentStatusCardOutboundMessage(input: {
   message?: string;
   taskId?: string;
   approvalAction?: FeishuApprovalCardActionPayload;
+  actionUrl?: string | null;
 }): ExternalOutboundMessagePayload {
   return buildFeishuInteractiveCardOutboundMessage({
     targetExternalChatId: input.targetExternalChatId,
@@ -260,10 +261,12 @@ export function buildFeishuAgentStatusCardOutboundMessage(input: {
       message: input.message,
       taskId: input.taskId,
       approvalAction: input.approvalAction,
-      actionUrl: buildAgentSpaceChannelDeepLink({
-        workspaceId: input.workspaceId,
-        channelName: input.channelName,
-      }),
+      actionUrl: input.actionUrl === null
+        ? undefined
+        : input.actionUrl ?? buildAgentSpaceChannelDeepLink({
+          workspaceId: input.workspaceId,
+          channelName: input.channelName,
+        }),
     }),
   });
 }
@@ -424,6 +427,7 @@ export function queueFeishuAgentStatusCardOutboxSync(input: {
   agentSpaceMessageId?: string;
   sourceAgentSpaceMessageId?: string;
   approvalAction?: FeishuApprovalCardActionPayload;
+  actionUrl?: string | null;
 }): ExternalMessageOutboxRecord[] {
   const candidates = listFeishuOutboundIntegrationCandidatesSync({
     workspaceId: input.workspaceId,
@@ -452,6 +456,7 @@ export function queueFeishuAgentStatusCardOutboxSync(input: {
       message: input.message,
       taskId: input.taskId,
       approvalAction: input.approvalAction,
+      actionUrl: input.actionUrl,
     });
     outboxItems.push(enqueueExternalOutboundMessageSync({
       context: {

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { FEISHU_PROVIDER_ID } from "../constants.ts";
 import {
+  isFeishuAgentBotMentioned,
   isFeishuBotSenderPayload,
 } from "../agent-bot-routing.ts";
 import type { FeishuAgentBotBinding } from "../agent-bot-bindings.ts";
@@ -38,9 +39,46 @@ test("identifies bot senders by the current agent bot open id", () => {
   }), false);
 });
 
+test("routes only mentions of the current Feishu agent bot", () => {
+  const binding = buildAgentBotBinding({
+    botOpenId: "ou_bot_atlas",
+  });
+
+  assert.equal(isFeishuAgentBotMentioned(buildPayload({
+    content: { text: '<at user_id="ou_bot_atlas">@Atlas Bot</at> help' },
+  }), binding), true);
+  assert.equal(isFeishuAgentBotMentioned(buildPayload({
+    mentions: [{
+      open_id: "ou_bot_atlas",
+      is_bot: true,
+    }],
+    content: { text: '<at user_id="ou_bot_atlas">@Atlas Bot</at> help' },
+  }), binding), true);
+  assert.equal(isFeishuAgentBotMentioned(buildPayload({
+    mentions: [{
+      open_id: "ou_bot_hermes",
+      is_bot: true,
+    }],
+    content: { text: '<at user_id="ou_bot_hermes">@Hermes Bot</at> help' },
+  }), binding), false);
+  assert.equal(isFeishuAgentBotMentioned(buildPayload({
+    mentions: [{
+      is_bot: true,
+    }],
+    content: { text: '<at user_id="ou_bot_hermes">@Hermes Bot</at> help' },
+  }), binding), false);
+  assert.equal(isFeishuAgentBotMentioned(buildPayload({
+    mentionedBot: true,
+    content: { text: '<at user_id="ou_unknown">@Bot</at> help' },
+  }), binding), true);
+});
+
 function buildPayload(input: {
   senderType?: string;
   messageSenderType?: string;
+  mentionedBot?: boolean;
+  mentions?: Record<string, unknown>[];
+  content?: Record<string, unknown>;
 } = {}): Record<string, unknown> {
   return {
     schema: "2.0",
@@ -59,7 +97,9 @@ function buildPayload(input: {
         chat_id: "oc_general",
         message_id: "om-bot-sender",
         sender_type: input.messageSenderType,
-        content: JSON.stringify({ text: "hello" }),
+        mentioned_bot: input.mentionedBot,
+        mentions: input.mentions,
+        content: JSON.stringify(input.content ?? { text: "hello" }),
       },
     },
   };

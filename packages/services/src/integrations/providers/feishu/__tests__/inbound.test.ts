@@ -14,6 +14,7 @@ import {
   readExternalMessageMappingByExternalMessageSync,
   readExternalIntegrationEventSync,
   registerDaemonRuntimesSync,
+  updateExternalIntegrationHealthSync,
   type WorkspaceRole,
   upsertExternalChannelBindingSync,
   upsertExternalUserBindingSync,
@@ -31,6 +32,7 @@ import {
 import { FEISHU_PROVIDER_ID } from "../constants.ts";
 import {
   createFeishuAgentBotBindingSync,
+  type FeishuAgentBotChannelAutoProvisioningInput,
   type FeishuAgentBotExternalGuestPolicyInput,
 } from "../agent-bot-bindings.ts";
 import { FEISHU_EXTERNAL_GUEST_DISPLAY_NAME } from "../external-guests.ts";
@@ -381,6 +383,144 @@ test("agent bot first messages auto-provision a channel and route @bot to the ag
   assert.equal(mapping.taskQueueId, queuedTask?.id);
   assert.equal(mapping.routerSessionId, queuedTask?.routerSessionId);
   assert.equal(JSON.parse(mapping.metadataJson).threadBindingId, threadBinding.id);
+});
+
+test("pending review auto-provisioned channels do not dispatch first messages", databaseTestOptions, () => {
+  const fixtures = seedBoundFeishuWorkspace({
+    agentBot: true,
+    bindChannel: false,
+    channelAutoProvisioning: {
+      firstMessage: "pending_admin_review",
+    },
+  });
+
+  const result = processFeishuInboundEventSync({
+    context: {
+      workspaceId: DEFAULT_WORKSPACE_ID,
+      integrationId: fixtures.integration.id,
+      provider: FEISHU_PROVIDER_ID,
+    },
+    payload: buildFeishuMessagePayload({
+      eventId: "evt-agent-bot-first-message-review",
+      messageId: "om-agent-bot-first-message-review",
+      chatId: "oc_review",
+      chatName: "Review Room",
+      threadId: "om-review-root",
+      text: '<at user_id="ou_bot_atlas">@Atlas Bot</at> summarize launch notes',
+    }),
+  });
+
+  assert.equal(result.dispatchStatus, "ignored");
+  assert.equal(result.reasonCode, "feishu_channel_binding_pending_admin_review");
+  assert.ok(result.noticeOutbox);
+  assert.equal(countHumanMessages(), 0);
+  assert.equal(listQueuedTasksSync({ workspaceId: DEFAULT_WORKSPACE_ID }).length, 0);
+
+  const binding = readExternalChannelBindingByExternalChatSync({
+    workspaceId: DEFAULT_WORKSPACE_ID,
+    integrationId: fixtures.integration.id,
+    externalChatId: "oc_review",
+  });
+  assert.ok(binding);
+  assert.equal(binding.channelName, result.mappedChannelName);
+  const bindingMetadata = JSON.parse(binding.metadataJson) as Record<string, unknown>;
+  assert.equal(bindingMetadata.provisionSource, "first_message");
+  assert.equal(bindingMetadata.reviewStatus, "pending_admin_review");
+  assert.equal(bindingMetadata.agentId, "Atlas");
+  assert.equal(bindingMetadata.botBindingId, fixtures.integration.id);
+  assert.doesNotMatch(binding.metadataJson, /oc_review|om-review-root/);
+
+  const mapping = readExternalMessageMappingByExternalMessageSync({
+    workspaceId: DEFAULT_WORKSPACE_ID,
+    integrationId: fixtures.integration.id,
+    externalMessageId: "om-agent-bot-first-message-review",
+  });
+  assert.ok(mapping);
+  assert.equal(mapping.taskQueueId, undefined);
+  assert.equal(mapping.agentSpaceMessageId, undefined);
+  const mappingMetadata = JSON.parse(mapping.metadataJson) as Record<string, unknown>;
+  assert.equal(mappingMetadata.dispatchStatus, "ignored");
+  assert.equal(mappingMetadata.reasonCode, "feishu_channel_binding_pending_admin_review");
+  assert.equal(mappingMetadata.agentId, "Atlas");
+  assert.equal(mappingMetadata.botBindingId, fixtures.integration.id);
+  assert.doesNotMatch(mapping.metadataJson, /oc_review|om-review-root|ou_mina|on_mina/);
+
+  assert.equal(readFeishuThreadBindingSync({
+    workspaceId: DEFAULT_WORKSPACE_ID,
+    tenantKey: fixtures.integration.tenantKey,
+    externalChatId: "oc_review",
+    externalThreadId: "om-review-root",
+    agentId: "Atlas",
+  }), null);
+});
+
+test("reply-with-setup-card first message policy sends setup card without creating a channel", databaseTestOptions, () => {
+  const fixtures = seedBoundFeishuWorkspace({
+    agentBot: true,
+    bindChannel: false,
+    channelAutoProvisioning: {
+      firstMessage: "reply_with_setup_card",
+    },
+  });
+
+  const result = withAgentSpaceAppUrl("https://agentspace.test", () =>
+    processFeishuInboundEventSync({
+      context: {
+        workspaceId: DEFAULT_WORKSPACE_ID,
+        integrationId: fixtures.integration.id,
+        provider: FEISHU_PROVIDER_ID,
+      },
+      payload: buildFeishuMessagePayload({
+        eventId: "evt-agent-bot-first-message-setup-card",
+        messageId: "om-agent-bot-first-message-setup-card",
+        chatId: "oc_setup_card",
+        chatName: "Setup Card Room",
+        threadId: "om-setup-card-root",
+        text: '<at user_id="ou_bot_atlas">@Atlas Bot</at> summarize launch notes',
+      }),
+    }));
+
+  assert.equal(result.dispatchStatus, "ignored");
+  assert.equal(result.reasonCode, "feishu_channel_setup_card_required");
+  assert.ok(result.noticeOutbox);
+  assert.equal(result.noticeOutbox.channelBindingId, undefined);
+  assert.equal(countHumanMessages(), 0);
+  assert.equal(listQueuedTasksSync({ workspaceId: DEFAULT_WORKSPACE_ID }).length, 0);
+  assert.equal(readExternalChannelBindingByExternalChatSync({
+    workspaceId: DEFAULT_WORKSPACE_ID,
+    integrationId: fixtures.integration.id,
+    externalChatId: "oc_setup_card",
+  }), null);
+
+  const mapping = readExternalMessageMappingByExternalMessageSync({
+    workspaceId: DEFAULT_WORKSPACE_ID,
+    integrationId: fixtures.integration.id,
+    externalMessageId: "om-agent-bot-first-message-setup-card",
+  });
+  assert.ok(mapping);
+  assert.equal(mapping.channelBindingId, undefined);
+  assert.equal(mapping.taskQueueId, undefined);
+  assert.equal(mapping.agentSpaceMessageId, undefined);
+  const metadata = JSON.parse(mapping.metadataJson) as Record<string, unknown>;
+  assert.equal(metadata.dispatchStatus, "ignored");
+  assert.equal(metadata.reasonCode, "feishu_channel_setup_card_required");
+  assert.equal(metadata.agentId, "Atlas");
+  assert.equal(metadata.botBindingId, fixtures.integration.id);
+  assert.doesNotMatch(mapping.metadataJson, /oc_setup_card|om-setup-card-root|ou_mina|on_mina/);
+
+  const noticePayload = JSON.parse(result.noticeOutbox.payloadJson) as {
+    msg_type?: string;
+    content?: string;
+  };
+  assert.equal(noticePayload.msg_type, "interactive");
+  const card = JSON.parse(String(noticePayload.content)) as {
+    header?: { title?: { content?: string } };
+    elements?: Array<{ tag?: string; content?: string; actions?: Array<{ url?: string }> }>;
+  };
+  assert.equal(card.header?.title?.content, "Atlas · AgentSpace");
+  assert.match(card.elements?.[0]?.content ?? "", /channel setup required/);
+  assert.equal(card.elements?.[1]?.actions?.[0]?.url, "https://agentspace.test/w/default/settings/integrations#feishu-channel-bindings");
+  assert.doesNotMatch(result.noticeOutbox.payloadJson, /oc_setup_card|om-setup-card-root|ou_mina|on_mina/);
 });
 
 test("agent bot ignores bot sender messages before auto-provisioning or dispatch", databaseTestOptions, () => {
@@ -1474,6 +1614,7 @@ function seedBoundFeishuWorkspace(input: {
   userDisplayName?: string;
   userEmail?: string;
   workspaceRole?: WorkspaceRole;
+  channelAutoProvisioning?: FeishuAgentBotChannelAutoProvisioningInput;
   externalGuestPolicy?: FeishuAgentBotExternalGuestPolicyInput;
 } = {}) {
   const displayName = input.userDisplayName ?? "Mina";
@@ -1532,12 +1673,13 @@ function seedBoundFeishuWorkspace(input: {
   assert.ok(runtime);
   bindEmployeeRuntimeSync("Atlas", runtime.id, DEFAULT_WORKSPACE_ID);
 
-  const integration = input.agentBot
+  let integration = input.agentBot
     ? createFeishuAgentBotBindingSync({
       workspaceId: DEFAULT_WORKSPACE_ID,
       agentId: "Atlas",
       appId: "cli_atlas_bot",
       appSecret: "secret-atlas",
+      channelAutoProvisioning: input.channelAutoProvisioning,
       externalGuestPolicy: input.externalGuestPolicy,
     })
     : createExternalIntegrationSync({
@@ -1547,6 +1689,21 @@ function seedBoundFeishuWorkspace(input: {
       transportMode: "http_webhook",
       appId: "cli_test",
     });
+  if (input.agentBot) {
+    integration = updateExternalIntegrationHealthSync({
+      workspaceId: DEFAULT_WORKSPACE_ID,
+      integrationId: integration.id,
+      lastHealthStatus: "healthy",
+      configJson: {
+        ...JSON.parse(integration.configJson),
+        bot: {
+          openId: "ou_bot_atlas",
+          appName: "Atlas Bot",
+          lastHealthCheckedAt: "2026-06-26T00:00:00.000Z",
+        },
+      },
+    });
+  }
   if (input.bindChannel !== false) {
     upsertExternalChannelBindingSync({
       workspaceId: DEFAULT_WORKSPACE_ID,

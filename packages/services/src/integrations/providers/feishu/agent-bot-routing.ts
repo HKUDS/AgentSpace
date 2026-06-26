@@ -115,7 +115,7 @@ function isActiveFeishuAgentBotBinding(
   return isFeishuAgentBotBinding(integration) && integration.status === "active";
 }
 
-function isFeishuAgentBotMentioned(
+export function isFeishuAgentBotMentioned(
   payload: Record<string, unknown>,
   binding: FeishuAgentBotBinding,
 ): boolean {
@@ -127,29 +127,73 @@ function isFeishuAgentBotMentioned(
   if (message.mentioned_bot === true || message.mentionedBot === true) {
     return true;
   }
+  const botOpenId = readFeishuAgentBotOpenId(binding);
   const mentions = Array.isArray(message.mentions) ? message.mentions : [];
   for (const mention of mentions) {
     const record = asRecord(mention);
     if (!record) {
       continue;
     }
-    if (record.is_bot === true || record.isBot === true) {
-      return true;
-    }
-    const mentionOpenId = asString(record.open_id) ?? asString(record.openId);
-    const botOpenId = readFeishuAgentBotOpenId(binding);
+    const mentionOpenId = asString(record.open_id)
+      ?? asString(record.openId)
+      ?? asString(record.user_id)
+      ?? asString(record.userId)
+      ?? asString(record.id);
     if (mentionOpenId && botOpenId && mentionOpenId === botOpenId) {
       return true;
     }
   }
 
-  const content = asString(message.content);
-  return Boolean(content && /<at\b[^>]*>.*?<\/at>/i.test(content));
+  if (!botOpenId) {
+    return false;
+  }
+  return extractFeishuAtMentionIds(asString(message.content)).some((mentionId) => mentionId === botOpenId);
 }
 
 function containsAgentMention(text: string, agentId: string): boolean {
   const matches = text.match(/@([^\s，,。:：]+)/g) ?? [];
   return matches.some((token) => sameValue(token.slice(1), agentId));
+}
+
+function extractFeishuAtMentionIds(content: string | undefined): string[] {
+  const candidates = [content, readTextFromFeishuContentJson(content)]
+    .filter((value): value is string => Boolean(value));
+  const mentionIds: string[] = [];
+  for (const candidate of candidates) {
+    const matches = candidate.matchAll(/<at\b([^>]*)>/gi);
+    for (const match of matches) {
+      const attrs = match[1] ?? "";
+      const id = readFeishuAtAttribute(attrs, "open_id")
+        ?? readFeishuAtAttribute(attrs, "openId")
+        ?? readFeishuAtAttribute(attrs, "user_id")
+        ?? readFeishuAtAttribute(attrs, "userId")
+        ?? readFeishuAtAttribute(attrs, "id");
+      if (id && !mentionIds.includes(id)) {
+        mentionIds.push(id);
+      }
+    }
+  }
+  return mentionIds;
+}
+
+function readTextFromFeishuContentJson(content: string | undefined): string | undefined {
+  if (!content) {
+    return undefined;
+  }
+  try {
+    const parsed = asRecord(JSON.parse(content));
+    return asString(parsed?.text)
+      ?? asString(parsed?.content)
+      ?? asString(parsed?.markdown);
+  } catch {
+    return undefined;
+  }
+}
+
+function readFeishuAtAttribute(attrs: string, name: string): string | undefined {
+  const pattern = new RegExp(`\\b${name}\\s*=\\s*(?:"([^"]+)"|'([^']+)'|([^\\s>]+))`, "i");
+  const match = attrs.match(pattern);
+  return match?.[1] ?? match?.[2] ?? match?.[3];
 }
 
 function resolveFeishuSenderType(payload: Record<string, unknown>): string | undefined {
