@@ -23,6 +23,6 @@
     "lint:web": "npm --prefix apps/web run lint",
     "test:web": "npm --prefix apps/web run test",
     "test:e2e:web": "npm --prefix apps/web run test:e2e",
-    "quality:web": "npm --prefix apps/web run typecheck && npm --prefix apps/web run lint && npm --prefix apps/web run test"
+    "quality:web": "npm --prefix apps/web run typecheck && npm --prefix apps/web run typecheck:test && npm --prefix apps/web run lint && npm --prefix apps/web run test"
   }
 }
