@@ -33,7 +33,10 @@ import { buildFeishuDataOperationPayloadHash } from "../operation-plan.ts";
 import type { ExternalDataOperationRequest } from "../../../core/index.ts";
 import type { FeishuApiClient, FeishuApiRequest } from "../client.ts";
 import {
+  addChannelEmployeesSync,
+  createChannelDocumentSync,
   createEmployeeSync,
+  createExternalDataTableSync,
   initializeOrganizationSync,
   listApprovalsSync,
   resetWorkspaceStateSync,
@@ -72,12 +75,41 @@ beforeEach(() => {
   `);
 });
 
+function initializeGeneralChannelForDataPlaneTest(workspaceId: string): void {
+  resetWorkspaceStateSync(workspaceId);
+  initializeOrganizationSync({
+    organizationName: "Northstar Labs",
+    ownerName: "Mina",
+    ownerRole: "Owner",
+    firstChannelName: "general",
+  }, workspaceId);
+}
+
 test("bound Feishu Doc reads create an operation run with a safe result summary", databaseTestOptions, async () => {
   const workspace = createWorkspaceSync({
     slug: "feishu-doc-read",
     name: "Feishu Doc Read",
     createdBy: "system",
   });
+  initializeGeneralChannelForDataPlaneTest(workspace.id);
+  createEmployeeSync({
+    name: "Atlas",
+    role: "Planner",
+    remarkName: "Atlas",
+    summary: "Trip planner",
+    fit: "Ready",
+    origin: "test",
+  }, workspace.id);
+  addChannelEmployeesSync({
+    channelName: "general",
+    employeeNames: ["Atlas"],
+  }, workspace.id);
+  const document = createChannelDocumentSync({
+    channelName: "general",
+    title: "Launch brief",
+    createdBy: "Atlas",
+    createdByType: "agent",
+  }, workspace.id).document;
   const integration = createExternalIntegrationSync({
     workspaceId: workspace.id,
     provider: FEISHU_PROVIDER_ID,
@@ -92,7 +124,7 @@ test("bound Feishu Doc reads create an operation run with a safe result summary"
     providerResourceToken: "doccnBound123",
     providerResourceUrl: "https://example.feishu.cn/docx/doccnBound123",
     agentSpaceResourceType: "channel_document",
-    agentSpaceResourceId: "channel-document-1",
+    agentSpaceResourceId: document.id,
     channelName: "general",
     displayName: "Launch brief",
   });
@@ -160,10 +192,126 @@ test("bound Feishu Doc reads create an operation run with a safe result summary"
   assert.equal(run.actorType, "agent");
   assert.equal(run.actorId, "Atlas");
 
+  const requestJson = JSON.parse(run.requestJson) as Record<string, unknown>;
+  assert.deepEqual(requestJson.governanceContext, {
+    provider: "feishu",
+    agentId: "Atlas",
+    botBindingId: integration.id,
+    channelName: "general",
+    actorType: "agent",
+  });
   const resultJson = JSON.parse(run.resultJson) as Record<string, unknown>;
-  assert.equal(resultJson.ok, true);
+  assert.equal(resultJson.policyDecision, "allow");
   assert.equal(JSON.stringify(resultJson).includes("confidential launch details"), false);
   assert.equal(JSON.stringify(resultJson).includes("resultPreviewSummary"), true);
+});
+
+test("agent bot Feishu reads record bound user governance context", databaseTestOptions, async () => {
+  const workspace = createWorkspaceSync({
+    slug: "feishu-bound-user-doc-read",
+    name: "Feishu Bound User Doc Read",
+    createdBy: "system",
+  });
+  initializeGeneralChannelForDataPlaneTest(workspace.id);
+  createEmployeeSync({
+    name: "Atlas",
+    role: "Planner",
+    remarkName: "Atlas",
+    summary: "Trip planner",
+    fit: "Ready",
+    origin: "test",
+  }, workspace.id);
+  addChannelEmployeesSync({
+    channelName: "general",
+    employeeNames: ["Atlas"],
+  }, workspace.id);
+  const document = createChannelDocumentSync({
+    channelName: "general",
+    title: "Bound user brief",
+    createdBy: "Atlas",
+    createdByType: "agent",
+  }, workspace.id).document;
+  const user = createUserSync({
+    displayName: "Mina",
+    primaryEmail: "mina-bound-user-doc-read@example.com",
+  });
+  createWorkspaceMembershipSync({
+    workspaceId: workspace.id,
+    userId: user.id,
+    role: "admin",
+  });
+  const integration = createExternalIntegrationSync({
+    workspaceId: workspace.id,
+    provider: FEISHU_PROVIDER_ID,
+    displayName: "Atlas Feishu Bot",
+    transportMode: "websocket_worker",
+    scopesJson: ["docx:document"],
+  });
+  const binding = upsertExternalResourceBindingSync({
+    workspaceId: workspace.id,
+    integrationId: integration.id,
+    providerResourceType: "doc",
+    providerResourceToken: "doccnBoundUser123",
+    providerResourceUrl: "https://example.feishu.cn/docx/doccnBoundUser123",
+    agentSpaceResourceType: "channel_document",
+    agentSpaceResourceId: document.id,
+    channelName: "general",
+    displayName: "Bound user brief",
+  });
+  const client: FeishuApiClient = {
+    async request<T>(): Promise<T> {
+      return {
+        code: 0,
+        data: {
+          items: [],
+        },
+      } as T;
+    },
+  };
+
+  const executed = await executeBoundFeishuReadDataOperation({
+    context: {
+      workspaceId: workspace.id,
+      integrationId: integration.id,
+      provider: FEISHU_PROVIDER_ID,
+    },
+    client,
+    request: {
+      operationType: "docs.read_document",
+      providerResourceType: "doc",
+      providerResourceToken: "doccnBoundUser123",
+      actorType: "agent",
+      actorId: "Atlas",
+      parameters: {
+        channelName: "general",
+      },
+    },
+    actor: {
+      actorType: "user",
+      userId: user.id,
+      displayName: "Mina",
+      role: "admin",
+    },
+  });
+
+  assert.equal(executed.result.ok, true);
+  assert.equal(executed.resourceBinding?.id, binding.id);
+  const run = readExternalDataOperationRunSync({
+    workspaceId: workspace.id,
+    runId: executed.runId,
+  });
+  assert.ok(run);
+  assert.equal(run.actorType, "agent");
+  assert.equal(run.actorId, "Atlas");
+  const requestJson = JSON.parse(run.requestJson) as Record<string, unknown>;
+  assert.deepEqual(requestJson.governanceContext, {
+    provider: "feishu",
+    agentId: "Atlas",
+    botBindingId: integration.id,
+    channelName: "general",
+    actorType: "user",
+    actorUserId: user.id,
+  });
 });
 
 test("external guest Feishu reads require guest-readable current-channel resource bindings", databaseTestOptions, async () => {
@@ -172,6 +320,7 @@ test("external guest Feishu reads require guest-readable current-channel resourc
     name: "Feishu Guest Doc Read",
     createdBy: "system",
   });
+  initializeGeneralChannelForDataPlaneTest(workspace.id);
   const integration = createExternalIntegrationSync({
     workspaceId: workspace.id,
     provider: FEISHU_PROVIDER_ID,
@@ -264,6 +413,7 @@ test("external guest Feishu writes require identity before approval planning", d
     name: "Feishu Guest Sheet Write",
     createdBy: "system",
   });
+  initializeGeneralChannelForDataPlaneTest(workspace.id);
   const integration = createExternalIntegrationSync({
     workspaceId: workspace.id,
     provider: FEISHU_PROVIDER_ID,
@@ -271,6 +421,14 @@ test("external guest Feishu writes require identity before approval planning", d
     transportMode: "websocket_worker",
     scopesJson: ["sheets:spreadsheet"],
   });
+  const table = createExternalDataTableSync({
+    name: "Guest write sheet",
+    channelName: "general",
+    externalProvider: FEISHU_PROVIDER_ID,
+    externalResourceType: "sheet",
+    externalResourceToken: "shtcnGuestWrite123",
+    externalUrl: "https://example.feishu.cn/sheets/shtcnGuestWrite123",
+  }, workspace.id);
   const binding = upsertExternalResourceBindingSync({
     workspaceId: workspace.id,
     integrationId: integration.id,
@@ -278,7 +436,7 @@ test("external guest Feishu writes require identity before approval planning", d
     providerResourceToken: "shtcnGuestWrite123",
     providerResourceUrl: "https://example.feishu.cn/sheets/shtcnGuestWrite123",
     agentSpaceResourceType: "data_table",
-    agentSpaceResourceId: "data-table-guest-write",
+    agentSpaceResourceId: table.id,
     channelName: "general",
     displayName: "Guest write sheet",
     permissionsJson: {
@@ -350,6 +508,7 @@ test("approved Feishu Sheet writes update a pending operation run with a safe re
     name: "Feishu Sheet Write",
     createdBy: "system",
   });
+  initializeGeneralChannelForDataPlaneTest(workspace.id);
   const integration = createExternalIntegrationSync({
     workspaceId: workspace.id,
     provider: FEISHU_PROVIDER_ID,
@@ -357,6 +516,14 @@ test("approved Feishu Sheet writes update a pending operation run with a safe re
     transportMode: "http_webhook",
     scopesJson: ["sheets:spreadsheet"],
   });
+  const table = createExternalDataTableSync({
+    name: "Planning sheet",
+    channelName: "general",
+    externalProvider: FEISHU_PROVIDER_ID,
+    externalResourceType: "sheet",
+    externalResourceToken: "shtcnBound123",
+    externalUrl: "https://example.feishu.cn/sheets/shtcnBound123",
+  }, workspace.id);
   const binding = upsertExternalResourceBindingSync({
     workspaceId: workspace.id,
     integrationId: integration.id,
@@ -364,9 +531,12 @@ test("approved Feishu Sheet writes update a pending operation run with a safe re
     providerResourceToken: "shtcnBound123",
     providerResourceUrl: "https://example.feishu.cn/sheets/shtcnBound123",
     agentSpaceResourceType: "data_table",
-    agentSpaceResourceId: "data-table-1",
+    agentSpaceResourceId: table.id,
     channelName: "general",
     displayName: "Planning sheet",
+    permissionsJson: {
+      canWrite: true,
+    },
   });
   const request: ExternalDataOperationRequest = {
     operationType: "sheets.update_range",
@@ -439,7 +609,7 @@ test("approved Feishu Sheet writes update a pending operation run with a safe re
     approvedPayloadHash: payloadHash,
   });
 
-  assert.equal(approved.result.ok, true);
+  assert.equal(approved.result.ok, true, JSON.stringify(approved.result));
   assert.deepEqual(requests, [{
     method: "PUT",
     path: "/open-apis/sheets/v2/spreadsheets/shtcnBound123/values",
@@ -481,6 +651,7 @@ test("approved Feishu Base mutations create and update records with safe result 
     name: "Feishu Base Write",
     createdBy: "system",
   });
+  initializeGeneralChannelForDataPlaneTest(workspace.id);
   const integration = createExternalIntegrationSync({
     workspaceId: workspace.id,
     provider: FEISHU_PROVIDER_ID,
@@ -488,6 +659,18 @@ test("approved Feishu Base mutations create and update records with safe result 
     transportMode: "http_webhook",
     scopesJson: ["bitable:app"],
   });
+  const table = createExternalDataTableSync({
+    name: "Planning base table",
+    channelName: "general",
+    externalProvider: FEISHU_PROVIDER_ID,
+    externalResourceType: "base_table",
+    externalResourceToken: "tblBound123",
+    externalUrl: "https://example.feishu.cn/base/appToken123?table=tblBound123",
+    externalMetadata: {
+      appToken: "appToken123",
+      tableId: "tblBound123",
+    },
+  }, workspace.id);
   const binding = upsertExternalResourceBindingSync({
     workspaceId: workspace.id,
     integrationId: integration.id,
@@ -495,12 +678,15 @@ test("approved Feishu Base mutations create and update records with safe result 
     providerResourceToken: "tblBound123",
     providerResourceUrl: "https://example.feishu.cn/base/appToken123?table=tblBound123",
     agentSpaceResourceType: "data_table",
-    agentSpaceResourceId: "data-table-2",
+    agentSpaceResourceId: table.id,
     channelName: "general",
     displayName: "Planning base table",
     metadataJson: {
       appToken: "appToken123",
       tableId: "tblBound123",
+    },
+    permissionsJson: {
+      canWrite: true,
     },
   });
   const createRequest: ExternalDataOperationRequest = {
@@ -791,6 +977,14 @@ test("Feishu approval card callbacks validate user binding token hash and execut
     agentSpaceMessageId: "agent-space-card-source-message-1",
     metadataJson: {},
   });
+  const table = createExternalDataTableSync({
+    name: "Approval sheet",
+    channelName: "general",
+    externalProvider: FEISHU_PROVIDER_ID,
+    externalResourceType: "sheet",
+    externalResourceToken: "shtcnCardApproval123",
+    externalUrl: "https://example.feishu.cn/sheets/shtcnCardApproval123",
+  }, workspace.id);
   const binding = upsertExternalResourceBindingSync({
     workspaceId: workspace.id,
     integrationId: integration.id,
@@ -798,9 +992,12 @@ test("Feishu approval card callbacks validate user binding token hash and execut
     providerResourceToken: "shtcnCardApproval123",
     providerResourceUrl: "https://example.feishu.cn/sheets/shtcnCardApproval123",
     agentSpaceResourceType: "data_table",
-    agentSpaceResourceId: "data-table-card-approval",
+    agentSpaceResourceId: table.id,
     channelName: "general",
     displayName: "Approval sheet",
+    permissionsJson: {
+      canWrite: true,
+    },
   });
   const request: ExternalDataOperationRequest = {
     operationType: "sheets.update_range",
@@ -895,7 +1092,7 @@ test("Feishu approval card callbacks validate user binding token hash and execut
   assert.equal(callback.eventStatus, "processed");
   assert.equal(callback.approvalId, pending.approval.id);
   assert.equal(callback.reviewerUserId, reviewer.id);
-  assert.equal(callback.execution?.result.ok, true);
+  assert.equal(callback.execution?.result.ok, true, JSON.stringify(callback.execution?.result));
   const reviewedApproval = listApprovalsSync(workspace.id).find((item) => item.id === pending.approval?.id);
   assert.equal(reviewedApproval?.reviewerComment, "Reviewed from Feishu card by user 7cefd02d.");
   assert.doesNotMatch(reviewedApproval?.reviewerComment ?? "", /ou_mina/);
@@ -987,7 +1184,7 @@ async function createAndApproveWriteOperation(input: {
     approvalId: input.approvalId,
     approvedPayloadHash: payloadHash,
   });
-  assert.equal(approved.result.ok, true);
+  assert.equal(approved.result.ok, true, JSON.stringify(approved.result));
 
   const completedRun = readExternalDataOperationRunSync({
     workspaceId: input.workspaceId,

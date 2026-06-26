@@ -140,6 +140,8 @@ export interface FeishuUserDataOperationActor {
   userId: string;
   displayName?: string;
   role?: WorkspaceRole;
+  agentId?: string;
+  botBindingId?: string;
 }
 
 export interface FeishuExternalGuestDataOperationActor {
@@ -381,6 +383,7 @@ export async function executeBoundFeishuReadDataOperation(input: {
   const requestWithActorContext = applyFeishuDataOperationGovernanceContext(input.request, {
     actor: input.actor,
     binding: bindingValidation.binding,
+    integrationId: input.context.integrationId,
   });
 
   if (input.actor && isFeishuExternalGuestDataOperationActor(input.actor)) {
@@ -509,6 +512,7 @@ export async function planBoundFeishuWriteDataOperation(input: {
   const requestWithActorContext = applyFeishuDataOperationGovernanceContext(input.request, {
     actor: input.actor,
     binding: bindingValidation.binding,
+    integrationId: input.context.integrationId,
   });
 
   if (input.actor && isFeishuExternalGuestDataOperationActor(input.actor)) {
@@ -1529,6 +1533,7 @@ function applyFeishuDataOperationGovernanceContext(
   input: {
     actor?: FeishuBoundDataOperationActor;
     binding?: ExternalResourceBindingRecord;
+    integrationId?: string;
   },
 ): ExternalDataOperationRequest {
   const existing = readRecordValue(request.parameters.feishuGovernance)
@@ -1546,8 +1551,12 @@ function applyFeishuDataOperationGovernanceContext(
     provider: FEISHU_PROVIDER_ID,
     agentId: readStringValue(existing.agentId)
       ?? externalGuest?.agentId
+      ?? userActor?.agentId
       ?? (request.actorType === "agent" ? request.actorId?.trim() : undefined),
-    botBindingId: readStringValue(existing.botBindingId) ?? externalGuest?.botBindingId,
+    botBindingId: readStringValue(existing.botBindingId)
+      ?? externalGuest?.botBindingId
+      ?? userActor?.botBindingId
+      ?? (actorType !== "system" ? input.integrationId : undefined),
     channelName,
     actorType,
     actorUserId: actorType === "user"
@@ -1582,6 +1591,9 @@ function resolveFeishuDataOperationGovernanceActorType(
 ): "user" | "external_guest" | "agent" | "system" {
   if (isFeishuExternalGuestDataOperationActor(actor)) {
     return "external_guest";
+  }
+  if (isFeishuUserDataOperationActor(actor)) {
+    return "user";
   }
   if (request.actorType === "user") {
     return "user";
