@@ -5154,7 +5154,8 @@ function countFeishuGovernanceActorEvidence(
       return hasNonEmptyString(governanceContext.actorUserId);
     }
     return hasNonEmptyString(governanceContext.externalActorReference) &&
-      hasNonEmptyString(governanceContext.externalGuestPermissionProfile);
+      hasNonEmptyString(governanceContext.externalGuestPermissionProfile) &&
+      hasNoFeishuUserIdentity(governanceContext);
   }).length;
 }
 
@@ -5195,6 +5196,10 @@ function readFeishuGovernanceContext(operation: ExternalDataOperationRunRecord):
 
 function hasNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
+}
+
+function hasNoFeishuUserIdentity(metadata: Record<string, unknown>): boolean {
+  return !hasNonEmptyString(metadata.userId) && !hasNonEmptyString(metadata.actorUserId);
 }
 
 function isFeishuApprovalCardActionEventType(eventType: string): boolean {
@@ -5782,7 +5787,8 @@ function countFeishuNativeActorMentionEvidence(
       return typeof metadata.externalGuestReference === "string" &&
         metadata.externalGuestReference.trim().length > 0 &&
         typeof metadata.externalGuestPermissionProfile === "string" &&
-        metadata.externalGuestPermissionProfile.trim().length > 0;
+        metadata.externalGuestPermissionProfile.trim().length > 0 &&
+        hasNoFeishuUserIdentity(metadata);
     }
     return typeof metadata.userId === "string" && metadata.userId.trim().length > 0;
   }).length;
@@ -5857,6 +5863,7 @@ function countFeishuExternalGuestPolicyEvidence(
       metadata.externalGuestPolicyDecision !== input.decision ||
       typeof metadata.externalGuestReference !== "string" ||
       metadata.externalGuestReference.trim().length === 0 ||
+      !hasNoFeishuUserIdentity(metadata) ||
       typeof metadata.agentId !== "string" ||
       metadata.agentId.trim().length === 0 ||
       typeof metadata.botBindingId !== "string" ||
@@ -5892,6 +5899,7 @@ function countFeishuExternalGuestReplyAllEvidence(
       metadata.externalGuestReference.trim().length > 0 &&
       typeof metadata.externalGuestPermissionProfile === "string" &&
       metadata.externalGuestPermissionProfile.trim().length > 0 &&
+      hasNoFeishuUserIdentity(metadata) &&
       typeof metadata.agentId === "string" &&
       metadata.agentId.trim().length > 0 &&
       typeof metadata.botBindingId === "string" &&

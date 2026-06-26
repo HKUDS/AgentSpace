@@ -1641,6 +1641,35 @@ test("Feishu evidence report rejects incomplete data-plane actor governance cont
   assert.ok(item?.issues.includes("external_guest_actor_data_operation_evidence_missing"));
 });
 
+test("Feishu evidence report rejects external guest data-plane proof with user identity", () => {
+  const report = buildFeishuEvidenceReport({
+    ...buildCompleteFeishuEvidenceInput(),
+    dataOperationsByIntegrationId: {
+      "integration-evidence": [
+        buildDataOperationRun("integration-evidence", "docs.read_document", "doc", "succeeded", {
+          actorType: "user",
+          actorId: "user-1",
+        }),
+        buildAgentRuntimeDocReadRun("integration-evidence"),
+        buildDataOperationRun("integration-evidence", "docs.update_document", "doc", "succeeded"),
+        buildDataOperationRun("integration-evidence", "sheets.read_range", "sheet", "succeeded"),
+        buildDataOperationRun("integration-evidence", "sheets.update_range", "sheet", "succeeded"),
+        buildDataOperationRun("integration-evidence", "base.query_records", "base_table", "succeeded"),
+        buildDataOperationRun("integration-evidence", "base.mutate_records", "base_table", "succeeded"),
+        withGovernanceUserIdentity(buildExternalGuestWriteDeniedRun("integration-evidence")),
+      ],
+    },
+  });
+
+  assert.equal(report.strictSatisfied, false);
+  assert.equal(report.summary.dataPlaneSatisfiedCount, 0);
+  const [item] = report.integrations;
+  assert.equal(item?.dataPlane.userActorEvidence, 1);
+  assert.equal(item?.dataPlane.externalGuestActorEvidence, 0);
+  assert.equal(item?.dataPlane.externalGuestWriteDeniedEvidence, 0);
+  assert.ok(item?.issues.includes("external_guest_actor_data_operation_evidence_missing"));
+});
+
 test("Feishu evidence report gates native agent bot experience proof", () => {
   const report = buildFeishuEvidenceReport({
     ...buildCompleteFeishuEvidenceInput(),
@@ -1742,6 +1771,26 @@ test("Feishu evidence report requires channel reuse from a different agent bot",
   assert.equal(item?.nativeExperience.reusedProviderChannelBindings, 0);
   assert.ok(item?.issues.includes("multi_agent_channel_reuse_evidence_missing"));
   assert.equal(JSON.stringify(report).includes("oc_secret"), false);
+});
+
+test("Feishu evidence report rejects external guest message proof with user identity", () => {
+  const complete = buildCompleteFeishuEvidenceInput();
+  const report = buildFeishuEvidenceReport({
+    ...complete,
+    requiredEvidence: "native",
+    messageMappingsByIntegrationId: {
+      "integration-evidence": complete.messageMappingsByIntegrationId["integration-evidence"].map((mapping) =>
+        withExternalGuestUserIdentity(mapping)
+      ),
+    },
+  });
+
+  assert.equal(report.strictSatisfied, false);
+  assert.equal(report.summary.nativeExperienceSatisfiedCount, 0);
+  const [item] = report.integrations;
+  assert.equal(item?.nativeExperience.externalGuestMentionEvidence, 0);
+  assert.ok(item?.issues.includes("external_guest_bot_mention_evidence_missing"));
+  assert.equal(JSON.stringify(report).includes("ou_secret"), false);
 });
 
 test("Feishu evidence report gates external guest policy proof", () => {
@@ -5094,6 +5143,20 @@ function buildMessageMapping(
   } as never;
 }
 
+function withExternalGuestUserIdentity<T extends { metadataJson?: string }>(mapping: T): T {
+  const metadata = JSON.parse(mapping.metadataJson ?? "{}") as Record<string, unknown>;
+  if (metadata.actorType !== "external_guest") {
+    return mapping;
+  }
+  return {
+    ...mapping,
+    metadataJson: JSON.stringify({
+      ...metadata,
+      userId: "user-should-not-exist",
+    }),
+  };
+}
+
 function buildGuestPolicyEvidenceMappings(integrationId: string) {
   return [
     buildPolicyBlockedMessageMapping(integrationId, {
@@ -5682,6 +5745,23 @@ function buildExternalGuestWriteDeniedRun(
     errorCode: "feishu.data_operation_external_guest_requires_identity",
     errorMessage: "External Feishu guests must bind an AgentSpace identity before writing governed resources.",
   });
+}
+
+function withGovernanceUserIdentity<T extends { requestJson: string }>(operation: T): T {
+  const request = JSON.parse(operation.requestJson) as Record<string, unknown>;
+  const governanceContext = typeof request.governanceContext === "object" && request.governanceContext !== null
+    ? request.governanceContext as Record<string, unknown>
+    : {};
+  return {
+    ...operation,
+    requestJson: JSON.stringify({
+      ...request,
+      governanceContext: {
+        ...governanceContext,
+        actorUserId: "user-should-not-exist",
+      },
+    }),
+  };
 }
 
 interface DataOperationRunOptions {
