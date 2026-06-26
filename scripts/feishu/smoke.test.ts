@@ -801,6 +801,56 @@ test("check-env accepts a complete strict live smoke env without printing resour
   }
 });
 
+test("check-env can require TODO120 native multi-agent env", () => {
+  const directory = mkdtempSync(join(tmpdir(), "agentspace-feishu-check-env-require-todo120-"));
+  const envPath = join(directory, ".env");
+  writeFileSync(envPath, [
+    "FEISHU_APP_ID=cli_ready_secret",
+    "FEISHU_APP_SECRET=app_secret_ready",
+    "FEISHU_VERIFICATION_TOKEN=verify_secret_ready",
+    "FEISHU_SMOKE_CALLBACK_URL=https://agent.test/api/integrations/feishu/events?workspaceId=workspace-1&integrationId=feishu-1",
+    "FEISHU_SMOKE_CHAT_ID=oc_secret_ready",
+    "FEISHU_SMOKE_DOC_TOKEN=doccn_secret_ready",
+    "FEISHU_SMOKE_DOC_PARENT_BLOCK_ID=blk_secret_ready",
+    "FEISHU_SMOKE_DOC_APPEND_BLOCKS_JSON=[{\"block_type\":2,\"text\":{\"elements\":[{\"text_run\":{\"content\":\"AgentSpace smoke\"}}]}}]",
+    "FEISHU_SMOKE_SHEET_TOKEN=shtcn_secret_ready",
+    "FEISHU_SMOKE_SHEET_WRITE_RANGE=Sheet1!A1:B1",
+    "FEISHU_SMOKE_SHEET_WRITE_VALUES_JSON=[[\"AgentSpace smoke\"]]",
+    "FEISHU_SMOKE_BASE_APP_TOKEN=app_secret_ready",
+    "FEISHU_SMOKE_BASE_TABLE_ID=tbl_secret_ready",
+    "FEISHU_SMOKE_BASE_RECORD_ID=rec_secret_ready",
+    "FEISHU_SMOKE_BASE_UPDATE_FIELDS_JSON={\"Smoke\":\"AgentSpace\"}",
+    "",
+  ].join("\n"), "utf8");
+
+  try {
+    const result = runSmokeCheckEnv(envPath, ["--require-todo120-native"]);
+
+    assert.equal(result.status, 1, result.stderr);
+    const output = JSON.parse(result.stdout) as {
+      ready: boolean;
+      todo120NativeSmoke: {
+        ready: boolean;
+        requiredForCommand: boolean;
+        missing: string[];
+      };
+      missingRequired: string[];
+    };
+    assert.equal(output.ready, false);
+    assert.equal(output.todo120NativeSmoke.ready, false);
+    assert.equal(output.todo120NativeSmoke.requiredForCommand, true);
+    assert.deepEqual(output.todo120NativeSmoke.missing, [
+      "FEISHU_SECOND_AGENT_APP_ID",
+      "FEISHU_SECOND_AGENT_APP_SECRET",
+    ]);
+    assert.deepEqual(output.missingRequired, []);
+    assert.equal(result.stdout.includes("cli_ready_secret"), false);
+    assert.equal(result.stdout.includes("oc_secret_ready"), false);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test("check-env reports TODO120 native multi-agent env readiness separately from OpenAPI readiness", () => {
   const directory = mkdtempSync(join(tmpdir(), "agentspace-feishu-check-env-todo120-"));
   const envPath = join(directory, ".env");
@@ -847,6 +897,7 @@ test("check-env reports TODO120 native multi-agent env readiness separately from
     assert.equal(output.ready, true);
     assert.deepEqual(output.todo120NativeSmoke, {
       ready: true,
+      requiredForCommand: false,
       required: 2,
       configured: 2,
       missing: [],
@@ -858,6 +909,128 @@ test("check-env reports TODO120 native multi-agent env readiness separately from
     );
     assert.equal(result.stdout.includes("cli_second_ready_secret"), false);
     assert.equal(result.stdout.includes("second_secret_ready"), false);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("check-env rejects reusing the primary Feishu app as the second TODO120 agent bot", () => {
+  const directory = mkdtempSync(join(tmpdir(), "agentspace-feishu-check-env-todo120-same-app-"));
+  const envPath = join(directory, ".env");
+  writeFileSync(envPath, [
+    "FEISHU_APP_ID=cli_same_app_secret",
+    "FEISHU_APP_SECRET=app_secret_ready",
+    "FEISHU_VERIFICATION_TOKEN=verify_secret_ready",
+    "FEISHU_SMOKE_CALLBACK_URL=https://agent.test/api/integrations/feishu/events?workspaceId=workspace-1&integrationId=feishu-1",
+    "FEISHU_SMOKE_CHAT_ID=oc_secret_ready",
+    "FEISHU_SMOKE_DOC_TOKEN=doccn_secret_ready",
+    "FEISHU_SMOKE_DOC_PARENT_BLOCK_ID=blk_secret_ready",
+    "FEISHU_SMOKE_DOC_APPEND_BLOCKS_JSON=[{\"block_type\":2,\"text\":{\"elements\":[{\"text_run\":{\"content\":\"AgentSpace smoke\"}}]}}]",
+    "FEISHU_SMOKE_SHEET_TOKEN=shtcn_secret_ready",
+    "FEISHU_SMOKE_SHEET_WRITE_RANGE=Sheet1!A1:B1",
+    "FEISHU_SMOKE_SHEET_WRITE_VALUES_JSON=[[\"AgentSpace smoke\"]]",
+    "FEISHU_SMOKE_BASE_APP_TOKEN=app_secret_ready",
+    "FEISHU_SMOKE_BASE_TABLE_ID=tbl_secret_ready",
+    "FEISHU_SMOKE_BASE_RECORD_ID=rec_secret_ready",
+    "FEISHU_SMOKE_BASE_UPDATE_FIELDS_JSON={\"Smoke\":\"AgentSpace\"}",
+    "FEISHU_SECOND_AGENT_APP_ID=cli_same_app_secret",
+    "FEISHU_SECOND_AGENT_APP_SECRET=second_secret_ready",
+    "",
+  ].join("\n"), "utf8");
+
+  try {
+    const optionalResult = runSmokeCheckEnv(envPath);
+    assert.equal(optionalResult.status, 0, optionalResult.stderr);
+    const optionalOutput = JSON.parse(optionalResult.stdout) as {
+      ready: boolean;
+      todo120NativeSmoke: {
+        ready: boolean;
+        invalid: Array<{ key: string; reason: string }>;
+      };
+    };
+    assert.equal(optionalOutput.ready, true);
+    assert.equal(optionalOutput.todo120NativeSmoke.ready, false);
+    assert.deepEqual(optionalOutput.todo120NativeSmoke.invalid, [{
+      key: "FEISHU_SECOND_AGENT_APP_ID",
+      reason: "must_differ_from_feishu_app_id",
+    }]);
+
+    const requiredResult = runSmokeCheckEnv(envPath, ["--require-todo120-native"]);
+    assert.equal(requiredResult.status, 1, requiredResult.stderr);
+    const requiredOutput = JSON.parse(requiredResult.stdout) as {
+      ready: boolean;
+      todo120NativeSmoke: {
+        requiredForCommand: boolean;
+        invalid: Array<{ key: string; reason: string }>;
+      };
+    };
+    assert.equal(requiredOutput.ready, false);
+    assert.equal(requiredOutput.todo120NativeSmoke.requiredForCommand, true);
+    assert.deepEqual(requiredOutput.todo120NativeSmoke.invalid, [{
+      key: "FEISHU_SECOND_AGENT_APP_ID",
+      reason: "must_differ_from_feishu_app_id",
+    }]);
+    assert.equal(requiredResult.stdout.includes("cli_same_app_secret"), false);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("check-env rejects reusing the primary Feishu app secret for the second TODO120 agent bot", () => {
+  const directory = mkdtempSync(join(tmpdir(), "agentspace-feishu-check-env-todo120-same-secret-"));
+  const envPath = join(directory, ".env");
+  writeFileSync(envPath, [
+    "FEISHU_APP_ID=cli_primary_app",
+    "FEISHU_APP_SECRET=shared_secret_value",
+    "FEISHU_VERIFICATION_TOKEN=verify_secret_ready",
+    "FEISHU_SMOKE_CALLBACK_URL=https://agent.test/api/integrations/feishu/events?workspaceId=workspace-1&integrationId=feishu-1",
+    "FEISHU_SMOKE_CHAT_ID=oc_secret_ready",
+    "FEISHU_SMOKE_DOC_TOKEN=doccn_secret_ready",
+    "FEISHU_SMOKE_DOC_PARENT_BLOCK_ID=blk_secret_ready",
+    "FEISHU_SMOKE_DOC_APPEND_BLOCKS_JSON=[{\"block_type\":2,\"text\":{\"elements\":[{\"text_run\":{\"content\":\"AgentSpace smoke\"}}]}}]",
+    "FEISHU_SMOKE_SHEET_TOKEN=shtcn_secret_ready",
+    "FEISHU_SMOKE_SHEET_WRITE_RANGE=Sheet1!A1:B1",
+    "FEISHU_SMOKE_SHEET_WRITE_VALUES_JSON=[[\"AgentSpace smoke\"]]",
+    "FEISHU_SMOKE_BASE_APP_TOKEN=app_secret_ready",
+    "FEISHU_SMOKE_BASE_TABLE_ID=tbl_secret_ready",
+    "FEISHU_SMOKE_BASE_RECORD_ID=rec_secret_ready",
+    "FEISHU_SMOKE_BASE_UPDATE_FIELDS_JSON={\"Smoke\":\"AgentSpace\"}",
+    "FEISHU_SECOND_AGENT_APP_ID=cli_second_app",
+    "FEISHU_SECOND_AGENT_APP_SECRET=shared_secret_value",
+    "",
+  ].join("\n"), "utf8");
+
+  try {
+    const optionalResult = runSmokeCheckEnv(envPath);
+    assert.equal(optionalResult.status, 0, optionalResult.stderr);
+    const optionalOutput = JSON.parse(optionalResult.stdout) as {
+      ready: boolean;
+      todo120NativeSmoke: {
+        ready: boolean;
+        invalid: Array<{ key: string; reason: string }>;
+      };
+    };
+    assert.equal(optionalOutput.ready, true);
+    assert.equal(optionalOutput.todo120NativeSmoke.ready, false);
+    assert.deepEqual(optionalOutput.todo120NativeSmoke.invalid, [{
+      key: "FEISHU_SECOND_AGENT_APP_SECRET",
+      reason: "must_differ_from_feishu_app_secret",
+    }]);
+
+    const requiredResult = runSmokeCheckEnv(envPath, ["--require-todo120-native"]);
+    assert.equal(requiredResult.status, 1, requiredResult.stderr);
+    const requiredOutput = JSON.parse(requiredResult.stdout) as {
+      ready: boolean;
+      todo120NativeSmoke: {
+        invalid: Array<{ key: string; reason: string }>;
+      };
+    };
+    assert.equal(requiredOutput.ready, false);
+    assert.deepEqual(requiredOutput.todo120NativeSmoke.invalid, [{
+      key: "FEISHU_SECOND_AGENT_APP_SECRET",
+      reason: "must_differ_from_feishu_app_secret",
+    }]);
+    assert.equal(requiredResult.stdout.includes("shared_secret_value"), false);
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
@@ -1144,6 +1317,142 @@ test("strict live smoke rejects missing required env before network calls", asyn
   }
 });
 
+test("strict live smoke can require TODO120 native multi-agent env before network calls", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "agentspace-feishu-live-require-todo120-"));
+  const envPath = join(directory, ".env");
+  writeFileSync(envPath, [
+    "FEISHU_APP_ID=cli_ready_secret",
+    "FEISHU_APP_SECRET=app_secret_ready",
+    "FEISHU_VERIFICATION_TOKEN=verify_secret_ready",
+    "FEISHU_SMOKE_CALLBACK_URL=https://agent.test/api/integrations/feishu/events?workspaceId=workspace-1&integrationId=feishu-1",
+    "FEISHU_SMOKE_CHAT_ID=oc_secret_ready",
+    "FEISHU_SMOKE_DOC_TOKEN=doccn_secret_ready",
+    "FEISHU_SMOKE_DOC_PARENT_BLOCK_ID=blk_secret_ready",
+    "FEISHU_SMOKE_DOC_APPEND_BLOCKS_JSON=[{\"block_type\":2,\"text\":{\"elements\":[{\"text_run\":{\"content\":\"AgentSpace smoke\"}}]}}]",
+    "FEISHU_SMOKE_SHEET_TOKEN=shtcn_secret_ready",
+    "FEISHU_SMOKE_SHEET_WRITE_RANGE=Sheet1!A1:B1",
+    "FEISHU_SMOKE_SHEET_WRITE_VALUES_JSON=[[\"AgentSpace smoke\"]]",
+    "FEISHU_SMOKE_BASE_APP_TOKEN=app_secret_ready",
+    "FEISHU_SMOKE_BASE_TABLE_ID=tbl_secret_ready",
+    "FEISHU_SMOKE_BASE_RECORD_ID=rec_secret_ready",
+    "FEISHU_SMOKE_BASE_UPDATE_FIELDS_JSON={\"Smoke\":\"AgentSpace\"}",
+    "",
+  ].join("\n"), "utf8");
+
+  try {
+    const result = await runSmokeLiveWithEnvFile(envPath, ["--strict-live", "--require-todo120-native"]);
+
+    assert.equal(result.status, 1);
+    const output = JSON.parse(result.stdout) as {
+      ok: boolean;
+      errorCode: string;
+      errorMessage: string;
+      envNames: string[];
+      reason: string;
+    };
+    assert.equal(output.ok, false);
+    assert.equal(output.errorCode, "feishu.smoke.live_env_not_ready");
+    assert.equal(output.reason, "missing_todo120_native_env");
+    assert.deepEqual(output.envNames, [
+      "FEISHU_SECOND_AGENT_APP_ID",
+      "FEISHU_SECOND_AGENT_APP_SECRET",
+    ]);
+    assert.match(output.errorMessage, /--require-todo120-native/);
+    assert.equal(result.stdout.includes("cli_ready_secret"), false);
+    assert.equal(result.stdout.includes("oc_secret_ready"), false);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("strict live TODO120 native smoke rejects duplicate primary and second app ids before network calls", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "agentspace-feishu-live-todo120-same-app-"));
+  const envPath = join(directory, ".env");
+  writeFileSync(envPath, [
+    "FEISHU_APP_ID=cli_same_app_secret",
+    "FEISHU_APP_SECRET=app_secret_ready",
+    "FEISHU_VERIFICATION_TOKEN=verify_secret_ready",
+    "FEISHU_SMOKE_CALLBACK_URL=https://agent.test/api/integrations/feishu/events?workspaceId=workspace-1&integrationId=feishu-1",
+    "FEISHU_SMOKE_CHAT_ID=oc_secret_ready",
+    "FEISHU_SMOKE_DOC_TOKEN=doccn_secret_ready",
+    "FEISHU_SMOKE_DOC_PARENT_BLOCK_ID=blk_secret_ready",
+    "FEISHU_SMOKE_DOC_APPEND_BLOCKS_JSON=[{\"block_type\":2,\"text\":{\"elements\":[{\"text_run\":{\"content\":\"AgentSpace smoke\"}}]}}]",
+    "FEISHU_SMOKE_SHEET_TOKEN=shtcn_secret_ready",
+    "FEISHU_SMOKE_SHEET_WRITE_RANGE=Sheet1!A1:B1",
+    "FEISHU_SMOKE_SHEET_WRITE_VALUES_JSON=[[\"AgentSpace smoke\"]]",
+    "FEISHU_SMOKE_BASE_APP_TOKEN=app_secret_ready",
+    "FEISHU_SMOKE_BASE_TABLE_ID=tbl_secret_ready",
+    "FEISHU_SMOKE_BASE_RECORD_ID=rec_secret_ready",
+    "FEISHU_SMOKE_BASE_UPDATE_FIELDS_JSON={\"Smoke\":\"AgentSpace\"}",
+    "FEISHU_SECOND_AGENT_APP_ID=cli_same_app_secret",
+    "FEISHU_SECOND_AGENT_APP_SECRET=second_secret_ready",
+    "",
+  ].join("\n"), "utf8");
+
+  try {
+    const result = await runSmokeLiveWithEnvFile(envPath, ["--strict-live", "--require-todo120-native"]);
+
+    assert.equal(result.status, 1);
+    const output = JSON.parse(result.stdout) as {
+      ok: boolean;
+      errorCode: string;
+      envNames: string[];
+      reason: string;
+    };
+    assert.equal(output.ok, false);
+    assert.equal(output.errorCode, "feishu.smoke.live_env_not_ready");
+    assert.equal(output.reason, "invalid_todo120_native_env");
+    assert.deepEqual(output.envNames, ["FEISHU_SECOND_AGENT_APP_ID"]);
+    assert.equal(result.stdout.includes("cli_same_app_secret"), false);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("strict live TODO120 native smoke rejects duplicate primary and second app secrets before network calls", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "agentspace-feishu-live-todo120-same-secret-"));
+  const envPath = join(directory, ".env");
+  writeFileSync(envPath, [
+    "FEISHU_APP_ID=cli_primary_app",
+    "FEISHU_APP_SECRET=shared_secret_value",
+    "FEISHU_VERIFICATION_TOKEN=verify_secret_ready",
+    "FEISHU_SMOKE_CALLBACK_URL=https://agent.test/api/integrations/feishu/events?workspaceId=workspace-1&integrationId=feishu-1",
+    "FEISHU_SMOKE_CHAT_ID=oc_secret_ready",
+    "FEISHU_SMOKE_DOC_TOKEN=doccn_secret_ready",
+    "FEISHU_SMOKE_DOC_PARENT_BLOCK_ID=blk_secret_ready",
+    "FEISHU_SMOKE_DOC_APPEND_BLOCKS_JSON=[{\"block_type\":2,\"text\":{\"elements\":[{\"text_run\":{\"content\":\"AgentSpace smoke\"}}]}}]",
+    "FEISHU_SMOKE_SHEET_TOKEN=shtcn_secret_ready",
+    "FEISHU_SMOKE_SHEET_WRITE_RANGE=Sheet1!A1:B1",
+    "FEISHU_SMOKE_SHEET_WRITE_VALUES_JSON=[[\"AgentSpace smoke\"]]",
+    "FEISHU_SMOKE_BASE_APP_TOKEN=app_secret_ready",
+    "FEISHU_SMOKE_BASE_TABLE_ID=tbl_secret_ready",
+    "FEISHU_SMOKE_BASE_RECORD_ID=rec_secret_ready",
+    "FEISHU_SMOKE_BASE_UPDATE_FIELDS_JSON={\"Smoke\":\"AgentSpace\"}",
+    "FEISHU_SECOND_AGENT_APP_ID=cli_second_app",
+    "FEISHU_SECOND_AGENT_APP_SECRET=shared_secret_value",
+    "",
+  ].join("\n"), "utf8");
+
+  try {
+    const result = await runSmokeLiveWithEnvFile(envPath, ["--strict-live", "--require-todo120-native"]);
+
+    assert.equal(result.status, 1);
+    const output = JSON.parse(result.stdout) as {
+      ok: boolean;
+      errorCode: string;
+      envNames: string[];
+      reason: string;
+    };
+    assert.equal(output.ok, false);
+    assert.equal(output.errorCode, "feishu.smoke.live_env_not_ready");
+    assert.equal(output.reason, "invalid_todo120_native_env");
+    assert.deepEqual(output.envNames, ["FEISHU_SECOND_AGENT_APP_SECRET"]);
+    assert.equal(result.stdout.includes("shared_secret_value"), false);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 function runVerifyEvidence(path: string) {
   return spawnSync(process.execPath, [
     "--experimental-strip-types",
@@ -1169,7 +1478,7 @@ function runSmokeJson() {
   });
 }
 
-function runSmokeCheckEnv(path: string) {
+function runSmokeCheckEnv(path: string, extraArgs: string[] = []) {
   return spawnSync(process.execPath, [
     "--experimental-strip-types",
     "scripts/feishu/smoke.ts",
@@ -1177,6 +1486,7 @@ function runSmokeCheckEnv(path: string) {
     path,
     "--check-env",
     "--json",
+    ...extraArgs,
   ], {
     cwd: process.cwd(),
     encoding: "utf8",

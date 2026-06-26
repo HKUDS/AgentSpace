@@ -108,6 +108,7 @@ interface SmokeEnvCheckOutput {
   };
   todo120NativeSmoke: {
     ready: boolean;
+    requiredForCommand: boolean;
     required: number;
     configured: number;
     missing: string[];
@@ -180,6 +181,7 @@ const live = args.has("--live");
 const json = args.has("--json");
 const strictLive = args.has("--strict-live");
 const checkEnv = args.has("--check-env");
+const requireTodo120NativeSmoke = args.has("--require-todo120-native");
 
 class SmokeCliError extends Error {
   readonly code: string;
@@ -226,7 +228,7 @@ async function main(): Promise<void> {
     loadSmokeEnvFile(envFilePath);
   }
   if (checkEnv) {
-    const report = buildSmokeEnvCheckOutput(envFilePath);
+    const report = buildSmokeEnvCheckOutput(envFilePath, { requireTodo120NativeSmoke });
     if (json) {
       console.log(JSON.stringify(report, null, 2));
     } else {
@@ -256,7 +258,7 @@ async function main(): Promise<void> {
 
   const env = readSmokeEnv();
   if (live) {
-    assertLiveSmokeEnvReadyForNetwork(envFilePath, { strictLive });
+    assertLiveSmokeEnvReadyForNetwork(envFilePath, { strictLive, requireTodo120NativeSmoke });
   }
   const steps: SmokeStep[] = [];
 
@@ -1244,8 +1246,11 @@ const LIVE_SMOKE_ENV_CHECKS: Array<{
   },
 ];
 
-function buildSmokeEnvCheckOutput(envFilePath?: string): SmokeEnvCheckOutput {
-  const items = LIVE_SMOKE_ENV_CHECKS.map((check): SmokeEnvCheckItem => {
+function buildSmokeEnvCheckOutput(
+  envFilePath?: string,
+  options: { requireTodo120NativeSmoke?: boolean } = {},
+): SmokeEnvCheckOutput {
+  const baseItems = LIVE_SMOKE_ENV_CHECKS.map((check): SmokeEnvCheckItem => {
     const value = readEnv(check.key);
     if (!value) {
       return {
@@ -1280,6 +1285,7 @@ function buildSmokeEnvCheckOutput(envFilePath?: string): SmokeEnvCheckOutput {
       ...(check.todo120NativeSmokeRequired ? { todo120NativeSmokeRequired: true } : {}),
     };
   });
+  const items = applyTodo120NativeSmokeCrossFieldChecks(baseItems);
   const requiredItems = items.filter((item) => item.required);
   const todo120NativeSmokeItems = items.filter((item) => item.todo120NativeSmokeRequired);
   const missingRequired = requiredItems
@@ -1291,11 +1297,14 @@ function buildSmokeEnvCheckOutput(envFilePath?: string): SmokeEnvCheckOutput {
       key: item.key,
       reason: item.reason ?? "invalid",
     }));
+  const todo120NativeSmokeReady = todo120NativeSmokeItems.every((item) => item.status === "ready");
 
   return {
     generatedAt: new Date().toISOString(),
     ...(envFilePath ? { envFilePath } : {}),
-    ready: missingRequired.length === 0 && invalidRequired.length === 0,
+    ready: missingRequired.length === 0 &&
+      invalidRequired.length === 0 &&
+      (!options.requireTodo120NativeSmoke || todo120NativeSmokeReady),
     summary: {
       required: requiredItems.length,
       ready: requiredItems.filter((item) => item.status === "ready").length,
@@ -1304,7 +1313,8 @@ function buildSmokeEnvCheckOutput(envFilePath?: string): SmokeEnvCheckOutput {
       optionalConfigured: items.filter((item) => !item.required && item.status === "ready").length,
     },
     todo120NativeSmoke: {
-      ready: todo120NativeSmokeItems.every((item) => item.status === "ready"),
+      ready: todo120NativeSmokeReady,
+      requiredForCommand: Boolean(options.requireTodo120NativeSmoke),
       required: todo120NativeSmokeItems.length,
       configured: todo120NativeSmokeItems.filter((item) => item.status === "ready").length,
       missing: todo120NativeSmokeItems
@@ -1323,11 +1333,49 @@ function buildSmokeEnvCheckOutput(envFilePath?: string): SmokeEnvCheckOutput {
   };
 }
 
+function applyTodo120NativeSmokeCrossFieldChecks(items: SmokeEnvCheckItem[]): SmokeEnvCheckItem[] {
+  const primaryAppId = readEnv("FEISHU_APP_ID")?.trim();
+  const secondAgentAppId = readEnv("FEISHU_SECOND_AGENT_APP_ID")?.trim();
+  const primaryAppSecret = readEnv("FEISHU_APP_SECRET")?.trim();
+  const secondAgentAppSecret = readEnv("FEISHU_SECOND_AGENT_APP_SECRET")?.trim();
+  const duplicateAppId = Boolean(primaryAppId && secondAgentAppId && primaryAppId === secondAgentAppId);
+  const duplicateAppSecret = Boolean(
+    primaryAppSecret &&
+    secondAgentAppSecret &&
+    primaryAppSecret === secondAgentAppSecret
+  );
+  if (!duplicateAppId && !duplicateAppSecret) {
+    return items;
+  }
+  return items.map((item) => {
+    if (item.status !== "ready") {
+      return item;
+    }
+    if (duplicateAppId && item.key === "FEISHU_SECOND_AGENT_APP_ID") {
+      return {
+        ...item,
+        status: "invalid",
+        reason: "must_differ_from_feishu_app_id",
+      };
+    }
+    if (duplicateAppSecret && item.key === "FEISHU_SECOND_AGENT_APP_SECRET") {
+      return {
+        ...item,
+        status: "invalid",
+        reason: "must_differ_from_feishu_app_secret",
+      };
+    }
+    return item;
+  });
+}
+
 function assertLiveSmokeEnvReadyForNetwork(
   envFilePath: string | undefined,
-  input: { strictLive: boolean },
+  input: { strictLive: boolean; requireTodo120NativeSmoke: boolean },
 ): void {
-  const report = buildSmokeEnvCheckOutput(envFilePath);
+  const report = buildSmokeEnvCheckOutput(envFilePath, {
+    requireTodo120NativeSmoke: input.requireTodo120NativeSmoke,
+  });
   const invalidEnvNames = report.items
     .filter((item) => item.status === "invalid")
     .filter((item) => item.required || item.key === "FEISHU_API_BASE_URL" || item.key === "FEISHU_SMOKE_SHEET_RANGE")
@@ -1343,7 +1391,18 @@ function assertLiveSmokeEnvReadyForNetwork(
   }
 
   if (!input.strictLive || report.missingRequired.length === 0) {
-    return;
+    if (!input.requireTodo120NativeSmoke || report.todo120NativeSmoke.ready) {
+      return;
+    }
+    const missingTodo120EnvNames = [...report.todo120NativeSmoke.missing].sort();
+    const invalidTodo120EnvNames = report.todo120NativeSmoke.invalid.map((item) => item.key).sort();
+    const envNames = [...new Set([...missingTodo120EnvNames, ...invalidTodo120EnvNames])].sort();
+    throw new SmokeCliError({
+      code: "feishu.smoke.live_env_not_ready",
+      message: `TODO120 native smoke env is incomplete. Run --check-env --require-todo120-native and set ${envNames.join(", ")} before --live --strict-live --require-todo120-native.`,
+      envNames,
+      reason: invalidTodo120EnvNames.length > 0 ? "invalid_todo120_native_env" : "missing_todo120_native_env",
+    });
   }
 
   const missingEnvNames = [...report.missingRequired].sort();
@@ -1967,7 +2026,8 @@ function printSmokeEnvCheckSummary(input: SmokeEnvCheckOutput): void {
   }
   console.log(
     `TODO120 native multi-agent env: ${input.todo120NativeSmoke.configured}/`
-    + `${input.todo120NativeSmoke.required} configured.`,
+    + `${input.todo120NativeSmoke.required} configured`
+    + `${input.todo120NativeSmoke.requiredForCommand ? " (required for this command)" : ""}.`,
   );
   if (!input.todo120NativeSmoke.ready) {
     const missing = input.todo120NativeSmoke.missing.length > 0

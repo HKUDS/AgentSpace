@@ -49,7 +49,7 @@ vi.mock("@agent-space/services", () => ({
   ],
   FEISHU_EVENT_CALLBACK_PATH: "/api/integrations/feishu/events",
   FEISHU_FINAL_EVIDENCE_GATE_REQUIREMENTS: {
-    botReply: "processed_inbound_with_safe_summary + same_agent_bot_correlated_reply_mapping",
+    botReply: "processed_inbound_with_safe_summary + sent_agent_bot_reply_outbox_with_safe_context + same_agent_bot_correlated_reply_mapping",
     nativeAgentBot: "direct_agent_bot_route_with_safe_context + bound_user_bot_mention_with_safe_context + external_guest_bot_mention_with_safe_context + bot_added_auto_provision_with_channel_identity_review_state + first_message_auto_provision_with_channel_identity_review_state + multi_agent_channel_reuse_distinct_binding + thread_task_binding + thread_continuation_without_remention_active_binding + thread_collaboration + bot_sender_loop_guard_without_reply + agent_channel_policy_denial_without_reply",
     guestPolicy: "external_guest_reply_on_mention_allow_with_dispatch + external_guest_reply_all_without_mention + external_guest_require_identity_without_dispatch + sent_identity_binding_notice + external_guest_ignore_without_dispatch_or_reply + external_guest_mention_required_without_dispatch_or_reply",
     workerRestart: "two_correlated_websocket_replies",
@@ -458,7 +458,7 @@ describe("Feishu settings data", () => {
       evidenceGates: [
         {
           key: "bot_reply",
-          required: "processed_inbound_with_safe_summary + same_agent_bot_correlated_reply_mapping",
+          required: "processed_inbound_with_safe_summary + sent_agent_bot_reply_outbox_with_safe_context + same_agent_bot_correlated_reply_mapping",
         },
         {
           key: "native_agent_bot",

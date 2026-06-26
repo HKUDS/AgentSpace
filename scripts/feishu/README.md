@@ -34,7 +34,7 @@ For TODO120 native agent bot smoke, prepare two disposable Feishu apps/bots, for
 agent-space integrations feishu bind-agent-bot --workspace-id default --agent CHANGE_ME_SECOND_AGENT_NAME --env-file scripts/feishu/.env --app-id-env FEISHU_SECOND_AGENT_APP_ID --app-secret-env FEISHU_SECOND_AGENT_APP_SECRET --json
 ```
 
-The smoke plan includes this second-bot command before the live same-group reuse and thread-collaboration checks. Those checks are not meaningful until both agent-scoped bot bindings exist.
+The smoke plan includes this second-bot command before the live same-group reuse and thread-collaboration checks. Those checks are not meaningful until both agent-scoped bot bindings exist and the second bot is Phase 6-ready: active, bound to a different AgentSpace agent, using a different Feishu app id, configured with credentials and bot scopes, health-checked, and free of unresolved outbox failures.
 
 Bind the AgentSpace-side Feishu prerequisites before running live smoke. The settings page shows unbound chat/user suggestions from redacted inbound events, and when `AGENT_SPACE_APP_URL` / `NEXT_PUBLIC_AGENT_SPACE_APP_URL` / `NEXT_PUBLIC_APP_URL` is configured, unbound Feishu chat/user notices include a direct link back to the matching workspace integrations binding panel. The CLI outputs below redact external ids in their results:
 
@@ -113,11 +113,13 @@ Run live checks against a Feishu/Lark self-built app:
 
 ```bash
 agent-space integrations feishu smoke-env --workspace-id default --integration feishu-1 --app-url https://agentspace.example.com > scripts/feishu/.env
-npm run smoke:feishu -- --env-file scripts/feishu/.env --check-env --json
+npm run smoke:feishu -- --env-file scripts/feishu/.env --check-env --json --require-todo120-native
 npm run smoke:feishu -- --env-file scripts/feishu/.env --live
 ```
 
 `smoke-env` fills the AgentSpace callback URL from the workspace/integration id and leaves app secrets, verification token, optional second-agent bot credentials, chat ids, and resource tokens as placeholders. `--check-env` performs a no-network readiness check for the strict live smoke env and exits non-zero until required app, AgentSpace Feishu callback route, IM, Docs, Sheets, and Base values are present, well formed, and no longer template placeholders such as `CHANGE_ME_*`, `REPLACE_ME_*`, `xxx`, or `example.com`. The JSON output also includes `todo120NativeSmoke`, which reports whether `FEISHU_SECOND_AGENT_APP_ID` and `FEISHU_SECOND_AGENT_APP_SECRET` are configured for TODO120's required two-bot native multi-agent smoke; those fields do not block the isolated OpenAPI strict-live harness, but Phase 6 is not complete without them. The callback URL must point at `/api/integrations/feishu/events` with `workspaceId` and `integrationId` query values. Non-strict live mode can skip checks whose credentials or resource tokens are missing; `--live --strict-live` fails before network calls unless every required env is ready. A complete live run needs the AgentSpace callback URL, verification token, a bot chat id, plus authorized Docx, Sheet, and Base/Bitable resources. The Docx append check mutates a disposable parent block configured by `FEISHU_SMOKE_DOC_PARENT_BLOCK_ID` and `FEISHU_SMOKE_DOC_APPEND_BLOCKS_JSON`.
+
+For TODO120 Phase 6, add `--require-todo120-native` to `--check-env` and strict live commands. With that flag, missing or placeholder second-agent bot env fails before any Feishu network call, and `FEISHU_SECOND_AGENT_APP_ID` / `FEISHU_SECOND_AGENT_APP_SECRET` must differ from the primary app credentials, so a single-bot OpenAPI smoke cannot be mistaken for native multi-agent completion.
 
 If `smoke-env` cannot find a usable AgentSpace Feishu integration, app id, or public AgentSpace URL, text mode exits non-zero and prints no env template to stdout, so shell redirection does not overwrite an existing `scripts/feishu/.env` with an unusable file.
 
@@ -126,7 +128,7 @@ Malformed env files or JSON env values return structured `{"ok":false,"errorCode
 Use the strict gate when you want the command itself to prove the isolated OpenAPI live smoke is complete:
 
 ```bash
-npm run smoke:feishu -- --env-file scripts/feishu/.env --live --strict-live
+npm run smoke:feishu -- --env-file scripts/feishu/.env --live --strict-live --require-todo120-native
 ```
 
 `--strict-live` exits non-zero if any live check is skipped or failed. `--env-file` fills missing process env values from a local `KEY=value` file; shell env values still win. Before any live network call, the harness rejects invalid, placeholder, or missing required values and tells you to rerun `--check-env`, so `CHANGE_ME_*` templates and incomplete strict-live env files are not sent to Feishu. `--json` adds a machine-readable summary with missing env names, live coverage, and which checks write external data.
@@ -134,7 +136,7 @@ npm run smoke:feishu -- --env-file scripts/feishu/.env --live --strict-live
 Write a safe evidence artifact for PRs or Feishu evidence verification. Evidence output is strict-live-success only: `--evidence` refuses dry-run commands and non-strict live runs, and a failed strict-live run prints diagnostics without writing the target file, so an existing live artifact is not overwritten by a local request-shape check or failed partial smoke. Before writing, the harness runs the same redaction and coverage verifier used by `--verify-evidence`; if the generated output contains unsafe callback URLs, raw Feishu identifiers, token-like text, or incomplete coverage, it fails with issue codes and writes nothing.
 
 ```bash
-npm run smoke:feishu -- --env-file scripts/feishu/.env --live --strict-live --evidence runtime-output/feishu-smoke/live.json
+npm run smoke:feishu -- --env-file scripts/feishu/.env --live --strict-live --evidence runtime-output/feishu-smoke/live.json --require-todo120-native
 ```
 
 The evidence file uses the same redacted schema as `--json`: request paths are tokenized, request bodies only list top-level keys, response data is summarized by code/message/data keys, and the callback probe records only the AgentSpace callback route plus a short route fingerprint instead of the full callback URL.

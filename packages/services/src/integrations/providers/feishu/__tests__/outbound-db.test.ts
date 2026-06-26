@@ -62,6 +62,7 @@ test("temporary Feishu send failures keep outbox pending for retry", databaseTes
     provider: FEISHU_PROVIDER_ID,
     displayName: "Feishu",
     transportMode: "http_webhook",
+    agentId: "Atlas",
   });
   const outbox = createExternalMessageOutboxSync({
     workspaceId: workspace.id,
@@ -157,6 +158,8 @@ test("AgentSpace replies are sent back to the source Feishu thread", databaseTes
   const queuedMetadata = JSON.parse(queuedOutbox[0]?.metadataJson ?? "{}") as Record<string, unknown>;
   assert.equal(queuedMetadata.provider, "feishu");
   assert.equal(queuedMetadata.outboxSource, "agent_reply");
+  assert.equal(queuedMetadata.agentId, "Atlas");
+  assert.equal(queuedMetadata.botBindingId, integration.id);
   assert.match(String(queuedMetadata.externalChatReference), /^ref_[a-f0-9]{8}$/);
   assert.match(String(queuedMetadata.externalThreadReference), /^ref_[a-f0-9]{8}$/);
   assert.equal(JSON.stringify(queuedMetadata).includes("oc_tour"), false);

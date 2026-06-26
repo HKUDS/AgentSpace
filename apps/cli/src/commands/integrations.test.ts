@@ -278,7 +278,9 @@ test("Feishu create CLI stores encrypted credentials and returns redacted setup 
   assert.match(report.nextCommands.smokePlan, /smoke-plan --workspace-id workspace-1 --integration integration-created --app-url https:\/\/agentspace\.example\.com --json/);
   assert.match(report.nextCommands.smokeEnv, /smoke-env --workspace-id workspace-1 --integration integration-created --app-url https:\/\/agentspace\.example\.com > scripts\/feishu\/\.env/);
   assert.match(report.nextCommands.checkEnv, /npm run smoke:feishu -- --env-file scripts\/feishu\/\.env --check-env --json/);
+  assert.match(report.nextCommands.checkEnv, /--require-todo120-native/);
   assert.match(report.nextCommands.strictLiveSmoke, /npm run smoke:feishu -- --env-file scripts\/feishu\/\.env --live --strict-live --evidence runtime-output\/feishu-smoke\/live\.json --json/);
+  assert.match(report.nextCommands.strictLiveSmoke, /--require-todo120-native/);
   assert.match(report.nextCommands.verifyOpenApiEvidence, /npm run smoke:feishu -- --verify-evidence runtime-output\/feishu-smoke\/live\.json --json/);
   assert.match(report.nextCommands.finalEvidence, /evidence --workspace-id workspace-1 --integration integration-created --openapi-evidence runtime-output\/feishu-smoke\/live\.json --strict --require all --json/);
   assert.match(report.nextCommands.bindChannel, /--channel CHANGE_ME_AGENTSPACE_CHANNEL --chat-id CHANGE_ME_FEISHU_CHAT_ID --json/);
@@ -1422,11 +1424,45 @@ test("Feishu evidence report requires reply mappings correlated to inbound messa
   assert.equal(report.summary.workerSatisfiedCount, 0);
   const [item] = report.integrations;
   assert.equal(item?.bot.processedInboundEvents, 1);
-  assert.equal(item?.bot.sentOutboxItems, 2);
+  assert.equal(item?.bot.sentOutboxItems, 1);
   assert.equal(item?.bot.inboundMessageMappings, 1);
   assert.equal(item?.bot.outboundMessageMappings, 1);
   assert.equal(item?.bot.correlatedReplyMappings, 0);
   assert.ok(item?.issues.includes("correlated_reply_mapping_missing"));
+  assert.equal(JSON.stringify(report).includes("om_secret"), false);
+});
+
+test("Feishu evidence report requires sent agent bot reply outbox safe context", () => {
+  const report = buildFeishuEvidenceReport({
+    ...buildCompleteFeishuEvidenceInput(),
+    requiredEvidence: "bot",
+    outboxByIntegrationId: {
+      "integration-evidence": [
+        buildIdentityBindingNoticeOutboxItem("integration-evidence"),
+        buildOutboxItem("integration-evidence", "sent", {
+          metadataJson: JSON.stringify({
+            provider: "feishu",
+            outboxSource: "agent_reply",
+            externalChatReference: "chat-ref-hash",
+            externalThreadId: "om_secret_inbound",
+            agentId: "Codex",
+            botBindingId: "integration-evidence",
+          }),
+        }),
+      ],
+    },
+  });
+
+  assert.equal(report.strictSatisfied, false);
+  assert.equal(report.summary.botSatisfiedCount, 0);
+  const [item] = report.integrations;
+  assert.equal(item?.bot.processedInboundEvents, 1);
+  assert.equal(item?.bot.sentOutboxItems, 0);
+  assert.equal(item?.bot.inboundMessageMappings, 9);
+  assert.equal(item?.bot.outboundMessageMappings, 2);
+  assert.equal(item?.bot.correlatedReplyMappings, 2);
+  assert.equal(item?.bot.satisfied, false);
+  assert.ok(item?.issues.includes("sent_outbox_missing"));
   assert.equal(JSON.stringify(report).includes("om_secret"), false);
 });
 
@@ -2411,6 +2447,39 @@ test("Feishu evidence report requires a sent identity binding notice for require
   assert.equal(JSON.stringify(report).includes("om_secret_guest_require_identity"), false);
 });
 
+test("Feishu evidence report requires identity binding notices to be sent to the source thread", () => {
+  const wrongThreadNotice = {
+    ...(buildIdentityBindingNoticeOutboxItem("integration-evidence") as Record<string, unknown>),
+    id: "sent-integration-evidence-identity-binding-notice-wrong-thread",
+    targetExternalThreadId: "om_secret_wrong_thread",
+  } as never;
+  const missingSentAtNotice = {
+    ...(buildIdentityBindingNoticeOutboxItem("integration-evidence") as Record<string, unknown>),
+    id: "sent-integration-evidence-identity-binding-notice-without-sent-at",
+    sentAt: undefined,
+  } as never;
+  const report = buildFeishuEvidenceReport({
+    ...buildCompleteFeishuEvidenceInput(),
+    requiredEvidence: "guest-policy",
+    outboxByIntegrationId: {
+      "integration-evidence": [
+        buildOutboxItem("integration-evidence", "sent"),
+        wrongThreadNotice,
+        missingSentAtNotice,
+        buildOutboxItem("integration-evidence", "failed"),
+      ],
+    },
+  });
+
+  assert.equal(report.strictSatisfied, false);
+  assert.equal(report.summary.guestPolicySatisfiedCount, 0);
+  const [item] = report.integrations;
+  assert.equal(item?.guestPolicy.externalGuestRequireIdentityEvidence, 1);
+  assert.equal(item?.guestPolicy.externalGuestIdentityBindingNoticeEvidence, 0);
+  assert.ok(item?.issues.includes("external_guest_identity_binding_notice_evidence_missing"));
+  assert.equal(JSON.stringify(report).includes("om_secret_wrong_thread"), false);
+});
+
 test("Feishu evidence report can gate on redacted OpenAPI live smoke evidence", () => {
   const report = buildFeishuEvidenceReport({
     ...buildCompleteFeishuEvidenceInput(),
@@ -2723,7 +2792,10 @@ test("Feishu evidence report blocks strict gates when local proof is incomplete"
   ]);
   const botRemediation = item?.remediationSteps.find((step) => step.stepId === "live_bot_message_reply");
   assert.ok(botRemediation?.issues.includes("processed_inbound_event_missing"));
+  assert.ok(botRemediation?.issues.includes("sent_outbox_missing"));
   assert.ok(botRemediation?.issues.includes("correlated_reply_mapping_missing"));
+  assert.match(botRemediation?.detail ?? "", /sent Feishu agent_reply outbox/);
+  assert.match(botRemediation?.detail ?? "", /safe chat\/thread references/);
   const nativeRouteRemediation = item?.remediationSteps.find((step) =>
     step.stepId === "live_agent_bot_direct_mention"
   );
@@ -4982,12 +5054,16 @@ test("Feishu smoke plan converts readiness into live smoke checklist without ext
         id: "agent-bot-codex",
         displayName: "Codex Bot",
         agentId: "Codex",
+        appId: "cli_codex_bot",
+        lastHealthStatus: "healthy",
         transportMode: "websocket_worker",
       }),
       buildIntegrationRecord({
         id: "agent-bot-hermes",
         displayName: "HermesAgent Bot",
         agentId: "HermesAgent",
+        appId: "cli_hermes_bot",
+        lastHealthStatus: "healthy",
         transportMode: "websocket_worker",
       }),
     ],
@@ -5088,10 +5164,12 @@ test("Feishu smoke plan converts readiness into live smoke checklist without ext
   assert.match(report.smokeHarness.prepareEnvCommand, /--app-url https:\/\/agentspace\.test\/root/);
   assert.match(report.smokeHarness.checkEnvCommand, /npm run smoke:feishu/);
   assert.match(report.smokeHarness.checkEnvCommand, /--check-env/);
+  assert.match(report.smokeHarness.checkEnvCommand, /--require-todo120-native/);
   assert.match(report.smokeHarness.checkEnvCommand, /--env-file scripts\/feishu\/\.env/);
   assert.match(report.smokeHarness.strictLiveCommand, /npm run smoke:feishu/);
   assert.match(report.smokeHarness.strictLiveCommand, /--strict-live/);
   assert.match(report.smokeHarness.strictLiveCommand, /--evidence runtime-output\/feishu-smoke\/live\.json/);
+  assert.match(report.smokeHarness.strictLiveCommand, /--require-todo120-native/);
   assert.match(report.smokeHarness.verifyEvidenceCommand, /--verify-evidence runtime-output\/feishu-smoke\/live\.json/);
   assert.equal(report.workerHarness.integrationId, "integration-ready");
   assert.equal(report.workerHarness.systemdUnitPath, "deploy/systemd/agentspace-feishu-worker.service");
@@ -5109,7 +5187,7 @@ test("Feishu smoke plan converts readiness into live smoke checklist without ext
   assert.deepEqual(report.evidenceGates, [
     {
       key: "bot_reply",
-      required: "processed_inbound_with_safe_summary + same_agent_bot_correlated_reply_mapping",
+      required: "processed_inbound_with_safe_summary + sent_agent_bot_reply_outbox_with_safe_context + same_agent_bot_correlated_reply_mapping",
     },
     {
       key: "native_agent_bot",
@@ -5200,6 +5278,8 @@ test("Feishu smoke plan converts readiness into live smoke checklist without ext
   assert.match(bindUser?.command ?? "", /--user-id CHANGE_ME_AGENTSPACE_USER_ID --open-id CHANGE_ME_FEISHU_OPEN_ID/);
   assert.equal(liveBot?.status, "pending");
   assert.match(liveBot?.detail ?? "", /@Codex Bot/);
+  assert.match(liveBot?.detail ?? "", /sent Feishu agent_reply outbox/);
+  assert.match(liveBot?.detail ?? "", /safe chat\/thread context/);
   assert.doesNotMatch(liveBot?.detail ?? "", /@AgentSpaceBot/);
   assert.equal(liveDirectMention?.status, "pending");
   assert.match(liveDirectMention?.detail ?? "", /concrete agentId/);
@@ -5210,7 +5290,7 @@ test("Feishu smoke plan converts readiness into live smoke checklist without ext
   assert.match(liveFirstMessageAutoProvision?.detail ?? "", /provisionSource=first_message/);
   assert.match(liveFirstMessageAutoProvision?.detail ?? "", /does not require a \/agent command/);
   assert.equal(bindSecondAgentBot?.status, "done");
-  assert.match(bindSecondAgentBot?.detail ?? "", /2 agent-scoped Feishu bot binding/);
+  assert.match(bindSecondAgentBot?.detail ?? "", /2 Phase 6-ready agent-scoped Feishu bot bindings/);
   assert.equal(liveMultiAgentReuse?.status, "pending");
   assert.match(liveMultiAgentReuse?.detail ?? "", /linkedFromBindingId/);
   assert.match(liveMultiAgentReuse?.detail ?? "", /linkedFromAgentId/);
@@ -5405,7 +5485,8 @@ test("Feishu smoke plan blocks live smoke steps when local prerequisites are mis
   assert.match(bindSecondAgentBot?.command ?? "", /--app-secret-env FEISHU_SECOND_AGENT_APP_SECRET/);
   assert.ok(bindSecondAgentBot?.issues?.includes("credential_encryption_key_missing"));
   assert.equal(liveMultiAgentReuse?.status, "blocked");
-  assert.deepEqual(liveMultiAgentReuse?.issues, ["second_agent_bot_missing"]);
+  assert.ok(liveMultiAgentReuse?.issues?.includes("second_agent_bot_missing"));
+  assert.ok(liveMultiAgentReuse?.issues?.includes("second_agent_bot_not_ready"));
   assert.equal(liveThreadCollaboration?.status, "blocked");
   assert.ok(liveThreadCollaboration?.issues?.includes("second_agent_bot_missing"));
   assert.equal(liveThreadTaskBinding?.status, "blocked");
@@ -5474,6 +5555,67 @@ test("Feishu smoke plan includes CLI agent bot bind command when no integration 
   assert.doesNotMatch(createStep?.command ?? "", /--encrypt-key-env/);
   assert.equal(liveFirstMessageAutoProvision?.status, "blocked");
   assert.deepEqual(liveFirstMessageAutoProvision?.issues, ["integration_missing"]);
+});
+
+test("Feishu smoke plan requires second agent bot to use a distinct ready Feishu app", () => {
+  const report = buildFeishuSmokePlanReport({
+    workspaceId: "workspace-1",
+    requiredReadiness: "bot",
+    runtimeEnv: {
+      AGENT_SPACE_FEISHU_CREDENTIAL_ENCRYPTION_KEY: FEISHU_TEST_CREDENTIAL_ENCRYPTION_KEY,
+    },
+    integrations: [
+      buildIntegrationRecord({
+        id: "agent-bot-codex",
+        displayName: "Codex Bot",
+        agentId: "Codex",
+        appId: "cli_shared_agent_bot",
+        lastHealthStatus: "healthy",
+        transportMode: "websocket_worker",
+      }),
+      buildIntegrationRecord({
+        id: "agent-bot-hermes",
+        displayName: "HermesAgent Bot",
+        agentId: "HermesAgent",
+        appId: "cli_shared_agent_bot",
+        lastHealthStatus: "healthy",
+        transportMode: "websocket_worker",
+      }),
+    ],
+    channelBindingsByIntegrationId: {
+      "agent-bot-codex": [],
+      "agent-bot-hermes": [],
+    },
+    userBindingsByIntegrationId: {
+      "agent-bot-codex": [],
+      "agent-bot-hermes": [],
+    },
+    resourceBindingsByIntegrationId: {
+      "agent-bot-codex": [],
+      "agent-bot-hermes": [],
+    },
+    failedOutboxByIntegrationId: {
+      "agent-bot-codex": [],
+      "agent-bot-hermes": [],
+    },
+    pendingOutboxByIntegrationId: {
+      "agent-bot-codex": [],
+      "agent-bot-hermes": [],
+    },
+  });
+
+  const bindSecondAgentBot = report.steps.find((step) => step.id === "bind_second_feishu_agent_bot");
+  const liveMultiAgentReuse = report.steps.find((step) => step.id === "live_multi_agent_bot_channel_reuse");
+  const liveThreadCollaboration = report.steps.find((step) => step.id === "live_multi_agent_thread_collaboration");
+
+  assert.equal(bindSecondAgentBot?.status, "pending");
+  assert.ok(bindSecondAgentBot?.issues?.includes("second_agent_bot_distinct_app_missing"));
+  assert.match(bindSecondAgentBot?.detail ?? "", /second active Feishu custom app/);
+  assert.equal(liveMultiAgentReuse?.status, "blocked");
+  assert.deepEqual(liveMultiAgentReuse?.issues, ["second_agent_bot_distinct_app_missing"]);
+  assert.equal(liveThreadCollaboration?.status, "blocked");
+  assert.ok(liveThreadCollaboration?.issues?.includes("second_agent_bot_distinct_app_missing"));
+  assert.equal(JSON.stringify(report).includes("cli_shared_agent_bot"), false);
 });
 
 test("Feishu smoke-plan exit code only gates failures in strict mode", () => {
@@ -6326,7 +6468,10 @@ function buildOutboxItem(
     id: `${status}-${integrationId}`,
     workspaceId: "workspace-1",
     integrationId,
+    channelBindingId: `channel-${integrationId}`,
     targetExternalChatId: "oc_secret",
+    targetExternalThreadId: "om_secret_inbound",
+    agentSpaceMessageId: "agent-space-reply-1",
     payloadJson: JSON.stringify({ text: "payload-secret" }),
     metadataJson: options.metadataJson ?? JSON.stringify({
       provider: "feishu",

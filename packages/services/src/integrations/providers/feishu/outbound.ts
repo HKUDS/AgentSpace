@@ -471,6 +471,7 @@ export function queueFeishuOutboundMessageSync(input: {
     metadataJson: buildFeishuQueuedOutboxMetadata({
       source: "direct_outbound_message",
       outbound,
+      integration,
     }),
   }));
   return outboxItems[0]!;
@@ -525,6 +526,7 @@ export function queueFeishuChannelReplyOutboxSync(input: {
         metadataJson: buildFeishuQueuedOutboxMetadata({
           source: "agent_reply",
           outbound,
+          integration,
         }),
       }));
     }
@@ -591,6 +593,7 @@ export function queueFeishuAgentStatusCardOutboxSync(input: {
       metadataJson: buildFeishuQueuedOutboxMetadata({
         source: "agent_status_card",
         outbound,
+        integration,
       }),
     }));
   }
@@ -601,12 +604,16 @@ export function queueFeishuAgentStatusCardOutboxSync(input: {
 function buildFeishuQueuedOutboxMetadata(input: {
   source: "direct_outbound_message" | "agent_reply" | "agent_status_card";
   outbound: Pick<ExternalOutboundMessagePayload, "targetExternalChatId" | "targetExternalThreadId">;
+  integration?: Pick<ExternalIntegrationRecord, "id" | "agentId"> | null;
 }): Record<string, unknown> {
+  const agentId = asString(input.integration?.agentId);
   return {
     provider: FEISHU_PROVIDER_ID,
     outboxSource: input.source,
     externalChatReference: formatFeishuOutboundReference(input.outbound.targetExternalChatId),
     externalThreadReference: formatFeishuOutboundReference(input.outbound.targetExternalThreadId),
+    agentId,
+    botBindingId: agentId ? input.integration?.id : undefined,
   };
 }
 

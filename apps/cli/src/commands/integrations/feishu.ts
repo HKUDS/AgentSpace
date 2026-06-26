@@ -4167,7 +4167,15 @@ function buildFeishuDataPlaneSmokeCommands(input: {
 }
 
 export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInput): FeishuSmokePlanReport {
-  const readiness = buildFeishuReadinessReport(input);
+  const sourceIntegrations = input.integrations ?? listExternalIntegrationsSync({
+    workspaceId: input.workspaceId,
+    provider: FEISHU_PROVIDER_ID,
+    includeDisabled: true,
+  });
+  const readiness = buildFeishuReadinessReport({
+    ...input,
+    integrations: sourceIntegrations,
+  });
   const botCandidate = selectFeishuReadinessCandidate(readiness.integrations, "bot");
   const dataPlaneCandidate = selectFeishuReadinessCandidate(readiness.integrations, "data-plane");
   const workerCandidate = selectFeishuReadinessCandidate(readiness.integrations, "worker");
@@ -4192,8 +4200,12 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
   const hasBaseBinding = readiness.integrations.some((item) => item.resourceBindings.baseWritable > 0);
   const readyForBot = readiness.readyForBotSmokeCount > 0;
   const readyForDataPlane = readiness.readyForDataPlaneSmokeCount > 0;
-  const agentBotIntegrationCount = readiness.integrations.filter((item) => item.agentId).length;
-  const hasSecondAgentBot = agentBotIntegrationCount >= 2;
+  const nativeAgentBotReadiness = buildFeishuNativeAgentBotSmokeReadiness({
+    readinessItems: readiness.integrations,
+    integrations: sourceIntegrations,
+  });
+  const agentBotIntegrationCount = nativeAgentBotReadiness.agentBotBindingCount;
+  const hasSecondAgentBot = nativeAgentBotReadiness.ready;
   const webSocketCandidate = workerCandidate?.transportMode === "websocket_worker"
     ? workerCandidate
     : readiness.integrations.find((item) => item.transportMode === "websocket_worker");
@@ -4377,7 +4389,7 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
         area: "bot",
         title: "Live smoke: @agent-specific Feishu bot and verify reply",
         status: readyForBot ? "pending" : "blocked",
-        detail: "In the mapped Feishu group, mention the concrete agent bot, such as @Codex Bot, without any /agent command. Verify AgentSpace records agentId + botBindingId, queues the internal task, and replies from the same Feishu bot identity in the same thread.",
+        detail: "In the mapped Feishu group, mention the concrete agent bot, such as @Codex Bot, without any /agent command. Verify AgentSpace records agentId + botBindingId, queues the internal task, creates a sent Feishu agent_reply outbox with safe chat/thread context, and replies from the same Feishu bot identity in the same thread.",
         issues: readyForBot ? [] : botIssues,
       },
       {
@@ -4410,15 +4422,15 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
         title: "Bind second AgentSpace agent to its Feishu bot",
         status: hasSecondAgentBot ? "done" : hasIntegration && credentialEncryptionReady ? "pending" : "blocked",
         detail: hasSecondAgentBot
-          ? `Found ${agentBotIntegrationCount} agent-scoped Feishu bot binding records for multi-agent smoke.`
-          : "Create a second Feishu custom app, such as HermesAgent Bot, and bind it to a different AgentSpace agent before testing same-group reuse and thread collaboration.",
+          ? `Found ${nativeAgentBotReadiness.readyAgentBotBindingCount} Phase 6-ready agent-scoped Feishu bot bindings across distinct AgentSpace agents and Feishu apps.`
+          : "Create a second active Feishu custom app, such as HermesAgent Bot, and bind it to a different AgentSpace agent with app credentials, bot scopes, healthy/degraded health, and no unresolved outbox failures before testing same-group reuse and thread collaboration.",
         command: hasSecondAgentBot
           ? undefined
           : `agent-space integrations feishu bind-agent-bot --workspace-id ${readiness.workspaceId} --agent ${FEISHU_CLI_PLACEHOLDERS.secondAgentName} --env-file scripts/feishu/.env --app-id-env FEISHU_SECOND_AGENT_APP_ID --app-secret-env FEISHU_SECOND_AGENT_APP_SECRET --json`,
         issues: hasSecondAgentBot
           ? []
           : hasIntegration
-            ? credentialEncryptionIssues
+            ? uniqueStrings([...nativeAgentBotReadiness.issues, ...credentialEncryptionIssues])
             : ["integration_missing", ...credentialEncryptionIssues],
       },
       {
@@ -4427,7 +4439,7 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
         title: "Live smoke: second agent bot reuses channel",
         status: hasSecondAgentBot ? "pending" : "blocked",
         detail: "After the second agent bot binding exists, add that bot to the same Feishu group and verify AgentSpace reuses the existing channel, adds only that agent membership, and records linkedFromBindingId plus different linkedFromAgentId/linkedFromBotBindingId metadata instead of creating a duplicate channel.",
-        issues: hasSecondAgentBot ? [] : ["second_agent_bot_missing"],
+        issues: hasSecondAgentBot ? [] : nativeAgentBotReadiness.issues,
       },
       {
         id: "live_multi_agent_thread_collaboration",
@@ -4439,7 +4451,7 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
           ? []
           : uniqueStrings([
             ...botIssues,
-            ...(hasSecondAgentBot ? [] : ["second_agent_bot_missing"]),
+            ...(hasSecondAgentBot ? [] : nativeAgentBotReadiness.issues),
           ]),
       },
       {
@@ -4844,7 +4856,7 @@ function buildFeishuIntegrationEvidence(input: {
   const threadTaskBindings = countFeishuThreadTaskBindingEvidence(input.threadBindings);
   const threadContinuationEvidence = countFeishuThreadContinuationEvidence(input.messageMappings, input.threadBindings);
   const threadCollaborationEvidence = countFeishuThreadCollaborationEvidence(input.threadBindings);
-  const sentOutboxItems = input.outbox.filter((item) => item.status === "sent").length;
+  const sentOutboxItems = countFeishuSentAgentBotReplyOutboxEvidence(input.outbox);
   const failedOutboxItems = input.outbox.filter((item) =>
     item.status === "failed" || (item.status === "pending" && Boolean(item.lastError))
   ).length;
@@ -5301,6 +5313,37 @@ function hasFeishuSafeInboundMessageContext(metadata: Record<string, unknown> | 
     hasNonEmptyString(metadata?.externalThreadReference);
 }
 
+function countFeishuSentAgentBotReplyOutboxEvidence(outbox: readonly ExternalMessageOutboxRecord[]): number {
+  return outbox.filter((item) => {
+    if (item.status !== "sent" || !hasNonEmptyString(item.sentAt)) {
+      return false;
+    }
+    if (
+      !hasNonEmptyString(item.channelBindingId) ||
+      !hasNonEmptyString(item.agentSpaceMessageId) ||
+      !hasNonEmptyString(item.targetExternalThreadId)
+    ) {
+      return false;
+    }
+    const metadata = readJsonRecord(item.metadataJson);
+    if (metadata?.provider !== FEISHU_PROVIDER_ID || metadata.outboxSource !== "agent_reply") {
+      return false;
+    }
+    if (
+      !hasNonEmptyString(metadata.agentId) ||
+      !hasNonEmptyString(metadata.botBindingId) ||
+      metadata.botBindingId.trim() !== item.integrationId ||
+      !hasFeishuSafeInboundMessageContext(metadata)
+    ) {
+      return false;
+    }
+    return !hasNonEmptyString(metadata.externalChatId) &&
+      !hasNonEmptyString(metadata.externalThreadId) &&
+      !hasNonEmptyString(metadata.targetExternalChatId) &&
+      !hasNonEmptyString(metadata.targetExternalThreadId);
+  }).length;
+}
+
 function countFeishuProcessedInboundMessageEvents(events: ExternalIntegrationEventRecord[]): number {
   return events.filter((event) => {
     if (event.eventType !== "im.message.receive_v1" || event.status !== "processed") {
@@ -5643,7 +5686,7 @@ function mapFeishuEvidenceIssueToRemediationSpec(input: {
       return {
         stepId: "live_bot_message_reply",
         title: "Live smoke: @Agent in Feishu and verify reply",
-        detail: "Send a message in the bound Feishu group mentioning the AgentSpace bot and an Agent, then wait for the AgentSpace reply to land back in the same Feishu thread.",
+        detail: "Send a message in the bound Feishu group mentioning the concrete agent bot, then verify the final evidence sees a processed safe inbound summary, a sent Feishu agent_reply outbox with agentId, botBindingId, AgentSpace message/channel binding, safe chat/thread references, and a same-bot correlated reply mapping in the same Feishu thread.",
       };
     case "agent_bot_route_evidence_missing":
     case "bound_user_bot_mention_evidence_missing":
@@ -6177,14 +6220,18 @@ function hasMatchingFeishuIdentityBindingNotice(
   mapping: ExternalMessageMappingRecord,
   inboundMetadata: Record<string, unknown>,
 ): boolean {
-  if (item.status !== "sent" || item.integrationId !== mapping.integrationId) {
+  if (item.status !== "sent" || item.integrationId !== mapping.integrationId || !hasNonEmptyString(item.sentAt)) {
     return false;
   }
   if (!mapping.channelBindingId || item.channelBindingId !== mapping.channelBindingId) {
     return false;
   }
+  const replyTargetExternalId = mapping.externalThreadId || mapping.externalMessageId;
+  if (!hasNonEmptyString(replyTargetExternalId) || item.targetExternalThreadId !== replyTargetExternalId) {
+    return false;
+  }
   const metadata = readJsonRecord(item.metadataJson);
-  const replyTargetReference = buildFeishuShortHash(mapping.externalThreadId || mapping.externalMessageId);
+  const replyTargetReference = buildFeishuShortHash(replyTargetExternalId);
   return metadata?.provider === FEISHU_PROVIDER_ID &&
     metadata.noticeType === "identity_binding_required" &&
     metadata.noticeSource === "external_guest_policy" &&
@@ -6193,7 +6240,11 @@ function hasMatchingFeishuIdentityBindingNotice(
     metadata.agentId === inboundMetadata.agentId &&
     metadata.botBindingId === inboundMetadata.botBindingId &&
     metadata.externalChatReference === inboundMetadata.externalChatReference &&
-    metadata.externalThreadReference === replyTargetReference;
+    metadata.externalThreadReference === replyTargetReference &&
+    !hasNonEmptyString(metadata.externalChatId) &&
+    !hasNonEmptyString(metadata.externalThreadId) &&
+    !hasNonEmptyString(metadata.targetExternalChatId) &&
+    !hasNonEmptyString(metadata.targetExternalThreadId);
 }
 
 function countFeishuAutoProvisionedChannelBindings(
@@ -6631,7 +6682,7 @@ function buildFeishuOpenApiEvidenceRemediationSteps(input: {
     issues: uniqueStrings([...input.issues]),
     command: harness
       ? `${harness.strictLiveCommand}\n${harness.verifyEvidenceCommand}`
-      : "npm run smoke:feishu -- --env-file scripts/feishu/.env --live --strict-live --evidence runtime-output/feishu-smoke/live.json --json\nnpm run smoke:feishu -- --verify-evidence runtime-output/feishu-smoke/live.json --json",
+      : "npm run smoke:feishu -- --env-file scripts/feishu/.env --live --strict-live --evidence runtime-output/feishu-smoke/live.json --json --require-todo120-native\nnpm run smoke:feishu -- --verify-evidence runtime-output/feishu-smoke/live.json --json",
   }];
 }
 
@@ -7280,8 +7331,8 @@ function buildFeishuSmokeHarnessSummary(input: {
     destructiveLiveChecks: FEISHU_OPENAPI_REQUIRED_DESTRUCTIVE_LIVE_SMOKE_STEPS.length,
     destructiveLiveStepNames: [...FEISHU_OPENAPI_REQUIRED_DESTRUCTIVE_LIVE_SMOKE_STEPS],
     prepareEnvCommand: `agent-space integrations feishu smoke-env --workspace-id ${input.workspaceId}${integrationFlag} --app-url ${appUrlFlag} > ${envFilePath}`,
-    checkEnvCommand: `npm run smoke:feishu -- --env-file ${envFilePath} --check-env --json`,
-    strictLiveCommand: `npm run smoke:feishu -- --env-file ${envFilePath} --live --strict-live --evidence ${evidencePath} --json`,
+    checkEnvCommand: `npm run smoke:feishu -- --env-file ${envFilePath} --check-env --json --require-todo120-native`,
+    strictLiveCommand: `npm run smoke:feishu -- --env-file ${envFilePath} --live --strict-live --evidence ${evidencePath} --json --require-todo120-native`,
     verifyEvidenceCommand: `npm run smoke:feishu -- --verify-evidence ${evidencePath} --json`,
   };
 }
@@ -7542,6 +7593,63 @@ function selectFeishuReadinessCandidate(
     }
     return `${left.displayName}:${left.id}`.localeCompare(`${right.displayName}:${right.id}`);
   })[0];
+}
+
+interface FeishuNativeAgentBotSmokeReadiness {
+  ready: boolean;
+  agentBotBindingCount: number;
+  readyAgentBotBindingCount: number;
+  issues: string[];
+}
+
+function buildFeishuNativeAgentBotSmokeReadiness(input: {
+  readinessItems: readonly FeishuIntegrationReadiness[];
+  integrations: readonly ExternalIntegrationRecord[];
+}): FeishuNativeAgentBotSmokeReadiness {
+  const integrationsById = new Map(input.integrations.map((integration) => [integration.id, integration]));
+  const agentBotItems = input.readinessItems.filter((item) => hasNonEmptyString(item.agentId));
+  const phase6ReadyItems = agentBotItems.filter((item) =>
+    isFeishuNativeAgentBotSmokeReady(item, integrationsById.get(item.id))
+  );
+  const distinctAgentIds = new Set(phase6ReadyItems.map((item) => item.agentId?.trim()).filter(hasNonEmptyString));
+  const distinctAppIds = new Set(phase6ReadyItems
+    .map((item) => integrationsById.get(item.id)?.appId?.trim())
+    .filter(hasNonEmptyString));
+  const issues: string[] = [];
+  if (agentBotItems.length < 2) {
+    issues.push("second_agent_bot_missing");
+  }
+  if (phase6ReadyItems.length < 2) {
+    issues.push("second_agent_bot_not_ready");
+  }
+  if (distinctAgentIds.size < 2) {
+    issues.push("second_agent_bot_distinct_agent_missing");
+  }
+  if (distinctAppIds.size < 2) {
+    issues.push("second_agent_bot_distinct_app_missing");
+  }
+  return {
+    ready: issues.length === 0,
+    agentBotBindingCount: agentBotItems.length,
+    readyAgentBotBindingCount: phase6ReadyItems.length,
+    issues,
+  };
+}
+
+function isFeishuNativeAgentBotSmokeReady(
+  item: FeishuIntegrationReadiness,
+  integration: ExternalIntegrationRecord | undefined,
+): boolean {
+  return item.status === "active" &&
+    hasNonEmptyString(item.agentId) &&
+    hasNonEmptyString(integration?.appId) &&
+    item.appConfigured &&
+    item.credentialsConfigured &&
+    item.healthStatus !== "unknown" &&
+    item.healthStatus !== "error" &&
+    item.scopes.missingForBotSmoke.length === 0 &&
+    item.outboxFailures === 0 &&
+    item.pendingOutboxWithErrors === 0;
 }
 
 function isFeishuReadinessSatisfied(
