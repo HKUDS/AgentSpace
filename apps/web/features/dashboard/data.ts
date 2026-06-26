@@ -82,8 +82,14 @@ import type {
 import { formatDaemonProviderLabel } from "@agent-space/domain";
 import type { RuntimeProviderHealth } from "@agent-space/domain";
 import { formatCompactTimestamp } from "@/shared/lib/time-format";
-import { listFeishuIntegrationSettingsItems } from "@/features/integrations/feishu/feishu-settings-data";
-import type { FeishuIntegrationSettingsItem } from "@/features/integrations/feishu/feishu-types";
+import {
+  buildFeishuAgentBotSetupReference,
+  listFeishuIntegrationSettingsItems,
+} from "@/features/integrations/feishu/feishu-settings-data";
+import type {
+  FeishuAgentBotSetupReference,
+  FeishuIntegrationSettingsItem,
+} from "@/features/integrations/feishu/feishu-types";
 export {
   getApprovalsPageData,
   getPendingApprovalCount,
@@ -766,6 +772,7 @@ export interface WorkspaceAgentRecord extends ManagementRecordBase {
   knowledge?: WorkspaceAgentKnowledgeRecord;
   googleWorkspaceDelegation?: WorkspaceAgentGoogleWorkspaceDelegationRecord;
   feishuAgentBot?: FeishuIntegrationSettingsItem;
+  feishuAgentBotSetupReference?: FeishuAgentBotSetupReference;
   canManageFeishuAgentBot?: boolean;
   documentAccess?: WorkspaceAgentDocumentAccessSummaryRecord;
   forkedFrom?: {
@@ -2663,6 +2670,9 @@ export function getAgentsPageData(input: string | AgentsPageDataOptions = DEFAUL
         .map((integration) => [integration.agentId!, integration])
       : [],
   );
+  const feishuAgentBotSetupReference = canManageAllAgents
+    ? buildFeishuAgentBotSetupReference()
+    : undefined;
   const activeRuntimeGrants = listRuntimeGrantsCached(workspaceId).filter((grant) => grant.status === "active");
   const grantsByRuntimeId = new Map<string, RuntimeGrantMember[]>();
   for (const grant of activeRuntimeGrants) {
@@ -2721,6 +2731,7 @@ export function getAgentsPageData(input: string | AgentsPageDataOptions = DEFAUL
         currentUserId,
       ),
       feishuAgentBot: feishuAgentBotByAgentId.get(agent.internalName),
+      feishuAgentBotSetupReference,
       canManageFeishuAgentBot: canManageAllAgents,
       canManage: canManageAllAgents || (typeof currentUserId === "string" && agent.ownerUserId === currentUserId),
       canManageChannelMemberAccess: canManageAllAgents || (typeof currentUserId === "string" && agent.ownerUserId === currentUserId),

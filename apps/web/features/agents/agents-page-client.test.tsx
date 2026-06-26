@@ -346,6 +346,20 @@ const data: AgentsPageData = {
           },
         ],
       },
+      feishuAgentBotSetupReference: {
+        requiredCredentialFields: ["app_id", "app_secret"],
+        requiredEvents: ["im.message.receive_v1", "im.chat.member.bot.added_v1", "card.action.trigger"],
+        requiredScopes: [
+          "im:message",
+          "im:message:send_as_bot",
+          "contact:user.base:readonly",
+          "docx:document",
+          "drive:drive",
+          "sheets:spreadsheet",
+          "bitable:app",
+        ],
+        eventCallbackPath: "/api/integrations/feishu/events",
+      },
     },
   ],
   showcaseAgents: [
@@ -806,6 +820,10 @@ describe("AgentsPageClient", () => {
     expect(screen.getByText("Planner Feishu Bot")).toBeInTheDocument();
     expect(screen.getByText("健康")).toBeInTheDocument();
     expect(screen.getByText("agent-space integrations feishu health-check --workspace-id workspace-1 --agent planner --strict --json")).toBeInTheDocument();
+    expect(screen.getByText("npm run smoke:feishu -- --env-file scripts/feishu/.env --live --strict-live --evidence runtime-output/feishu-smoke/live.json --json")).toBeInTheDocument();
+    expect(screen.getByText("agent-space integrations feishu evidence --workspace-id workspace-1 --integration feishu-agent-bot-planner --openapi-evidence runtime-output/feishu-smoke/live.json --strict --require all --json")).toBeInTheDocument();
+    expect(screen.getByText("im.chat.member.bot.added_v1")).toBeInTheDocument();
+    expect(screen.getByText("im:message")).toBeInTheDocument();
     expect(screen.getByText("调整治理策略")).toBeInTheDocument();
   });
 
@@ -823,6 +841,8 @@ describe("AgentsPageClient", () => {
     });
 
     await user.click(screen.getByRole("button", { name: "设置" }));
+    expect(screen.getByText("im.chat.member.bot.added_v1")).toBeInTheDocument();
+    expect(screen.getByText("sheets:spreadsheet")).toBeInTheDocument();
     await user.type(screen.getByLabelText("App ID"), "cli_planner");
     await user.type(screen.getByLabelText("App Secret"), "secret_planner");
     await user.click(screen.getByRole("button", { name: "绑定 Bot" }));

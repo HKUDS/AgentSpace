@@ -179,6 +179,13 @@ export interface FeishuAgentBotExternalGuestPolicySettingsItem {
   requireIdentityFor: string[];
 }
 
+export interface FeishuAgentBotSetupReference {
+  requiredCredentialFields: string[];
+  requiredEvents: string[];
+  requiredScopes: string[];
+  eventCallbackPath: string;
+}
+
 export interface FeishuIntegrationSettingsItem {
   id: string;
   displayName: string;

@@ -459,6 +459,7 @@ export function AgentDetail({
               canManage={Boolean(record.canManageFeishuAgentBot)}
               integration={record.feishuAgentBot}
               onUpdated={onFeishuAgentBotUpdated}
+              setupReference={record.feishuAgentBotSetupReference}
             />
 
             <section className="form-panel form-panel--nested agent-access-panel">

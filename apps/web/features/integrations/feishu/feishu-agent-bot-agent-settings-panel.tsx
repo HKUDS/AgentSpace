@@ -9,7 +9,10 @@ import {
   rotateFeishuAgentBotCredentialsAction,
 } from "./feishu-actions";
 import { FeishuAgentBotPolicyEditor } from "./feishu-agent-bots-panel";
-import type { FeishuIntegrationSettingsItem } from "./feishu-types";
+import type {
+  FeishuAgentBotSetupReference,
+  FeishuIntegrationSettingsItem,
+} from "./feishu-types";
 
 interface FeishuAgentBotAgentSettingsPanelProps {
   readonly agentId: string;
@@ -17,6 +20,7 @@ interface FeishuAgentBotAgentSettingsPanelProps {
   readonly canManage: boolean;
   readonly integration?: FeishuIntegrationSettingsItem;
   readonly onUpdated?: (integration: FeishuIntegrationSettingsItem) => void;
+  readonly setupReference?: FeishuAgentBotSetupReference;
 }
 
 export function FeishuAgentBotAgentSettingsPanel({
@@ -25,6 +29,7 @@ export function FeishuAgentBotAgentSettingsPanel({
   canManage,
   integration,
   onUpdated,
+  setupReference,
 }: FeishuAgentBotAgentSettingsPanelProps) {
   const { tx } = useLanguage();
   const [isPending, startTransition] = useTransition();
@@ -126,13 +131,58 @@ export function FeishuAgentBotAgentSettingsPanel({
                   label={tx("Bot Readiness", "Bot readiness")}
                   value={currentIntegration.setupGuide.commands.botReadiness}
                 />
+                <FeishuAgentSettingsCommand
+                  label={tx("Data-plane Readiness", "Data-plane readiness")}
+                  value={currentIntegration.setupGuide.commands.dataPlaneReadiness}
+                />
+                <FeishuAgentSettingsCommand
+                  label={tx("Worker Readiness", "Worker readiness")}
+                  value={currentIntegration.setupGuide.commands.workerReadiness}
+                />
                 {currentIntegration.setupGuide.commands.autoProvisionPolicy ? (
                   <FeishuAgentSettingsCommand
                     label={tx("治理策略", "Governance policy")}
                     value={currentIntegration.setupGuide.commands.autoProvisionPolicy}
                   />
                 ) : null}
+                {currentIntegration.setupGuide.commands.channelBindings ? (
+                  <FeishuAgentSettingsCommand
+                    label={tx("群聊绑定", "Channel bindings")}
+                    value={currentIntegration.setupGuide.commands.channelBindings}
+                  />
+                ) : null}
+                <FeishuAgentSettingsCommand
+                  label={tx("Smoke Env", "Smoke env")}
+                  value={currentIntegration.setupGuide.commands.smokeEnv}
+                />
+                <FeishuAgentSettingsCommand
+                  label={tx("检查 Smoke Env", "Check smoke env")}
+                  value={currentIntegration.setupGuide.commands.checkEnv}
+                />
+                <FeishuAgentSettingsCommand
+                  label={tx("Live Smoke", "Live smoke")}
+                  value={currentIntegration.setupGuide.commands.strictLiveSmoke}
+                />
+                <FeishuAgentSettingsCommand
+                  label={tx("验证 OpenAPI 证据", "Verify OpenAPI evidence")}
+                  value={currentIntegration.setupGuide.commands.verifyOpenApiEvidence}
+                />
+                <FeishuAgentSettingsCommand
+                  label={tx("Smoke Plan", "Smoke plan")}
+                  value={currentIntegration.setupGuide.commands.smokePlan}
+                />
+                <FeishuAgentSettingsCommand
+                  label={tx("最终证据", "Final evidence")}
+                  value={currentIntegration.setupGuide.commands.evidence}
+                />
               </div>
+              <FeishuAgentBotSetupReference
+                callbackPath={currentIntegration.setupGuide.eventCallbackPath}
+                credentialFields={currentIntegration.setupGuide.requiredCredentialFields}
+                events={currentIntegration.setupGuide.requiredEvents}
+                scopes={currentIntegration.setupGuide.requiredScopes}
+                tx={tx}
+              />
             </details>
           ) : null}
 
@@ -345,6 +395,15 @@ export function FeishuAgentBotAgentSettingsPanel({
                   <option value="none">{tx("无", "None")}</option>
                 </select>
               </label>
+              {setupReference ? (
+                <FeishuAgentBotSetupReference
+                  callbackPath={setupReference.eventCallbackPath}
+                  credentialFields={setupReference.requiredCredentialFields}
+                  events={setupReference.requiredEvents}
+                  scopes={setupReference.requiredScopes}
+                  tx={tx}
+                />
+              ) : null}
             </div>
           </details>
 
@@ -401,6 +460,52 @@ export function FeishuAgentBotAgentSettingsPanel({
       ) : null}
       {feedback ? <p className="settings-panel-note">{feedback}</p> : null}
     </section>
+  );
+}
+
+function FeishuAgentBotSetupReference({
+  callbackPath,
+  credentialFields,
+  events,
+  scopes,
+  tx,
+}: {
+  callbackPath: string;
+  credentialFields: readonly string[];
+  events: readonly string[];
+  scopes: readonly string[];
+  tx: (zh: string, en: string) => string;
+}) {
+  return (
+    <div className="feishu-setup-summary feishu-agent-settings-panel__setup-reference">
+      <section>
+        <strong>{tx("凭据字段", "Credential Fields")}</strong>
+        <ul>
+          {credentialFields.map((field) => (
+            <li key={field}><code>{field}</code></li>
+          ))}
+        </ul>
+      </section>
+      <section>
+        <strong>{tx("事件", "Events")}</strong>
+        <ul>
+          <li>
+            <span>{tx("回调路径", "Callback Path")}</span>: <code>{callbackPath}</code>
+          </li>
+          {events.map((eventName) => (
+            <li key={eventName}><code>{eventName}</code></li>
+          ))}
+        </ul>
+      </section>
+      <section>
+        <strong>{tx("Docs / Sheets / Base 权限", "Docs / Sheets / Base Scopes")}</strong>
+        <ul>
+          {scopes.map((scope) => (
+            <li key={scope}><code>{scope}</code></li>
+          ))}
+        </ul>
+      </section>
+    </div>
   );
 }
 

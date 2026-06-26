@@ -37,6 +37,7 @@ import type {
   FeishuAvailableUserItem,
   FeishuAgentBotChannelAutoProvisioningSettingsItem,
   FeishuAgentBotExternalGuestPolicySettingsItem,
+  FeishuAgentBotSetupReference,
   FeishuChannelBindingSettingsItem,
   FeishuDataOperationRunSettingsItem,
   FeishuInboundBindingSuggestion,
@@ -359,6 +360,15 @@ export function buildFeishuIntegrationCreationGuide(input: {
     callbackUrlTemplate,
     developerConsoleUrl: FEISHU_OPEN_PLATFORM_CONSOLE_URLS.appList,
     openPlatformSetupSteps: buildFeishuOpenPlatformSetupSteps(),
+  };
+}
+
+export function buildFeishuAgentBotSetupReference(): FeishuAgentBotSetupReference {
+  return {
+    requiredCredentialFields: [...FEISHU_AGENT_BOT_REQUIRED_CREDENTIAL_FIELDS],
+    requiredEvents: [...FEISHU_REQUIRED_EVENTS],
+    requiredScopes: [...FEISHU_DEFAULT_SCOPES],
+    eventCallbackPath: FEISHU_EVENT_CALLBACK_PATH,
   };
 }
 
