@@ -600,6 +600,7 @@ export interface FeishuIntegrationEvidence {
     healthStatus: ExternalIntegrationHealthStatus;
     healthFailureVisible: boolean;
     providerFailureVisible: boolean;
+    agentBotFailureEvidence: number;
     failedEvents: number;
     failedOutboxItems: number;
     failedDataOperations: number;
@@ -4698,6 +4699,7 @@ function buildFeishuIntegrationEvidence(input: {
   const failedOutboxItems = input.outbox.filter((item) =>
     item.status === "failed" || (item.status === "pending" && Boolean(item.lastError))
   ).length;
+  const failedOutboxAgentBotEvidence = countFeishuFailedOutboxAgentBotEvidence(input.outbox);
   const healthStatus = input.integration.lastHealthStatus ?? "unknown";
   const healthFailureVisible = healthStatus === "degraded" || healthStatus === "error";
   const docReadSucceeded = countNonRuntimeFeishuDocReadOperations(input.dataOperations);
@@ -4730,6 +4732,8 @@ function buildFeishuIntegrationEvidence(input: {
   const externalGuestActorEvidence = countFeishuGovernanceActorEvidence(input.dataOperations, "external_guest");
   const externalGuestWriteDeniedEvidence = countFeishuExternalGuestWriteDeniedEvidence(input.dataOperations);
   const failedDataOperations = input.dataOperations.filter((operation) => operation.status === "failed").length;
+  const failedDataOperationAgentBotEvidence = countFeishuFailedDataOperationAgentBotEvidence(input.dataOperations);
+  const agentBotFailureEvidence = failedOutboxAgentBotEvidence + failedDataOperationAgentBotEvidence;
   const botSatisfied = processedInboundEvents > 0 &&
     sentOutboxItems > 0 &&
     inboundMessageMappings > 0 &&
@@ -4771,7 +4775,7 @@ function buildFeishuIntegrationEvidence(input: {
     workerRestartRecoverySatisfied &&
     workerApprovalCardActionSatisfied;
   const providerFailureVisible = failedOutboxItems > 0 || failedDataOperations > 0;
-  const failureSatisfied = providerFailureVisible && healthFailureVisible;
+  const failureSatisfied = providerFailureVisible && healthFailureVisible && agentBotFailureEvidence > 0;
   const issues = buildFeishuEvidenceIssues({
     integration: input.integration,
     botSatisfied,
@@ -4821,6 +4825,7 @@ function buildFeishuIntegrationEvidence(input: {
     workerApprovalCardActionSatisfied,
     providerFailureVisible,
     healthFailureVisible,
+    agentBotFailureEvidence,
   });
   const remediationSteps = buildFeishuIntegrationEvidenceRemediationSteps({
     workspaceId: input.workspaceId,
@@ -4893,6 +4898,7 @@ function buildFeishuIntegrationEvidence(input: {
       healthStatus,
       healthFailureVisible,
       providerFailureVisible,
+      agentBotFailureEvidence,
       failedEvents,
       failedOutboxItems,
       failedDataOperations,
@@ -5117,6 +5123,7 @@ function buildFeishuEvidenceIssues(input: {
   workerApprovalCardActionSatisfied: boolean;
   providerFailureVisible: boolean;
   healthFailureVisible: boolean;
+  agentBotFailureEvidence: number;
 }): string[] {
   const issues: string[] = [];
   if (!input.botSatisfied) {
@@ -5247,6 +5254,9 @@ function buildFeishuEvidenceIssues(input: {
     }
     if (!input.healthFailureVisible) {
       issues.push("health_failure_evidence_missing");
+    }
+    if (input.providerFailureVisible && input.agentBotFailureEvidence === 0) {
+      issues.push("agent_bot_failure_evidence_missing");
     }
     issues.push("failure_visibility_evidence_missing");
   }
@@ -5492,11 +5502,12 @@ function mapFeishuEvidenceIssueToRemediationSpec(input: {
       };
     case "provider_failure_evidence_missing":
     case "health_failure_evidence_missing":
+    case "agent_bot_failure_evidence_missing":
     case "failure_visibility_evidence_missing":
       return {
         stepId: "live_failure_visibility",
         title: "Live smoke: verify visible provider failure",
-        detail: "Temporarily use a wrong secret, revoke a required scope, or force a failed outbox/data operation, then refresh Feishu health until degraded/error status and a provider failure row are both visible.",
+        detail: "Temporarily use a wrong agent bot secret, revoke a required scope, or force a failed agent-bot outbox/data operation, then refresh Feishu health until degraded/error status and a provider failure row with agentId and botBindingId evidence are both visible.",
         command: `agent-space integrations feishu health-check --workspace-id ${input.workspaceId} --integration ${input.integration.id} --json`,
       };
     default:
@@ -5823,6 +5834,33 @@ function countFeishuThreadCollaborationEvidence(
       metadata.externalChatReference.trim().length > 0 &&
       typeof metadata.externalThreadReference === "string" &&
       metadata.externalThreadReference.trim().length > 0;
+  }).length;
+}
+
+function countFeishuFailedOutboxAgentBotEvidence(
+  outbox: readonly ExternalMessageOutboxRecord[],
+): number {
+  return outbox.filter((item) => {
+    if (item.status !== "failed" && !(item.status === "pending" && Boolean(item.lastError))) {
+      return false;
+    }
+    const metadata = readJsonRecord(item.metadataJson);
+    return metadata?.provider === FEISHU_PROVIDER_ID &&
+      hasNonEmptyString(metadata.agentId) &&
+      hasNonEmptyString(metadata.botBindingId);
+  }).length;
+}
+
+function countFeishuFailedDataOperationAgentBotEvidence(
+  operations: readonly ExternalDataOperationRunRecord[],
+): number {
+  return operations.filter((operation) => {
+    if (operation.status !== "failed") {
+      return false;
+    }
+    const governanceContext = readFeishuGovernanceContext(operation);
+    return hasNonEmptyString(governanceContext?.agentId) &&
+      hasNonEmptyString(governanceContext?.botBindingId);
   }).length;
 }
 

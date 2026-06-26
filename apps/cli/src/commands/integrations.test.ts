@@ -1208,6 +1208,7 @@ test("Feishu evidence report summarizes AgentSpace-side live smoke proof without
   assert.equal(item?.failureVisibility.healthStatus, "degraded");
   assert.equal(item?.failureVisibility.healthFailureVisible, true);
   assert.equal(item?.failureVisibility.providerFailureVisible, true);
+  assert.equal(item?.failureVisibility.agentBotFailureEvidence, 2);
   assert.equal(item?.failureVisibility.satisfied, true);
   assert.deepEqual(item?.issues, []);
   assert.deepEqual(item?.remediationSteps, []);
@@ -1241,9 +1242,40 @@ test("Feishu evidence report requires degraded health for failure visibility smo
   assert.equal(item?.failureVisibility.healthStatus, "healthy");
   assert.equal(item?.failureVisibility.healthFailureVisible, false);
   assert.equal(item?.failureVisibility.providerFailureVisible, true);
+  assert.equal(item?.failureVisibility.agentBotFailureEvidence, 2);
   assert.equal(item?.failureVisibility.satisfied, false);
   assert.ok(item?.issues.includes("health_failure_evidence_missing"));
   assert.ok(item?.issues.includes("failure_visibility_evidence_missing"));
+});
+
+test("Feishu evidence report requires agent bot provenance for failure visibility smoke", () => {
+  const complete = buildCompleteFeishuEvidenceInput();
+  const report = buildFeishuEvidenceReport({
+    ...complete,
+    requiredEvidence: "failure",
+    outboxByIntegrationId: {
+      "integration-evidence": [
+        buildOutboxItem("integration-evidence", "sent"),
+        buildOutboxItem("integration-evidence", "failed", {
+          metadataJson: "{}",
+        }),
+      ],
+    },
+    dataOperationsByIntegrationId: {
+      "integration-evidence": [],
+    },
+  });
+
+  assert.equal(report.strictSatisfied, false);
+  assert.equal(report.summary.failureVisibleCount, 0);
+  const [item] = report.integrations;
+  assert.equal(item?.failureVisibility.healthFailureVisible, true);
+  assert.equal(item?.failureVisibility.providerFailureVisible, true);
+  assert.equal(item?.failureVisibility.agentBotFailureEvidence, 0);
+  assert.equal(item?.failureVisibility.satisfied, false);
+  assert.ok(item?.issues.includes("agent_bot_failure_evidence_missing"));
+  assert.ok(item?.issues.includes("failure_visibility_evidence_missing"));
+  assert.equal(JSON.stringify(report).includes("oc_secret"), false);
 });
 
 test("Feishu worker evidence requires a second correlated reply for restart recovery", () => {
@@ -5245,13 +5277,24 @@ function readSmokeEnvEntry(
   return report.entries.find((entry) => entry.key === key);
 }
 
-function buildOutboxItem(integrationId: string, status: "failed" | "pending" | "sent") {
+function buildOutboxItem(
+  integrationId: string,
+  status: "failed" | "pending" | "sent",
+  options: {
+    metadataJson?: string;
+  } = {},
+) {
   return {
     id: `${status}-${integrationId}`,
     workspaceId: "workspace-1",
     integrationId,
     targetExternalChatId: "oc_secret",
     payloadJson: JSON.stringify({ text: "payload-secret" }),
+    metadataJson: options.metadataJson ?? JSON.stringify({
+      provider: "feishu",
+      agentId: "Codex",
+      botBindingId: integrationId,
+    }),
     status,
     attempts: 1,
     lastError: status === "sent" ? undefined : "provider error",
