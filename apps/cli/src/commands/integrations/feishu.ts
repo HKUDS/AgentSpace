@@ -188,6 +188,8 @@ export interface FeishuSmokePlanReport {
 
 export type FeishuSmokePlanEvidenceGateKey =
   | "bot_reply"
+  | "native_agent_bot"
+  | "guest_policy"
   | "worker_restart"
   | "worker_card_action"
   | "data_plane"
@@ -3933,37 +3935,37 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
       {
         id: "prepare_feishu_create_env",
         area: "setup",
-        title: "Prepare Feishu create env file",
+        title: "Prepare Feishu agent bot env file",
         status: hasIntegration ? "done" : "pending",
         detail: hasIntegration
-          ? "A Feishu integration already exists; use smoke-env for workspace-specific live smoke resources."
-          : "Create scripts/feishu/.env from the checked-in template, then replace the Feishu app credential placeholders before running create.",
+          ? "A Feishu agent bot binding or integration already exists; use smoke-env for workspace-specific live smoke resources."
+          : "Create scripts/feishu/.env from the checked-in template, then replace the Feishu app credential placeholders before binding an AgentSpace agent to its Feishu bot.",
         command: hasIntegration
           ? undefined
           : "test -f scripts/feishu/.env || cp scripts/feishu/env.example scripts/feishu/.env",
         issues: [],
       },
       {
-        id: "create_feishu_integration",
+        id: "bind_feishu_agent_bot",
         area: "setup",
-        title: "Create Feishu integration in AgentSpace",
+        title: "Bind one AgentSpace agent to its Feishu bot",
         status: hasIntegration ? "done" : credentialEncryptionReady ? "pending" : "blocked",
         detail: hasIntegration
-          ? `Found ${readiness.integrationCount} Feishu integration(s) in this workspace.`
-          : "Create a Feishu custom app, then create the matching integration from AgentSpace settings or the CLI.",
+          ? `Found ${readiness.integrationCount} Feishu integration/bot binding record(s) in this workspace.`
+          : "Create a Feishu custom app for a specific AgentSpace agent, then bind it with App ID + App Secret. WebSocket worker is the default quick start; EventCallback verification token/encrypt key stay in advanced setup.",
         command: hasIntegration
           ? undefined
-          : `agent-space integrations feishu create --workspace-id ${readiness.workspaceId} --name Feishu --transport http_webhook --env-file scripts/feishu/.env --app-id-env FEISHU_APP_ID --app-secret-env FEISHU_APP_SECRET --verification-token-env FEISHU_VERIFICATION_TOKEN --encrypt-key-env FEISHU_ENCRYPT_KEY --json`,
+          : `agent-space integrations feishu bind-agent-bot --workspace-id ${readiness.workspaceId} --agent ${FEISHU_CLI_PLACEHOLDERS.agentName} --env-file scripts/feishu/.env --app-id-env FEISHU_APP_ID --app-secret-env FEISHU_APP_SECRET --json`,
         issues: hasIntegration ? [] : credentialEncryptionIssues,
       },
       {
         id: "configure_app_credentials",
         area: "setup",
-        title: "Configure app id and webhook credentials",
+        title: "Configure agent bot app credentials",
         status: prereqStatus(hasIntegration, hasConfiguredAppCredentials),
         detail: hasConfiguredAppCredentials
-          ? "AgentSpace has a Feishu app id plus required secret/verification token configuration for at least one integration."
-          : "Save the Feishu app id, app secret, verification token, and encrypt key in the AgentSpace integration wizard.",
+          ? "AgentSpace has a Feishu app id plus required secret configuration for at least one agent bot binding."
+          : "For quick start, save only App ID and App Secret on the agent bot binding. Add verification token and encrypt key only when using EventCallback.",
         issues: collectSetupIssues(setupCandidate, ["app_id_missing", "credentials_incomplete"]),
       },
       {
@@ -4006,9 +4008,9 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
       {
         id: "bind_feishu_chat",
         area: "bot",
-        title: "Bind Feishu group to an AgentSpace channel",
+        title: "Manual fallback: bind Feishu group to an AgentSpace channel",
         status: prereqStatus(hasIntegration, hasChannelBinding),
-        detail: "Map the Feishu group chat to an existing AgentSpace channel before sending live @Agent smoke messages.",
+        detail: "TODO120's primary path is automatic: adding the agent bot to a Feishu group should create or reuse the AgentSpace channel. Use this manual binding only as a fallback when auto-provisioning is disabled or under admin review.",
         command: `agent-space integrations feishu bind-channel --workspace-id ${readiness.workspaceId} --integration ${setupIntegrationFlag} --channel ${FEISHU_CLI_PLACEHOLDERS.agentSpaceChannel} --chat-id ${FEISHU_CLI_PLACEHOLDERS.feishuChatId} --json`,
         issues: collectSetupIssues(botCandidate, ["channel_binding_missing"]),
       },
@@ -4035,17 +4037,57 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
       {
         id: "live_bot_message_reply",
         area: "bot",
-        title: "Live smoke: @Agent in Feishu and verify reply",
+        title: "Live smoke: @agent-specific Feishu bot and verify reply",
         status: readyForBot ? "pending" : "blocked",
-        detail: "In the bound Feishu group, @AgentSpaceBot and an Agent; verify the internal task is queued and the reply is delivered back to the Feishu thread.",
+        detail: "In the mapped Feishu group, mention the concrete agent bot, such as @Codex Bot, without any /agent command. Verify AgentSpace records agentId + botBindingId, queues the internal task, and replies from the same Feishu bot identity in the same thread.",
+        issues: readyForBot ? [] : botIssues,
+      },
+      {
+        id: "live_agent_bot_channel_auto_provision",
+        area: "bot",
+        title: "Live smoke: agent bot auto-provisions channel",
+        status: hasIntegration ? "pending" : "blocked",
+        detail: "Add the agent's Feishu bot to a new Feishu group and verify AgentSpace creates or binds the channel automatically with provisionSource=bot_added, safe chat reference metadata, agent membership, and a confirmation card.",
+        issues: hasIntegration ? [] : ["integration_missing"],
+      },
+      {
+        id: "live_multi_agent_bot_channel_reuse",
+        area: "bot",
+        title: "Live smoke: second agent bot reuses channel",
+        status: hasIntegration ? "pending" : "blocked",
+        detail: "Bind a second AgentSpace agent to a second Feishu bot, add it to the same Feishu group, and verify AgentSpace reuses the existing channel, adds only that agent membership, and records linkedFromBindingId instead of creating a duplicate channel.",
+        issues: hasIntegration ? [] : ["integration_missing"],
+      },
+      {
+        id: "live_external_guest_agent_bot_mention",
+        area: "bot",
+        title: "Live smoke: unbound Feishu user routes as external guest",
+        status: readyForBot ? "pending" : "blocked",
+        detail: "From a Feishu user that is not bound to AgentSpace, mention the agent bot and verify AgentSpace dispatches a low-permission external_guest actor without creating a real workspace member or leaking raw Feishu user ids.",
+        issues: readyForBot ? [] : botIssues,
+      },
+      {
+        id: "live_external_guest_reply_all",
+        area: "bot",
+        title: "Live smoke: reply_all external guest dispatch",
+        status: readyForBot ? "pending" : "blocked",
+        detail: "Temporarily set the agent bot external guest policy to reply_all, send an unbound Feishu message without mentioning the bot, and verify AgentSpace still routes it to the bot's agent as channel_context_only external_guest.",
+        issues: readyForBot ? [] : botIssues,
+      },
+      {
+        id: "live_agent_channel_policy_disabled",
+        area: "bot",
+        title: "Live smoke: disabled agent/channel policy blocks replies",
+        status: readyForBot ? "pending" : "blocked",
+        detail: "Disable the agent's channel-member access or remove the agent from the mapped AgentSpace channel, mention the Feishu agent bot, and verify AgentSpace records the policy denial without writing a channel message, queueing a task, or sending a bot reply.",
         issues: readyForBot ? [] : botIssues,
       },
       {
         id: "live_agent_bound_doc_summary",
         area: "data-plane",
-        title: "Live smoke: @Agent summarizes a bound Feishu Doc",
+        title: "Live smoke: agent bot summarizes a bound Feishu Doc",
         status: readyForBot && readyForDataPlane ? "pending" : "blocked",
-        detail: "In the bound Feishu group, ask @AgentSpaceBot and an Agent to summarize the already-bound Feishu Doc; verify the Agent uses AgentSpace-scoped lark-cli/resource context, creates normal AgentSpace task/reply evidence, and sends the answer back to the Feishu thread.",
+        detail: "In the mapped Feishu group, ask the concrete agent bot, such as @Codex Bot, to summarize the already-bound Feishu Doc. Verify the agent uses AgentSpace-scoped lark-cli/resource context, creates normal task/reply evidence, and sends the answer back to the Feishu thread.",
         issues: readyForBot && readyForDataPlane ? [] : uniqueStrings([...botIssues, ...dataPlaneIssues]),
       },
       {
@@ -4062,7 +4104,7 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
         area: "worker",
         title: "Live smoke: receive Feishu message through WebSocket worker",
         status: readyForWorkerSmoke ? "pending" : "blocked",
-        detail: "Start the worker in a self-hosted environment, send a bound Feishu group message, then trigger one Sheet/Base approval card action from Feishu; verify both bypass the HTTP callback route while still creating the AgentSpace task/reply and approval execution.",
+        detail: "Start the worker in a self-hosted environment, mention the concrete agent bot in a mapped Feishu group, then trigger one Sheet/Base approval card action from Feishu; verify both bypass the HTTP callback route while still creating the AgentSpace task/reply and approval execution.",
         command: workerHarness.startCommand,
         issues: workerIssues,
       },
@@ -4184,7 +4226,7 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
         area: "failure",
         title: "Verify AgentSpace-side Feishu live smoke evidence",
         status: readyForBot && readyForDataPlane ? "pending" : "blocked",
-        detail: "After live bot/data-plane/worker/failure smoke, verify local AgentSpace DB evidence without exposing external ids or resource tokens. Data-plane evidence requires Doc read, Agent-triggered Doc read, approved Doc write, Sheet/Base approved writes with AgentSpace data table sync, and Base read; WebSocket worker evidence requires two correlated replies; failure evidence requires provider failure rows and degraded/error health.",
+        detail: "After live native agent bot, guest-policy, data-plane, worker, and failure smoke, verify local AgentSpace DB evidence without exposing external ids or resource tokens. Native evidence requires agent-specific bot routing, auto-provisioning, multi-agent channel reuse, thread/task binding, and disabled-policy no-reply proof; guest evidence requires allow, reply_all, require_identity, ignore, and mention-required decisions.",
         command: `agent-space integrations feishu evidence --workspace-id ${readiness.workspaceId} --integration ${setupIntegrationFlag} --openapi-evidence ${smokeHarness.evidencePath} --strict --require all --json`,
         issues: readyForBot && readyForDataPlane ? [] : uniqueStrings([...botIssues, ...dataPlaneIssues]),
       },
@@ -4207,6 +4249,14 @@ function buildFeishuSmokePlanEvidenceGates(input: {
     {
       key: "bot_reply",
       required: FEISHU_FINAL_EVIDENCE_GATE_REQUIREMENTS.botReply,
+    },
+    {
+      key: "native_agent_bot",
+      required: "agent_bot_route + bound_user_bot_mention + external_guest_bot_mention + bot_added_auto_provision + first_message_auto_provision + multi_agent_channel_reuse + thread_task_binding + agent_channel_policy_denial",
+    },
+    {
+      key: "guest_policy",
+      required: "external_guest_allow + external_guest_reply_all + external_guest_require_identity + external_guest_ignore + external_guest_mention_required",
     },
     ...(input.hasWebSocketIntegration
       ? [{

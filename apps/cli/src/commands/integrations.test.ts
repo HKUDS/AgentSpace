@@ -3815,6 +3815,14 @@ test("Feishu smoke plan converts readiness into live smoke checklist without ext
       required: "processed_inbound + correlated_reply_mapping",
     },
     {
+      key: "native_agent_bot",
+      required: "agent_bot_route + bound_user_bot_mention + external_guest_bot_mention + bot_added_auto_provision + first_message_auto_provision + multi_agent_channel_reuse + thread_task_binding + agent_channel_policy_denial",
+    },
+    {
+      key: "guest_policy",
+      required: "external_guest_allow + external_guest_reply_all + external_guest_require_identity + external_guest_ignore + external_guest_mention_required",
+    },
+    {
       key: "worker_restart",
       required: "two_correlated_websocket_replies",
     },
@@ -3837,11 +3845,17 @@ test("Feishu smoke plan converts readiness into live smoke checklist without ext
   ]);
 
   const credentialEncryption = report.steps.find((step) => step.id === "configure_credential_encryption_key");
+  const bindAgentBot = report.steps.find((step) => step.id === "bind_feishu_agent_bot");
   const env = report.steps.find((step) => step.id === "prepare_live_smoke_env");
   const checkEnv = report.steps.find((step) => step.id === "check_live_smoke_env");
   const bindChat = report.steps.find((step) => step.id === "bind_feishu_chat");
   const bindUser = report.steps.find((step) => step.id === "bind_feishu_user");
   const liveBot = report.steps.find((step) => step.id === "live_bot_message_reply");
+  const liveAutoProvision = report.steps.find((step) => step.id === "live_agent_bot_channel_auto_provision");
+  const liveMultiAgentReuse = report.steps.find((step) => step.id === "live_multi_agent_bot_channel_reuse");
+  const liveGuestMention = report.steps.find((step) => step.id === "live_external_guest_agent_bot_mention");
+  const liveGuestReplyAll = report.steps.find((step) => step.id === "live_external_guest_reply_all");
+  const livePolicyDisabled = report.steps.find((step) => step.id === "live_agent_channel_policy_disabled");
   const liveAgentDocSummary = report.steps.find((step) => step.id === "live_agent_bound_doc_summary");
   const workerDryRun = report.steps.find((step) => step.id === "run_websocket_worker_dry_run");
   const workerReceive = report.steps.find((step) => step.id === "live_websocket_receive_message");
@@ -3858,6 +3872,8 @@ test("Feishu smoke plan converts readiness into live smoke checklist without ext
   const agentSpaceEvidence = report.steps.find((step) => step.id === "verify_agentspace_live_evidence");
   assert.equal(credentialEncryption?.status, "done");
   assert.deepEqual(credentialEncryption?.issues, []);
+  assert.equal(bindAgentBot?.status, "done");
+  assert.match(bindAgentBot?.detail ?? "", /Feishu integration\/bot binding/);
   assert.equal(env?.status, "pending");
   assert.match(env?.command ?? "", /integrations feishu smoke-env --workspace-id workspace-1 --integration integration-ready/);
   assert.match(env?.command ?? "", /--app-url https:\/\/agentspace\.test\/root/);
@@ -3867,16 +3883,32 @@ test("Feishu smoke plan converts readiness into live smoke checklist without ext
   assert.match(checkEnv?.command ?? "", /--check-env/);
   assert.match(bindChat?.command ?? "", /integrations feishu bind-channel --workspace-id workspace-1 --integration integration-ready/);
   assert.match(bindChat?.command ?? "", /--channel CHANGE_ME_AGENTSPACE_CHANNEL --chat-id CHANGE_ME_FEISHU_CHAT_ID/);
+  assert.match(bindChat?.title ?? "", /Manual fallback/);
+  assert.match(bindChat?.detail ?? "", /automatic/);
   assert.match(bindUser?.command ?? "", /integrations feishu bind-user --workspace-id workspace-1 --integration integration-ready/);
   assert.match(bindUser?.command ?? "", /--user-id CHANGE_ME_AGENTSPACE_USER_ID --open-id CHANGE_ME_FEISHU_OPEN_ID/);
   assert.equal(liveBot?.status, "pending");
+  assert.match(liveBot?.detail ?? "", /@Codex Bot/);
+  assert.doesNotMatch(liveBot?.detail ?? "", /@AgentSpaceBot/);
+  assert.equal(liveAutoProvision?.status, "pending");
+  assert.match(liveAutoProvision?.detail ?? "", /provisionSource=bot_added/);
+  assert.equal(liveMultiAgentReuse?.status, "pending");
+  assert.match(liveMultiAgentReuse?.detail ?? "", /linkedFromBindingId/);
+  assert.equal(liveGuestMention?.status, "pending");
+  assert.match(liveGuestMention?.detail ?? "", /external_guest/);
+  assert.equal(liveGuestReplyAll?.status, "pending");
+  assert.match(liveGuestReplyAll?.detail ?? "", /reply_all/);
+  assert.equal(livePolicyDisabled?.status, "pending");
+  assert.match(livePolicyDisabled?.detail ?? "", /without writing a channel message/);
   assert.equal(liveAgentDocSummary?.status, "pending");
   assert.match(liveAgentDocSummary?.detail ?? "", /already-bound Feishu Doc/);
+  assert.match(liveAgentDocSummary?.detail ?? "", /@Codex Bot/);
   assert.match(liveAgentDocSummary?.detail ?? "", /AgentSpace-scoped lark-cli/);
   assert.match(liveAgentDocSummary?.detail ?? "", /Feishu thread/);
   assert.equal(workerDryRun?.status, "pending");
   assert.match(workerDryRun?.command ?? "", /--dry-run/);
   assert.equal(workerReceive?.status, "pending");
+  assert.match(workerReceive?.detail ?? "", /concrete agent bot/);
   assert.match(
     workerReceive?.command ?? "",
     /integrations feishu worker --workspace-id workspace-1 --integration integration-ready --json/,
@@ -3929,6 +3961,8 @@ test("Feishu smoke plan converts readiness into live smoke checklist without ext
   assert.match(agentSpaceEvidence?.command ?? "", /--integration integration-ready/);
   assert.match(agentSpaceEvidence?.command ?? "", /--openapi-evidence runtime-output\/feishu-smoke\/live\.json/);
   assert.match(agentSpaceEvidence?.command ?? "", /--strict --require all --json/);
+  assert.match(agentSpaceEvidence?.detail ?? "", /Native evidence requires/);
+  assert.match(agentSpaceEvidence?.detail ?? "", /reply_all/);
   assert.match(liveSheet?.detail ?? "", /payload hash/);
 
   const serialized = JSON.stringify(report);
@@ -3989,6 +4023,8 @@ test("Feishu smoke plan blocks live smoke steps when local prerequisites are mis
   assert.match(report.smokeHarness.prepareEnvCommand, /--app-url CHANGE_ME_PUBLIC_AGENTSPACE_URL/);
   assert.deepEqual(report.evidenceGates.map((gate) => gate.key), [
     "bot_reply",
+    "native_agent_bot",
+    "guest_policy",
     "data_plane",
     "failure_visibility",
     "openapi_artifact",
@@ -3998,6 +4034,9 @@ test("Feishu smoke plan blocks live smoke steps when local prerequisites are mis
   assert.equal(botGate?.status, "blocked");
   assert.ok(botGate?.issues?.includes("health_not_checked"));
   assert.equal(liveBot?.status, "blocked");
+  assert.equal(report.steps.find((step) => step.id === "live_external_guest_agent_bot_mention")?.status, "blocked");
+  assert.equal(report.steps.find((step) => step.id === "live_external_guest_reply_all")?.status, "blocked");
+  assert.equal(report.steps.find((step) => step.id === "live_agent_channel_policy_disabled")?.status, "blocked");
   assert.equal(liveAgentDocSummary?.status, "blocked");
   assert.ok(liveAgentDocSummary?.issues?.includes("doc_resource_binding_missing"));
   assert.equal(workerDryRun?.status, "blocked");
@@ -4010,7 +4049,7 @@ test("Feishu smoke plan blocks live smoke steps when local prerequisites are mis
   assert.ok(dataGate?.issues?.includes("doc_resource_binding_missing"));
 });
 
-test("Feishu smoke plan includes CLI create command when no integration exists", () => {
+test("Feishu smoke plan includes CLI agent bot bind command when no integration exists", () => {
   const report = buildFeishuSmokePlanReport({
     workspaceId: "workspace-1",
     integrations: [],
@@ -4018,7 +4057,7 @@ test("Feishu smoke plan includes CLI create command when no integration exists",
   });
   const encryptionStep = report.steps.find((step) => step.id === "configure_credential_encryption_key");
   const createEnvStep = report.steps.find((step) => step.id === "prepare_feishu_create_env");
-  const createStep = report.steps.find((step) => step.id === "create_feishu_integration");
+  const createStep = report.steps.find((step) => step.id === "bind_feishu_agent_bot");
 
   assert.equal(report.integrationCount, 0);
   assert.equal(report.runtimeSetup.credentialEncryption.status, "missing");
@@ -4030,13 +4069,15 @@ test("Feishu smoke plan includes CLI create command when no integration exists",
   assert.match(createEnvStep?.detail ?? "", /replace the Feishu app credential placeholders/);
   assert.equal(createStep?.status, "blocked");
   assert.ok(createStep?.issues?.includes("credential_encryption_key_missing"));
-  assert.match(createStep?.detail ?? "", /settings or the CLI/);
-  assert.match(createStep?.command ?? "", /agent-space integrations feishu create --workspace-id workspace-1/);
+  assert.match(createStep?.detail ?? "", /App ID \+ App Secret/);
+  assert.match(createStep?.detail ?? "", /WebSocket worker/);
+  assert.match(createStep?.command ?? "", /agent-space integrations feishu bind-agent-bot --workspace-id workspace-1/);
+  assert.match(createStep?.command ?? "", /--agent CHANGE_ME_AGENT_NAME/);
   assert.match(createStep?.command ?? "", /--env-file scripts\/feishu\/\.env/);
   assert.match(createStep?.command ?? "", /--app-id-env FEISHU_APP_ID/);
   assert.match(createStep?.command ?? "", /--app-secret-env FEISHU_APP_SECRET/);
-  assert.match(createStep?.command ?? "", /--verification-token-env FEISHU_VERIFICATION_TOKEN/);
-  assert.match(createStep?.command ?? "", /--encrypt-key-env FEISHU_ENCRYPT_KEY/);
+  assert.doesNotMatch(createStep?.command ?? "", /--verification-token-env/);
+  assert.doesNotMatch(createStep?.command ?? "", /--encrypt-key-env/);
 });
 
 test("Feishu smoke-plan exit code only gates failures in strict mode", () => {
@@ -4054,7 +4095,7 @@ test("Feishu smoke plan reports invalid AgentSpace credential encryption key wit
     },
   });
   const encryptionStep = report.steps.find((step) => step.id === "configure_credential_encryption_key");
-  const createStep = report.steps.find((step) => step.id === "create_feishu_integration");
+  const createStep = report.steps.find((step) => step.id === "bind_feishu_agent_bot");
 
   assert.equal(report.runtimeSetup.credentialEncryption.status, "invalid");
   assert.equal(
