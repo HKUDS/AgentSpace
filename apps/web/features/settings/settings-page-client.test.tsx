@@ -1167,7 +1167,7 @@ describe("SettingsPageClient", () => {
     expect(within(evidenceGates).getByText("OpenAPI 证据")).toBeInTheDocument();
     expect(within(evidenceGates).getByText("processed_inbound + correlated_reply_mapping")).toBeInTheDocument();
     expect(within(evidenceGates).getByText(
-      "doc_read + agent_runtime_doc_read_from_lark_cli_manifest + approved_doc_write + sheet_read + approved_sheet_write_with_agentspace_sync + base_read + approved_base_mutation_with_agentspace_sync + user_actor + external_guest_actor + external_guest_write_denied",
+      "doc_read + agent_runtime_doc_read_from_lark_cli_manifest + approved_doc_write + sheet_read + approved_sheet_write_with_agentspace_sync + base_read + approved_base_mutation_with_agentspace_sync + user_actor + external_guest_actor + external_guest_read_guest_readable_current_channel + external_guest_bound_write_denied",
     )).toBeInTheDocument();
     expect(within(evidenceGates).getByText(
       "provider_failure_row + degraded_or_error_health + agent_bot_failure_evidence",
@@ -2003,7 +2003,7 @@ function buildFeishuSetupGuide(options: { agentBot?: boolean } = {}): NonNullabl
       },
       {
         key: "data_plane",
-        required: "doc_read + agent_runtime_doc_read_from_lark_cli_manifest + approved_doc_write + sheet_read + approved_sheet_write_with_agentspace_sync + base_read + approved_base_mutation_with_agentspace_sync + user_actor + external_guest_actor + external_guest_write_denied",
+        required: "doc_read + agent_runtime_doc_read_from_lark_cli_manifest + approved_doc_write + sheet_read + approved_sheet_write_with_agentspace_sync + base_read + approved_base_mutation_with_agentspace_sync + user_actor + external_guest_actor + external_guest_read_guest_readable_current_channel + external_guest_bound_write_denied",
       },
       {
         key: "failure_visibility",

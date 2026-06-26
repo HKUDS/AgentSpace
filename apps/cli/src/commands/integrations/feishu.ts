@@ -4511,7 +4511,7 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
         area: "data-plane",
         title: "Live smoke: external guest write requires identity",
         status: readyForBot && readyForDataPlane ? "pending" : "blocked",
-        detail: "From an unbound Feishu user, ask the concrete agent bot to write the bound smoke Sheet. Verify AgentSpace records external_guest governance, refuses the final Feishu write with require_identity, sends the identity-binding notice, and does not create a real workspace member.",
+        detail: "From an unbound Feishu user, ask the concrete agent bot to write a bound smoke Sheet/Base resource. Verify AgentSpace records external_guest governance on a bound write run, refuses the final Feishu write with require_identity, sends the identity-binding notice, and does not create a real workspace member.",
         issues: readyForBot && readyForDataPlane ? [] : uniqueStrings([...botIssues, ...dataPlaneIssues]),
       },
       {
@@ -5176,11 +5176,19 @@ function countFeishuGovernanceActorEvidence(
 function countFeishuExternalGuestWriteDeniedEvidence(
   operations: readonly ExternalDataOperationRunRecord[],
 ): number {
+  const writeOperations = new Set([
+    "docs.create_document",
+    "docs.update_document",
+    "sheets.update_range",
+    "base.mutate_records",
+  ]);
   return operations.filter((operation) =>
     readFeishuGovernanceActorType(operation) === "external_guest" &&
     countFeishuGovernanceActorEvidence([operation], "external_guest") === 1 &&
     operation.status === "failed" &&
-    operation.errorCode === "feishu.data_operation_external_guest_requires_identity"
+    operation.errorCode === "feishu.data_operation_external_guest_requires_identity" &&
+    writeOperations.has(operation.operationType) &&
+    hasNonEmptyString(operation.resourceBindingId)
   ).length;
 }
 
@@ -5677,7 +5685,7 @@ function mapFeishuEvidenceIssueToRemediationSpec(input: {
       return {
         stepId: "live_external_guest_write_denied",
         title: "Live smoke: external guest write is denied",
-        detail: "From an unbound Feishu user, ask an agent bot to write a bound Sheet/Base resource and verify AgentSpace records external_guest governance plus the identity-required denial.",
+        detail: "From an unbound Feishu user, ask an agent bot to write a bound Sheet/Base resource and verify AgentSpace records external_guest governance on the bound write operation plus the identity-required denial.",
         command: dataPlaneCommands.liveSheetWriteCommand,
       };
     case "websocket_worker_receive_evidence_missing":

@@ -1611,6 +1611,35 @@ test("Feishu evidence report requires external guest write-deny proof", () => {
   assert.ok(item?.issues.includes("external_guest_write_deny_evidence_missing"));
 });
 
+test("Feishu evidence report requires external guest write-deny proof on a bound write resource", () => {
+  const report = buildFeishuEvidenceReport({
+    ...buildCompleteFeishuEvidenceInput(),
+    dataOperationsByIntegrationId: {
+      "integration-evidence": [
+        buildDataOperationRun("integration-evidence", "docs.read_document", "doc", "succeeded", {
+          actorType: "user",
+          actorId: "user-1",
+        }),
+        buildExternalGuestDocReadRun("integration-evidence"),
+        buildAgentRuntimeDocReadRun("integration-evidence"),
+        buildDataOperationRun("integration-evidence", "docs.update_document", "doc", "succeeded"),
+        buildDataOperationRun("integration-evidence", "sheets.read_range", "sheet", "succeeded"),
+        buildDataOperationRun("integration-evidence", "sheets.update_range", "sheet", "succeeded"),
+        buildDataOperationRun("integration-evidence", "base.query_records", "base_table", "succeeded"),
+        buildDataOperationRun("integration-evidence", "base.mutate_records", "base_table", "succeeded"),
+        withoutResourceBindingId(buildExternalGuestWriteDeniedRun("integration-evidence")),
+      ],
+    },
+  });
+
+  assert.equal(report.strictSatisfied, false);
+  assert.equal(report.summary.dataPlaneSatisfiedCount, 0);
+  const [item] = report.integrations;
+  assert.equal(item?.dataPlane.externalGuestActorEvidence, 2);
+  assert.equal(item?.dataPlane.externalGuestWriteDeniedEvidence, 0);
+  assert.ok(item?.issues.includes("external_guest_write_deny_evidence_missing"));
+});
+
 test("Feishu evidence report rejects incomplete data-plane actor governance context", () => {
   const report = buildFeishuEvidenceReport({
     ...buildCompleteFeishuEvidenceInput(),
@@ -4584,7 +4613,7 @@ test("Feishu smoke plan converts readiness into live smoke checklist without ext
     },
       {
         key: "data_plane",
-        required: "doc_read + agent_runtime_doc_read_from_lark_cli_manifest + approved_doc_write + sheet_read + approved_sheet_write_with_agentspace_sync + base_read + approved_base_mutation_with_agentspace_sync + user_actor + external_guest_actor + external_guest_read_guest_readable_current_channel + external_guest_write_denied",
+        required: "doc_read + agent_runtime_doc_read_from_lark_cli_manifest + approved_doc_write + sheet_read + approved_sheet_write_with_agentspace_sync + base_read + approved_base_mutation_with_agentspace_sync + user_actor + external_guest_actor + external_guest_read_guest_readable_current_channel + external_guest_bound_write_denied",
       },
     {
       key: "failure_visibility",
@@ -5807,6 +5836,13 @@ function withGovernanceUserIdentity<T extends { requestJson: string }>(operation
         actorUserId: "user-should-not-exist",
       },
     }),
+  };
+}
+
+function withoutResourceBindingId<T extends { resourceBindingId?: string }>(operation: T): T {
+  return {
+    ...operation,
+    resourceBindingId: undefined,
   };
 }
 
