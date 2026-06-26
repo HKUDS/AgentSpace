@@ -6,10 +6,10 @@ import { translateSettingsActionError } from "@/features/settings/settings-utils
 import {
   createFeishuAgentBotBindingAction,
   disableFeishuAgentBotBindingAction,
-  rotateFeishuAgentBotCredentialsAction,
   testFeishuIntegrationConnectionAction,
   updateFeishuAgentBotPolicyAction,
 } from "./feishu-actions";
+import { FeishuAgentBotCredentialRotation } from "./feishu-agent-bot-credential-rotation";
 import type {
   FeishuAvailableAgentItem,
   FeishuIntegrationSettingsItem,
@@ -50,7 +50,6 @@ export function FeishuAgentBotsPanel({
   const [reviewStatusPolicy, setReviewStatusPolicy] = useState<"approved" | "pending_admin_review" | "needs_identity_binding">("approved");
   const [unboundUserMode, setUnboundUserMode] = useState<"ignore" | "reply_on_mention" | "reply_all" | "require_identity">("reply_on_mention");
   const [guestPermissionProfile, setGuestPermissionProfile] = useState<"none" | "channel_context_only" | "channel_readonly">("channel_context_only");
-  const [rotationSecrets, setRotationSecrets] = useState<Record<string, string>>({});
   const requiresVerificationToken = transportMode === "http_webhook";
   const canTestConnection = Boolean(appId.trim() && appSecret.trim());
   const canCreate = Boolean(agentId.trim() && appId.trim() && appSecret.trim() && (!requiresVerificationToken || verificationToken.trim()));
@@ -341,9 +340,7 @@ export function FeishuAgentBotsPanel({
       <div className="feishu-binding-list">
         {agentBots.length === 0 ? (
           <p className="settings-panel-note">{tx("暂无 Agent 飞书 Bot。", "No agent Feishu bots yet.")}</p>
-        ) : agentBots.map((integration) => {
-          const rotationSecret = rotationSecrets[integration.id] ?? "";
-          return (
+        ) : agentBots.map((integration) => (
             <article className="feishu-binding-card" key={integration.id}>
               <div>
                 <strong>{integration.displayName}</strong>
@@ -416,44 +413,15 @@ export function FeishuAgentBotsPanel({
                 startTransition={startTransition}
                 tx={tx}
               />
-              <div className="feishu-agent-bot-actions">
-                <input
-                  aria-label={tx("新的 App Secret", "New App Secret")}
-                  autoComplete="new-password"
-                  disabled={isPending || integration.status === "disabled"}
-                  onChange={(event) => setRotationSecrets((current) => ({
-                    ...current,
-                    [integration.id]: event.currentTarget.value,
-                  }))}
-                  placeholder={tx("新的 App Secret", "New App Secret")}
-                  type="password"
-                  value={rotationSecret}
-                />
-                <button
-                  className="action-button"
-                  disabled={isPending || integration.status === "disabled" || !rotationSecret.trim()}
-                  onClick={() => {
-                    startTransition(async () => {
-                      try {
-                        const updated = await rotateFeishuAgentBotCredentialsAction({
-                          integrationId: integration.id,
-                          appSecret: rotationSecret,
-                        });
-                        setRotationSecrets((current) => ({
-                          ...current,
-                          [integration.id]: "",
-                        }));
-                        setFeedback(tx("Agent 飞书 Bot 密钥已轮换。", "Agent Feishu bot secret rotated."));
-                        onUpdated(updated);
-                      } catch (error) {
-                        setFeedback(translateSettingsActionError(error, tx));
-                      }
-                    });
-                  }}
-                  type="button"
-                >
-                  {tx("轮换", "Rotate")}
-                </button>
+              <FeishuAgentBotCredentialRotation
+                integration={integration}
+                isPending={isPending}
+                onUpdated={onUpdated}
+                setFeedback={setFeedback}
+                startTransition={startTransition}
+                tx={tx}
+              />
+              <div className="feishu-integration-form__actions">
                 <button
                   className="danger-button"
                   disabled={isPending || integration.status === "disabled"}
@@ -474,8 +442,7 @@ export function FeishuAgentBotsPanel({
                 </button>
               </div>
             </article>
-          );
-        })}
+        ))}
       </div>
     </section>
   );

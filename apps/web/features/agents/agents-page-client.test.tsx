@@ -19,6 +19,7 @@ import {
 } from "@/features/agents/actions";
 import {
   createFeishuAgentBotBindingAction,
+  rotateFeishuAgentBotCredentialsAction,
 } from "@/features/integrations/feishu/feishu-actions";
 import { LanguageProvider } from "@/features/i18n/language-provider";
 import { FeedbackToastProvider } from "@/shared/ui/feedback-toast-provider";
@@ -930,6 +931,47 @@ describe("AgentsPageClient", () => {
             "runtime_sensitive_tools",
           ],
         },
+      });
+    });
+  });
+
+  it("rotates EventCallback Feishu bot credentials from agent settings", async () => {
+    const user = userEvent.setup();
+
+    renderAgentsPage({
+      ...data,
+      agents: [
+        {
+          ...data.agents[0]!,
+          feishuAgentBot: buildAgentFeishuBot({
+            transportMode: "http_webhook",
+            appId: "cli_planner_old",
+            tenantKey: "tenant_old",
+            hasVerificationToken: true,
+            hasEncryptKey: true,
+          }),
+          canManageFeishuAgentBot: true,
+        },
+      ],
+    });
+
+    await user.click(screen.getByRole("button", { name: "设置" }));
+    await user.click(screen.getByText("轮换凭据", { selector: "span" }));
+    await user.type(screen.getByLabelText("App ID"), "cli_planner_rotated");
+    await user.type(screen.getByLabelText("新 App Secret"), "secret_rotated");
+    await user.type(screen.getByLabelText("Tenant Key"), "tenant_rotated");
+    await user.type(screen.getByLabelText("Verification Token"), "verify_rotated");
+    await user.type(screen.getByLabelText("Encrypt Key"), "encrypt_rotated");
+    await user.click(screen.getByRole("button", { name: "轮换凭据" }));
+
+    await waitFor(() => {
+      expect(rotateFeishuAgentBotCredentialsAction).toHaveBeenCalledWith({
+        integrationId: "feishu-agent-bot-planner",
+        appId: "cli_planner_rotated",
+        appSecret: "secret_rotated",
+        tenantKey: "tenant_rotated",
+        verificationToken: "verify_rotated",
+        encryptKey: "encrypt_rotated",
       });
     });
   });
