@@ -79,6 +79,7 @@ export interface FeishuDataOperationApprovalMetadata {
   operationRequest: ExternalDataOperationRequest;
   agentActionPolicyInput?: AgentActionPolicyInput;
   agentActionPolicyDecision?: AgentActionPolicyDecision;
+  governanceContext?: Record<string, unknown>;
   feishuCardActionToken?: string;
   feishuCardActionExpiresAt?: string;
   sourceAgentSpaceMessageId?: string;
@@ -695,6 +696,7 @@ export function buildFeishuDataOperationApprovalMetadata(input: {
     operationRequest: input.request,
     agentActionPolicyInput: readRunRequestJsonRecord(input.run.requestJson, "policyInput") as AgentActionPolicyInput | undefined,
     agentActionPolicyDecision: readRunRequestJsonRecord(input.run.requestJson, "agentActionPolicyDecision") as AgentActionPolicyDecision | undefined,
+    governanceContext: readRunRequestJsonRecord(input.run.requestJson, "governanceContext"),
     feishuCardActionToken: createFeishuApprovalCardActionToken(),
     feishuCardActionExpiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
   };

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type {
   ExternalDataOperationRunRecord,
   ExternalResourceBindingAgentSpaceType,
@@ -33,6 +34,7 @@ import {
   buildFeishuWriteOperationRequest,
   planFeishuDataOperation,
   summarizeFeishuDataOperationResponse,
+  summarizeFeishuStoredDataOperationGovernanceContext,
   summarizeFeishuStoredDataOperationRequest,
   summarizeFeishuStoredDataOperationPolicyDecision,
   summarizeFeishuStoredDataOperationPolicyInput,
@@ -44,6 +46,7 @@ import {
   syncFeishuDataTablePreviewFromReadResultSync,
   syncFeishuResourceMetadataSnapshotFromResultSync,
 } from "./agent-space-sync.ts";
+import type { FeishuGuestPermissionProfile } from "./external-guests.ts";
 
 export const FEISHU_DATA_OPERATION_DESCRIPTORS: ExternalResourceOperationDescriptor[] = [
   {
@@ -132,11 +135,27 @@ export type FeishuApprovedDataOperationValidationResult =
     data?: Record<string, unknown>;
   };
 
-export interface FeishuBoundDataOperationActor {
+export interface FeishuUserDataOperationActor {
+  actorType?: "user";
   userId: string;
   displayName?: string;
   role?: WorkspaceRole;
 }
+
+export interface FeishuExternalGuestDataOperationActor {
+  actorType: "external_guest";
+  providerUserRefHash: string;
+  displayName?: string;
+  permissionProfile?: FeishuGuestPermissionProfile;
+  sourceChatId?: string;
+  sourceChannelName?: string;
+  agentId?: string;
+  botBindingId?: string;
+}
+
+export type FeishuBoundDataOperationActor =
+  | FeishuUserDataOperationActor
+  | FeishuExternalGuestDataOperationActor;
 
 export type FeishuResourceBindingValidationResult =
   | {
@@ -215,7 +234,7 @@ export interface FeishuAgentSpaceResourceAccessDependencies {
   canReadChannel(input: {
     workspaceId: string;
     channelName?: string | null;
-    actor: FeishuBoundDataOperationActor;
+    actor: FeishuUserDataOperationActor;
   }): boolean;
 }
 
@@ -257,6 +276,7 @@ export async function executeFeishuDataOperation(input: {
       requestJson: {
         policyDecision: plan.decision,
         policyReasonCode: plan.reasonCode,
+        governanceContext: summarizeFeishuStoredDataOperationGovernanceContext(input.request),
         policyInput: summarizeFeishuStoredDataOperationPolicyInput(plan.policyInput, input.request),
         agentActionPolicyDecision: storedPolicyDecision,
         policyAuditData: storedPolicyDecision?.auditData,
@@ -291,6 +311,7 @@ export async function executeFeishuDataOperation(input: {
     requestJson: {
       policyDecision: plan.decision,
       policyReasonCode: plan.reasonCode,
+      governanceContext: summarizeFeishuStoredDataOperationGovernanceContext(input.request),
       policyInput: summarizeFeishuStoredDataOperationPolicyInput(plan.policyInput, input.request),
       agentActionPolicyDecision: storedPolicyDecision,
       policyAuditData: storedPolicyDecision?.auditData,
@@ -357,10 +378,33 @@ export async function executeBoundFeishuReadDataOperation(input: {
       data: bindingValidation.data,
     });
   }
+  const requestWithActorContext = applyFeishuDataOperationGovernanceContext(input.request, {
+    actor: input.actor,
+    binding: bindingValidation.binding,
+  });
+
+  if (input.actor && isFeishuExternalGuestDataOperationActor(input.actor)) {
+    const guestAccessValidation = validateFeishuExternalGuestResourceReadForDataOperation({
+      request: requestWithActorContext,
+      binding: bindingValidation.binding,
+      actor: input.actor,
+    });
+    if (!guestAccessValidation.ok) {
+      return recordFeishuDataOperationDeniedSync({
+        context: input.context,
+        request: requestWithActorContext,
+        resourceBindingId: bindingValidation.binding.id,
+        reasonCode: guestAccessValidation.errorCode,
+        errorMessage: guestAccessValidation.errorMessage,
+        data: guestAccessValidation.data,
+      });
+    }
+  }
 
   if (
     bindingValidation.binding.channelName &&
     input.actor &&
+    isFeishuUserDataOperationActor(input.actor) &&
     !canReadChannelForActorSync({
       workspaceId: input.context.workspaceId,
       channelName: bindingValidation.binding.channelName,
@@ -369,7 +413,7 @@ export async function executeBoundFeishuReadDataOperation(input: {
   ) {
     return recordFeishuDataOperationDeniedSync({
       context: input.context,
-      request: input.request,
+      request: requestWithActorContext,
       resourceBindingId: bindingValidation.binding.id,
       reasonCode: "feishu.data_operation_channel_access_denied",
       errorMessage: "Actor cannot read the AgentSpace channel bound to this Feishu resource.",
@@ -381,14 +425,14 @@ export async function executeBoundFeishuReadDataOperation(input: {
 
   const resourceAccessValidation = validateFeishuAgentSpaceResourceAccessForDataOperation({
     context: input.context,
-    request: input.request,
+    request: requestWithActorContext,
     binding: bindingValidation.binding,
     actor: input.actor,
   });
   if (!resourceAccessValidation.ok) {
     return recordFeishuDataOperationDeniedSync({
       context: input.context,
-      request: input.request,
+      request: requestWithActorContext,
       resourceBindingId: bindingValidation.binding.id,
       reasonCode: resourceAccessValidation.errorCode,
       errorMessage: resourceAccessValidation.errorMessage,
@@ -399,7 +443,7 @@ export async function executeBoundFeishuReadDataOperation(input: {
   const executed = await executeFeishuDataOperation({
     context: input.context,
     client: input.client,
-    request: applyFeishuResourceBindingParameters(input.request, bindingValidation.binding),
+    request: applyFeishuResourceBindingParameters(requestWithActorContext, bindingValidation.binding),
     resourceBindingId: bindingValidation.binding.id,
   });
   syncFeishuDataTablePreviewFromReadResultSync({
@@ -462,10 +506,33 @@ export async function planBoundFeishuWriteDataOperation(input: {
       data: bindingValidation.data,
     });
   }
+  const requestWithActorContext = applyFeishuDataOperationGovernanceContext(input.request, {
+    actor: input.actor,
+    binding: bindingValidation.binding,
+  });
+
+  if (input.actor && isFeishuExternalGuestDataOperationActor(input.actor)) {
+    const denied = recordFeishuDataOperationDeniedSync({
+      context: input.context,
+      request: requestWithActorContext,
+      resourceBindingId: bindingValidation.binding.id,
+      reasonCode: "feishu.data_operation_external_guest_requires_identity",
+      errorMessage: "External guests must bind an AgentSpace identity before writing Feishu resources.",
+      data: {
+        requireIdentity: true,
+      },
+    });
+    return {
+      ...denied,
+      resourceBinding: bindingValidation.binding,
+      request: requestWithActorContext,
+    };
+  }
 
   if (
     bindingValidation.binding.channelName &&
     input.actor &&
+    isFeishuUserDataOperationActor(input.actor) &&
     !canReadChannelForActorSync({
       workspaceId: input.context.workspaceId,
       channelName: bindingValidation.binding.channelName,
@@ -474,7 +541,7 @@ export async function planBoundFeishuWriteDataOperation(input: {
   ) {
     return recordFeishuDataOperationDeniedSync({
       context: input.context,
-      request: input.request,
+      request: requestWithActorContext,
       resourceBindingId: bindingValidation.binding.id,
       reasonCode: "feishu.data_operation_channel_access_denied",
       errorMessage: "Actor cannot read the AgentSpace channel bound to this Feishu resource.",
@@ -486,14 +553,14 @@ export async function planBoundFeishuWriteDataOperation(input: {
 
   const resourceAccessValidation = validateFeishuAgentSpaceResourceAccessForDataOperation({
     context: input.context,
-    request: input.request,
+    request: requestWithActorContext,
     binding: bindingValidation.binding,
     actor: input.actor,
   });
   if (!resourceAccessValidation.ok) {
     return recordFeishuDataOperationDeniedSync({
       context: input.context,
-      request: input.request,
+      request: requestWithActorContext,
       resourceBindingId: bindingValidation.binding.id,
       reasonCode: resourceAccessValidation.errorCode,
       errorMessage: resourceAccessValidation.errorMessage,
@@ -502,10 +569,10 @@ export async function planBoundFeishuWriteDataOperation(input: {
   }
 
   const requestWithBindingContext = applyFeishuResourceBindingParameters({
-    ...input.request,
+    ...requestWithActorContext,
     parameters: {
-      ...input.request.parameters,
-      channelName: input.request.parameters.channelName ?? bindingValidation.binding.channelName,
+      ...requestWithActorContext.parameters,
+      channelName: requestWithActorContext.parameters.channelName ?? bindingValidation.binding.channelName,
     },
   }, bindingValidation.binding);
   const executed = await executeFeishuDataOperation({
@@ -529,6 +596,13 @@ export function validateFeishuAgentSpaceResourceAccessForDataOperation(input: {
   dependencies?: FeishuAgentSpaceResourceAccessDependencies;
 }): FeishuAgentSpaceResourceAccessValidationResult {
   const dependencies = input.dependencies ?? defaultFeishuAgentSpaceResourceAccessDependencies;
+  if (input.actor && isFeishuExternalGuestDataOperationActor(input.actor)) {
+    return validateFeishuExternalGuestResourceReadForDataOperation({
+      request: input.request,
+      binding: input.binding,
+      actor: input.actor,
+    });
+  }
   const resourceType = normalizeAgentSpaceResourceType(input.binding.agentSpaceResourceType);
   if (resourceType === "channel_document") {
     const actor = resolveFeishuDocumentAccessActor(input.request, input.actor);
@@ -600,6 +674,7 @@ export function validateFeishuAgentSpaceResourceAccessForDataOperation(input: {
     const channelName = input.binding.channelName ?? table.channelName;
     if (
       input.actor &&
+      isFeishuUserDataOperationActor(input.actor) &&
       channelName &&
       !dependencies.canReadChannel({
         workspaceId: input.context.workspaceId,
@@ -1370,6 +1445,165 @@ const defaultFeishuAgentSpaceResourceAccessDependencies: FeishuAgentSpaceResourc
   },
 };
 
+export function isFeishuExternalGuestDataOperationActor(
+  actor: FeishuBoundDataOperationActor | undefined,
+): actor is FeishuExternalGuestDataOperationActor {
+  return actor?.actorType === "external_guest";
+}
+
+function isFeishuUserDataOperationActor(
+  actor: FeishuBoundDataOperationActor | undefined,
+): actor is FeishuUserDataOperationActor {
+  return Boolean(actor) && actor?.actorType !== "external_guest";
+}
+
+function validateFeishuExternalGuestResourceReadForDataOperation(input: {
+  request: ExternalDataOperationRequest;
+  binding: ExternalResourceBindingRecord;
+  actor: FeishuExternalGuestDataOperationActor;
+}): FeishuAgentSpaceResourceAccessValidationResult {
+  if (input.actor.permissionProfile === "none") {
+    return {
+      ok: false,
+      errorCode: "feishu.data_operation_external_guest_resource_denied",
+      errorMessage: "External guest policy does not allow Feishu resource reads.",
+      data: {
+        actorType: "external_guest",
+        externalActorReference: input.actor.providerUserRefHash,
+        externalGuestPermissionProfile: input.actor.permissionProfile,
+      },
+    };
+  }
+  if (!isFeishuResourceBindingGuestReadable(input.binding)) {
+    return {
+      ok: false,
+      errorCode: "feishu.data_operation_external_guest_resource_denied",
+      errorMessage: "External guests can only read Feishu resources explicitly marked guest-readable.",
+      data: {
+        actorType: "external_guest",
+        externalActorReference: input.actor.providerUserRefHash,
+      },
+    };
+  }
+  const bindingChannelName = input.binding.channelName?.trim();
+  const requestChannelName = readStringParameterValue(input.request.parameters.channelName)
+    ?? input.actor.sourceChannelName?.trim();
+  if (!bindingChannelName || !requestChannelName) {
+    return {
+      ok: false,
+      errorCode: "feishu.data_operation_external_guest_channel_scope_denied",
+      errorMessage: "External guest Feishu reads must be scoped to the current AgentSpace channel.",
+      data: {
+        actorType: "external_guest",
+        externalActorReference: input.actor.providerUserRefHash,
+      },
+    };
+  }
+  if (requestChannelName && requestChannelName !== bindingChannelName) {
+    return {
+      ok: false,
+      errorCode: "feishu.data_operation_external_guest_channel_scope_denied",
+      errorMessage: "External guests can only read Feishu resources bound to the current channel.",
+      data: {
+        actorType: "external_guest",
+        externalActorReference: input.actor.providerUserRefHash,
+        channelName: bindingChannelName,
+      },
+    };
+  }
+  return { ok: true };
+}
+
+function isFeishuResourceBindingGuestReadable(binding: ExternalResourceBindingRecord): boolean {
+  const permissions = readJsonObject(binding.permissionsJson);
+  const externalGuest = readRecordValue(permissions.externalGuest)
+    ?? readRecordValue(permissions.external_guest);
+  return readBooleanValue(permissions.guestReadable) === true ||
+    readBooleanValue(permissions.externalGuestReadable) === true ||
+    readBooleanValue(externalGuest?.read) === true ||
+    readBooleanValue(externalGuest?.canRead) === true;
+}
+
+function applyFeishuDataOperationGovernanceContext(
+  request: ExternalDataOperationRequest,
+  input: {
+    actor?: FeishuBoundDataOperationActor;
+    binding?: ExternalResourceBindingRecord;
+  },
+): ExternalDataOperationRequest {
+  const existing = readRecordValue(request.parameters.feishuGovernance)
+    ?? readRecordValue(request.parameters.governanceContext)
+    ?? {};
+  const actorType = readFeishuGovernanceActorType(existing)
+    ?? resolveFeishuDataOperationGovernanceActorType(request, input.actor);
+  const channelName = readStringValue(existing.channelName)
+    ?? input.binding?.channelName?.trim()
+    ?? readStringParameterValue(request.parameters.channelName);
+  const externalGuest = isFeishuExternalGuestDataOperationActor(input.actor) ? input.actor : undefined;
+  const userActor = isFeishuUserDataOperationActor(input.actor) ? input.actor : undefined;
+  const governanceContext = removeUndefinedProperties({
+    ...existing,
+    provider: FEISHU_PROVIDER_ID,
+    agentId: readStringValue(existing.agentId)
+      ?? externalGuest?.agentId
+      ?? (request.actorType === "agent" ? request.actorId?.trim() : undefined),
+    botBindingId: readStringValue(existing.botBindingId) ?? externalGuest?.botBindingId,
+    channelName,
+    actorType,
+    actorUserId: actorType === "user"
+      ? readStringValue(existing.actorUserId) ?? userActor?.userId.trim() ?? request.actorId?.trim()
+      : undefined,
+    externalActorReference: actorType === "external_guest"
+      ? readStringValue(existing.externalActorReference)
+        ?? readStringValue(existing.externalGuestReference)
+        ?? externalGuest?.providerUserRefHash
+      : readStringValue(existing.externalActorReference),
+    externalGuestPermissionProfile: actorType === "external_guest"
+      ? readStringValue(existing.externalGuestPermissionProfile) ?? externalGuest?.permissionProfile
+      : undefined,
+    externalChatReference: readStringValue(existing.externalChatReference)
+      ?? hashFeishuAuditReference(externalGuest?.sourceChatId),
+  });
+  if (Object.keys(governanceContext).length === 0) {
+    return request;
+  }
+  return {
+    ...request,
+    parameters: {
+      ...request.parameters,
+      feishuGovernance: governanceContext,
+    },
+  };
+}
+
+function resolveFeishuDataOperationGovernanceActorType(
+  request: ExternalDataOperationRequest,
+  actor: FeishuBoundDataOperationActor | undefined,
+): "user" | "external_guest" | "agent" | "system" {
+  if (isFeishuExternalGuestDataOperationActor(actor)) {
+    return "external_guest";
+  }
+  if (request.actorType === "user") {
+    return "user";
+  }
+  if (request.actorType === "agent") {
+    return "agent";
+  }
+  return "system";
+}
+
+function readFeishuGovernanceActorType(
+  value: Record<string, unknown>,
+): "user" | "external_guest" | "agent" | "system" | undefined {
+  const actorType = readStringValue(value.actorType);
+  return actorType === "user" ||
+    actorType === "external_guest" ||
+    actorType === "agent" ||
+    actorType === "system"
+    ? actorType
+    : undefined;
+}
+
 function normalizeAgentSpaceResourceType(value: string): ExternalResourceBindingAgentSpaceType | undefined {
   if (value === "channel_document" || value === "data_table" || value === "knowledge_page") {
     return value;
@@ -1386,7 +1620,9 @@ function resolveFeishuDocumentAccessActor(
     return actorId ? { actorId, actorType: "agent" } : undefined;
   }
   if (request.actorType === "user") {
-    const actorId = actor?.displayName?.trim() || actor?.userId.trim() || request.actorId?.trim();
+    const actorId = isFeishuUserDataOperationActor(actor)
+      ? actor.displayName?.trim() || actor.userId.trim() || request.actorId?.trim()
+      : request.actorId?.trim();
     return actorId ? { actorId, actorType: "human" } : undefined;
   }
   return undefined;
@@ -1512,6 +1748,7 @@ function recordFeishuDataOperationDeniedSync(input: {
     requestJson: {
       policyDecision: "deny",
       policyReasonCode: input.reasonCode,
+      governanceContext: summarizeFeishuStoredDataOperationGovernanceContext(input.request),
       requestSummary: summarizeFeishuStoredDataOperationRequest(input.request),
     },
   });
@@ -1583,4 +1820,30 @@ function readJsonObject(value: string): Record<string, unknown> {
 function readString(value: Record<string, unknown>, key: string): string | undefined {
   const candidate = value[key];
   return typeof candidate === "string" && candidate.trim() ? candidate.trim() : undefined;
+}
+
+function readStringValue(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function readBooleanValue(value: unknown): boolean | undefined {
+  return typeof value === "boolean" ? value : undefined;
+}
+
+function readRecordValue(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
+}
+
+function removeUndefinedProperties<T extends Record<string, unknown>>(value: T): T {
+  return Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined)) as T;
+}
+
+function hashFeishuAuditReference(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+  return `ref_${createHash("sha256").update(trimmed).digest("hex").slice(0, 16)}`;
 }

@@ -423,6 +423,32 @@ export function summarizeFeishuStoredDataOperationRequest(request: ExternalDataO
   return summary;
 }
 
+export function summarizeFeishuStoredDataOperationGovernanceContext(
+  request: ExternalDataOperationRequest,
+): Record<string, unknown> | undefined {
+  const governance = readRecordParameter(request, "feishuGovernance")
+    ?? readRecordParameter(request, "governanceContext");
+  if (!governance) {
+    return undefined;
+  }
+  const actorType = normalizeFeishuGovernanceActorType(readString(governance, "actorType"));
+  const context = removeUndefinedProperties({
+    provider: "feishu",
+    agentId: readString(governance, "agentId"),
+    botBindingId: readString(governance, "botBindingId"),
+    channelName: readString(governance, "channelName"),
+    actorType,
+    actorUserId: actorType === "user" ? readString(governance, "actorUserId") : undefined,
+    externalActorReference: readString(governance, "externalActorReference")
+      ?? readString(governance, "externalGuestReference"),
+    externalGuestPermissionProfile: actorType === "external_guest"
+      ? readString(governance, "externalGuestPermissionProfile")
+      : undefined,
+    externalChatReference: readString(governance, "externalChatReference"),
+  });
+  return Object.keys(context).length > 1 ? context : undefined;
+}
+
 export function summarizeFeishuStoredDataOperationPolicyInput(
   policyInput: AgentActionPolicyInput | undefined,
   request: ExternalDataOperationRequest,
@@ -997,6 +1023,14 @@ function hasPresentValue(value: unknown): boolean {
     return false;
   }
   return typeof value === "string" ? Boolean(value.trim()) : true;
+}
+
+function normalizeFeishuGovernanceActorType(
+  value: string | undefined,
+): "user" | "external_guest" | "agent" | "system" | undefined {
+  return value === "user" || value === "external_guest" || value === "agent" || value === "system"
+    ? value
+    : undefined;
 }
 
 function removeUndefinedProperties<T extends Record<string, unknown>>(value: T): T {

@@ -87,12 +87,22 @@ test("applies Feishu lark-cli result manifests as scoped Agent read evidence", (
         parameters: {
           source: "lark-cli-result-manifest",
           resultManifestPath: FEISHU_LARK_CLI_RESULT_MANIFEST_RELATIVE_PATH,
+          feishuGovernance: {
+            provider: "feishu",
+            actorType: "agent",
+            agentId: "Atlas",
+          },
         },
       },
       requestJson: {
         source: "lark-cli-result-manifest",
         resultManifestPath: FEISHU_LARK_CLI_RESULT_MANIFEST_RELATIVE_PATH,
         operationKind: "read",
+        governanceContext: {
+          provider: "feishu",
+          actorType: "agent",
+          agentId: "Atlas",
+        },
       },
       status: "running",
     });
@@ -255,11 +265,23 @@ test("applies Feishu runtime data-operation requests as scoped approval plans", 
       values: [["AgentSpace smoke"]],
       channelName: "research",
       taskId: "task-1",
+      feishuGovernance: {
+        provider: "feishu",
+        actorType: "agent",
+        agentId: "Atlas",
+        channelName: "research",
+      },
     });
     assert.equal(input.approval.channelName, "research");
     assert.equal(input.approval.sourceId, "task-1");
     assert.equal(input.approval.sourceAgentSpaceMessageId, "message-1");
     assert.equal(input.approval.contentPreview, "Update [redacted] smoke range.");
+    assert.deepEqual((input.approval as { metadata?: Record<string, unknown> }).metadata?.governanceContext, {
+      provider: "feishu",
+      actorType: "agent",
+      agentId: "Atlas",
+      channelName: "research",
+    });
   } finally {
     rmSync(workDir, { recursive: true, force: true });
   }

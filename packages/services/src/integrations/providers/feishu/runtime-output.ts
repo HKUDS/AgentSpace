@@ -1,6 +1,10 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import type { ExternalResourceBindingProviderType } from "@agent-space/db";
+import {
+  readExternalMessageMappingByAgentSpaceMessageSync,
+  type ExternalResourceBindingProviderType,
+  type ExternalMessageMappingRecord,
+} from "@agent-space/db";
 import type {
   ExternalDataOperationRequest,
   IntegrationRuntimeContext,
@@ -16,6 +20,7 @@ import {
 } from "./approval.ts";
 import type { FeishuApiClient } from "./client.ts";
 import { FEISHU_PROVIDER_ID } from "./constants.ts";
+import type { FeishuBoundDataOperationActor } from "./data-plane.ts";
 import {
   FEISHU_LARK_CLI_RESULT_MANIFEST_RELATIVE_PATH,
   resolveFeishuLarkCliOperationKind,
@@ -143,6 +148,17 @@ export async function applyFeishuRuntimeDataOperationRequests(input: {
       continue;
     }
 
+    const sourceContext = resolveFeishuRuntimeDataOperationSourceContext({
+      workspaceId: input.workspaceId,
+      sourceAgentSpaceMessageId: input.sourceAgentSpaceMessageId,
+      actorName: input.actorName,
+      channelName,
+    });
+    const governanceContext = buildFeishuRuntimeDataOperationGovernanceContext({
+      actorName: input.actorName,
+      channelName,
+      sourceContext,
+    });
     const request: ExternalDataOperationRequest = {
       operationType: entry.operationType,
       providerResourceType: grant.providerResourceType,
@@ -153,6 +169,7 @@ export async function applyFeishuRuntimeDataOperationRequests(input: {
         ...(entry.parameters ?? {}),
         channelName,
         taskId: input.sourceTaskQueueId,
+        feishuGovernance: governanceContext,
       }),
     };
     const approval = removeUndefinedProperties({
@@ -165,6 +182,7 @@ export async function applyFeishuRuntimeDataOperationRequests(input: {
       metadata: {
         source: "runtime-output-feishu-data-operation-request",
         resultManifestPath: FEISHU_RUNTIME_DATA_OPERATION_REQUESTS_RELATIVE_PATH,
+        governanceContext,
       },
     }) as FeishuDataOperationApprovalContext;
 
@@ -177,6 +195,7 @@ export async function applyFeishuRuntimeDataOperationRequests(input: {
         } satisfies IntegrationRuntimeContext,
         client,
         request,
+        actor: sourceContext.actor,
         approval,
       });
       operationRunIds.push(planned.runId);
@@ -266,6 +285,9 @@ export function applyFeishuLarkCliResultManifestOperations(input: {
   const redactedResult = redactFeishuLarkCliResultForGrant(summarizedResult, grant);
   const recordPlan = input.recordPlan ?? recordExternalDataOperationPlanSync;
   const recordFinish = input.recordFinish ?? recordExternalDataOperationFinishSync;
+  const governanceContext = buildFeishuRuntimeDataOperationGovernanceContext({
+    actorName: input.actorName,
+  });
   const run = recordPlan({
     context: {
       workspaceId: input.workspaceId,
@@ -282,12 +304,14 @@ export function applyFeishuLarkCliResultManifestOperations(input: {
       parameters: {
         source: "lark-cli-result-manifest",
         resultManifestPath: FEISHU_LARK_CLI_RESULT_MANIFEST_RELATIVE_PATH,
+        feishuGovernance: governanceContext,
       },
     },
     requestJson: {
       source: "lark-cli-result-manifest",
       resultManifestPath: FEISHU_LARK_CLI_RESULT_MANIFEST_RELATIVE_PATH,
       operationKind,
+      governanceContext,
     },
     status: "running",
   });
@@ -322,6 +346,120 @@ function emptyFeishuRuntimeDataOperationRequestSummary(): FeishuRuntimeDataOpera
     operationRunIds: [],
     approvalIds: [],
   };
+}
+
+interface FeishuRuntimeDataOperationSourceContext {
+  actor?: FeishuBoundDataOperationActor;
+  governance: Record<string, unknown>;
+}
+
+function resolveFeishuRuntimeDataOperationSourceContext(input: {
+  workspaceId: string;
+  sourceAgentSpaceMessageId?: string;
+  actorName: string;
+  channelName: string;
+}): FeishuRuntimeDataOperationSourceContext {
+  let sourceMapping: ExternalMessageMappingRecord | null = null;
+  if (input.sourceAgentSpaceMessageId) {
+    try {
+      sourceMapping = readExternalMessageMappingByAgentSpaceMessageSync({
+        workspaceId: input.workspaceId,
+        agentSpaceMessageId: input.sourceAgentSpaceMessageId,
+        direction: "inbound",
+      });
+    } catch {
+      sourceMapping = null;
+    }
+  }
+  if (!sourceMapping) {
+    return {
+      governance: {
+        actorType: "agent",
+        agentId: input.actorName,
+        channelName: input.channelName,
+      },
+    };
+  }
+  return buildFeishuRuntimeDataOperationSourceContextFromMapping({
+    mapping: sourceMapping,
+    actorName: input.actorName,
+    channelName: input.channelName,
+  });
+}
+
+function buildFeishuRuntimeDataOperationSourceContextFromMapping(input: {
+  mapping: ExternalMessageMappingRecord;
+  actorName: string;
+  channelName: string;
+}): FeishuRuntimeDataOperationSourceContext {
+  const metadata = parseJsonRecord(input.mapping.metadataJson);
+  const actorType = readStringField(metadata, "actorType");
+  const agentId = readStringField(metadata, "agentId") ?? input.actorName;
+  const botBindingId = readStringField(metadata, "botBindingId");
+  if (actorType === "external_guest") {
+    const externalActorReference = readStringField(metadata, "externalGuestReference")
+      ?? readStringField(metadata, "externalActorReference")
+      ?? `mapping_${input.mapping.id}`;
+    const permissionProfile = normalizeFeishuGuestPermissionProfile(
+      readStringField(metadata, "externalGuestPermissionProfile"),
+    );
+    return {
+      actor: {
+        actorType: "external_guest",
+        providerUserRefHash: externalActorReference,
+        permissionProfile,
+        sourceChannelName: input.channelName,
+        agentId,
+        botBindingId,
+      },
+      governance: removeUndefinedProperties({
+        actorType: "external_guest",
+        agentId,
+        botBindingId,
+        channelName: input.channelName,
+        externalActorReference,
+        externalGuestPermissionProfile: permissionProfile,
+      }),
+    };
+  }
+  if (actorType === "user") {
+    return {
+      governance: removeUndefinedProperties({
+        actorType: "user",
+        actorUserId: readStringField(metadata, "userId"),
+        agentId,
+        botBindingId,
+        channelName: input.channelName,
+      }),
+    };
+  }
+  return {
+    governance: removeUndefinedProperties({
+      actorType: "agent",
+      agentId,
+      botBindingId,
+      channelName: input.channelName,
+    }),
+  };
+}
+
+function buildFeishuRuntimeDataOperationGovernanceContext(input: {
+  actorName: string;
+  channelName?: string;
+  sourceContext?: FeishuRuntimeDataOperationSourceContext;
+}): Record<string, unknown> {
+  return removeUndefinedProperties({
+    provider: FEISHU_PROVIDER_ID,
+    actorType: input.sourceContext
+      ? readStringField(input.sourceContext.governance, "actorType")
+      : "agent",
+    agentId: readStringField(input.sourceContext?.governance, "agentId") ?? input.actorName,
+    botBindingId: readStringField(input.sourceContext?.governance, "botBindingId"),
+    channelName: readStringField(input.sourceContext?.governance, "channelName") ?? input.channelName,
+    actorUserId: readStringField(input.sourceContext?.governance, "actorUserId"),
+    externalActorReference: readStringField(input.sourceContext?.governance, "externalActorReference"),
+    externalGuestPermissionProfile: readStringField(input.sourceContext?.governance, "externalGuestPermissionProfile"),
+  });
 }
 
 function parseFeishuRuntimeDataOperationRequestsManifest(
@@ -480,6 +618,22 @@ function readStringField(source: Record<string, unknown> | undefined, key: strin
 
 function readString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function normalizeFeishuGuestPermissionProfile(
+  value: string | undefined,
+): "none" | "channel_context_only" | "channel_readonly" | undefined {
+  return value === "none" || value === "channel_context_only" || value === "channel_readonly"
+    ? value
+    : undefined;
+}
+
+function parseJsonRecord(value: string): Record<string, unknown> | undefined {
+  try {
+    return readPlainObject(JSON.parse(value) as unknown);
+  } catch {
+    return undefined;
+  }
 }
 
 function removeUndefinedProperties<T extends Record<string, unknown>>(value: T): T {

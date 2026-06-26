@@ -27,6 +27,7 @@ import {
   executeApprovedFeishuDataOperation,
   executeBoundFeishuReadDataOperation,
   executeFeishuDataOperation,
+  planBoundFeishuWriteDataOperation,
 } from "../data-plane.ts";
 import { buildFeishuDataOperationPayloadHash } from "../operation-plan.ts";
 import type { ExternalDataOperationRequest } from "../../../core/index.ts";
@@ -163,6 +164,184 @@ test("bound Feishu Doc reads create an operation run with a safe result summary"
   assert.equal(resultJson.ok, true);
   assert.equal(JSON.stringify(resultJson).includes("confidential launch details"), false);
   assert.equal(JSON.stringify(resultJson).includes("resultPreviewSummary"), true);
+});
+
+test("external guest Feishu reads require guest-readable current-channel resource bindings", databaseTestOptions, async () => {
+  const workspace = createWorkspaceSync({
+    slug: "feishu-guest-doc-read",
+    name: "Feishu Guest Doc Read",
+    createdBy: "system",
+  });
+  const integration = createExternalIntegrationSync({
+    workspaceId: workspace.id,
+    provider: FEISHU_PROVIDER_ID,
+    displayName: "Feishu Atlas Bot",
+    transportMode: "websocket_worker",
+    scopesJson: ["docx:document"],
+  });
+  const binding = upsertExternalResourceBindingSync({
+    workspaceId: workspace.id,
+    integrationId: integration.id,
+    providerResourceType: "doc",
+    providerResourceToken: "doccnGuest123",
+    providerResourceUrl: "https://example.feishu.cn/docx/doccnGuest123",
+    agentSpaceResourceType: "channel_document",
+    agentSpaceResourceId: "channel-document-guest",
+    channelName: "general",
+    displayName: "Guest readable brief",
+    permissionsJson: {
+      externalGuestReadable: true,
+    },
+  });
+  const requests: FeishuApiRequest[] = [];
+  const client: FeishuApiClient = {
+    async request<T>(request: FeishuApiRequest): Promise<T> {
+      requests.push(request);
+      return {
+        code: 0,
+        data: {
+          items: [],
+        },
+      } as T;
+    },
+  };
+
+  const executed = await executeBoundFeishuReadDataOperation({
+    context: {
+      workspaceId: workspace.id,
+      integrationId: integration.id,
+      provider: FEISHU_PROVIDER_ID,
+    },
+    client,
+    request: {
+      operationType: "docs.read_document",
+      providerResourceType: "doc",
+      providerResourceToken: "doccnGuest123",
+      actorType: "agent",
+      actorId: "Atlas",
+      parameters: {
+        channelName: "general",
+      },
+    },
+    actor: {
+      actorType: "external_guest",
+      providerUserRefHash: "guest-ref-safe-123",
+      permissionProfile: "channel_context_only",
+      sourceChatId: "oc_raw_chat_should_not_persist",
+      sourceChannelName: "general",
+      agentId: "Atlas",
+      botBindingId: integration.id,
+    },
+  });
+
+  assert.equal(executed.result.ok, true);
+  assert.equal(executed.resourceBinding?.id, binding.id);
+  assert.equal(requests.length, 1);
+  const run = readExternalDataOperationRunSync({
+    workspaceId: workspace.id,
+    runId: executed.runId,
+  });
+  assert.ok(run);
+  assert.equal(run.actorType, "agent");
+  assert.equal(run.actorId, "Atlas");
+  const requestJson = JSON.parse(run.requestJson) as Record<string, unknown>;
+  assert.deepEqual(requestJson.governanceContext, {
+    provider: "feishu",
+    agentId: "Atlas",
+    botBindingId: integration.id,
+    channelName: "general",
+    actorType: "external_guest",
+    externalActorReference: "guest-ref-safe-123",
+    externalGuestPermissionProfile: "channel_context_only",
+    externalChatReference: "ref_2762fdc95dd841bb",
+  });
+  assert.equal(JSON.stringify(requestJson).includes("oc_raw_chat_should_not_persist"), false);
+});
+
+test("external guest Feishu writes require identity before approval planning", databaseTestOptions, async () => {
+  const workspace = createWorkspaceSync({
+    slug: "feishu-guest-sheet-write",
+    name: "Feishu Guest Sheet Write",
+    createdBy: "system",
+  });
+  const integration = createExternalIntegrationSync({
+    workspaceId: workspace.id,
+    provider: FEISHU_PROVIDER_ID,
+    displayName: "Feishu Atlas Bot",
+    transportMode: "websocket_worker",
+    scopesJson: ["sheets:spreadsheet"],
+  });
+  const binding = upsertExternalResourceBindingSync({
+    workspaceId: workspace.id,
+    integrationId: integration.id,
+    providerResourceType: "sheet",
+    providerResourceToken: "shtcnGuestWrite123",
+    providerResourceUrl: "https://example.feishu.cn/sheets/shtcnGuestWrite123",
+    agentSpaceResourceType: "data_table",
+    agentSpaceResourceId: "data-table-guest-write",
+    channelName: "general",
+    displayName: "Guest write sheet",
+    permissionsJson: {
+      canWrite: true,
+    },
+  });
+  const client: FeishuApiClient = {
+    async request() {
+      throw new Error("external guest writes should not call Feishu API or create approval execution");
+    },
+  };
+
+  const planned = await planBoundFeishuWriteDataOperation({
+    context: {
+      workspaceId: workspace.id,
+      integrationId: integration.id,
+      provider: FEISHU_PROVIDER_ID,
+    },
+    client,
+    request: {
+      operationType: "sheets.update_range",
+      providerResourceType: "sheet",
+      providerResourceToken: "shtcnGuestWrite123",
+      actorType: "agent",
+      actorId: "Atlas",
+      parameters: {
+        range: "Plan!A1:B1",
+        values: [["blocked"]],
+        channelName: "general",
+      },
+    },
+    actor: {
+      actorType: "external_guest",
+      providerUserRefHash: "guest-ref-write-123",
+      permissionProfile: "channel_context_only",
+      sourceChannelName: "general",
+      agentId: "Atlas",
+      botBindingId: integration.id,
+    },
+  });
+
+  assert.equal(planned.result.ok, false);
+  assert.equal(planned.result.errorCode, "feishu.data_operation_external_guest_requires_identity");
+  assert.equal(planned.resourceBinding?.id, binding.id);
+  assert.equal(planned.result.data?.requireIdentity, true);
+  const run = readExternalDataOperationRunSync({
+    workspaceId: workspace.id,
+    runId: planned.runId,
+  });
+  assert.ok(run);
+  assert.equal(run.status, "failed");
+  assert.equal(run.resourceBindingId, binding.id);
+  const requestJson = JSON.parse(run.requestJson) as Record<string, unknown>;
+  assert.deepEqual(requestJson.governanceContext, {
+    provider: "feishu",
+    agentId: "Atlas",
+    botBindingId: integration.id,
+    channelName: "general",
+    actorType: "external_guest",
+    externalActorReference: "guest-ref-write-123",
+    externalGuestPermissionProfile: "channel_context_only",
+  });
+  assert.equal(JSON.stringify(requestJson).includes("blocked"), false);
 });
 
 test("approved Feishu Sheet writes update a pending operation run with a safe result summary", databaseTestOptions, async () => {

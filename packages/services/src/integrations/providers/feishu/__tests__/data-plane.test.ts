@@ -2044,6 +2044,77 @@ test("summarizes Feishu metadata and schema responses into resource snapshots", 
   });
 });
 
+test("validates Feishu external guest reads against guest-readable current-channel bindings", () => {
+  const request = buildRequest({
+    operationType: "docs.read_document",
+    providerResourceType: "doc",
+    providerResourceToken: "docToken",
+    parameters: {
+      channelName: "travel",
+    },
+  });
+  const actor = {
+    actorType: "external_guest" as const,
+    providerUserRefHash: "guest-ref-1",
+    permissionProfile: "channel_context_only" as const,
+    sourceChannelName: "travel",
+  };
+
+  assert.deepEqual(validateFeishuAgentSpaceResourceAccessForDataOperation({
+    context: {
+      workspaceId: "workspace-1",
+      integrationId: "integration-1",
+      provider: "feishu",
+    },
+    request,
+    binding: buildResourceBinding({
+      providerResourceType: "doc",
+      providerResourceToken: "docToken",
+      permissionsJson: JSON.stringify({ externalGuestReadable: true }),
+    }),
+    actor,
+  }), { ok: true });
+
+  const privateResource = validateFeishuAgentSpaceResourceAccessForDataOperation({
+    context: {
+      workspaceId: "workspace-1",
+      integrationId: "integration-1",
+      provider: "feishu",
+    },
+    request,
+    binding: buildResourceBinding({
+      providerResourceType: "doc",
+      providerResourceToken: "docToken",
+      permissionsJson: JSON.stringify({ canRead: true }),
+    }),
+    actor,
+  });
+  assert.equal(privateResource.ok, false);
+  assert.equal(privateResource.ok ? undefined : privateResource.errorCode, "feishu.data_operation_external_guest_resource_denied");
+
+  const otherChannel = validateFeishuAgentSpaceResourceAccessForDataOperation({
+    context: {
+      workspaceId: "workspace-1",
+      integrationId: "integration-1",
+      provider: "feishu",
+    },
+    request: {
+      ...request,
+      parameters: {
+        channelName: "private-planning",
+      },
+    },
+    binding: buildResourceBinding({
+      providerResourceType: "doc",
+      providerResourceToken: "docToken",
+      permissionsJson: JSON.stringify({ externalGuestReadable: true }),
+    }),
+    actor,
+  });
+  assert.equal(otherChannel.ok, false);
+  assert.equal(otherChannel.ok ? undefined : otherChannel.errorCode, "feishu.data_operation_external_guest_channel_scope_denied");
+});
+
 function buildRequest(
   input: Partial<ExternalDataOperationRequest> & Pick<ExternalDataOperationRequest, "operationType" | "providerResourceType" | "providerResourceToken">,
 ): ExternalDataOperationRequest {
