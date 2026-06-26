@@ -1050,7 +1050,10 @@ export async function createFeishuResourceBindingAction(
     channelName,
     displayName: input.displayName?.trim(),
     status: "active",
-    permissionsJson: input.allowWrite ? { canRead: true, canWrite: true } : undefined,
+    permissionsJson: buildFeishuResourceBindingPermissions({
+      allowWrite: input.allowWrite,
+      guestReadable: input.guestReadable,
+    }),
     metadataJson,
     createdByUserId: workspaceContext.currentUser.id,
   });
@@ -1070,6 +1073,7 @@ export async function createFeishuResourceBindingAction(
       agentSpaceResourceType,
       agentSpaceResourceId,
       writeAllowed: input.allowWrite === true,
+      guestReadable: input.guestReadable === true,
       externalIdRedacted: true,
     },
   });
@@ -1084,6 +1088,22 @@ export async function createFeishuResourceBindingAction(
       userId: workspaceContext.currentUser.id,
     },
   });
+}
+
+function buildFeishuResourceBindingPermissions(input: {
+  allowWrite?: boolean;
+  guestReadable?: boolean;
+}): Record<string, boolean> | undefined {
+  const permissions: Record<string, boolean> = {};
+  if (input.allowWrite) {
+    permissions.canRead = true;
+    permissions.canWrite = true;
+  }
+  if (input.guestReadable) {
+    permissions.canRead = true;
+    permissions.externalGuestReadable = true;
+  }
+  return Object.keys(permissions).length > 0 ? permissions : undefined;
 }
 
 export async function pauseFeishuResourceBindingAction(

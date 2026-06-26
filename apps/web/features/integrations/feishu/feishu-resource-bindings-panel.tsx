@@ -67,6 +67,7 @@ export function FeishuResourceBindingsPanel({
   const [channelName, setChannelName] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [allowWrite, setAllowWrite] = useState(false);
+  const [guestReadable, setGuestReadable] = useState(false);
   const resourceRequirement = buildFeishuResourceBindingRequirement(providerResourceType, tx);
 
   useEffect(() => {
@@ -87,6 +88,7 @@ export function FeishuResourceBindingsPanel({
       integrationName: integration.displayName,
     })),
   ).sort((left, right) => right.updatedAt.localeCompare(left.updatedAt) || right.createdAt.localeCompare(left.createdAt));
+  const bindingGroups = groupResourceBindingsByChannel(bindings, tx);
   const activeBindingCount = bindings.filter((binding) => binding.status === "active").length;
   const pausedBindingCount = bindings.filter((binding) => binding.status === "disabled").length;
   const archivedBindingCount = bindings.filter((binding) => binding.status === "archived").length;
@@ -121,11 +123,13 @@ export function FeishuResourceBindingsPanel({
           channelName,
           displayName,
           allowWrite,
+          guestReadable,
         });
         setResourceUrlOrToken("");
         setAgentSpaceResourceId("");
         setDisplayName("");
         setAllowWrite(false);
+        setGuestReadable(false);
         setFeedback(tx("飞书资源映射已保存。", "Feishu resource mapping saved."));
         onUpdated(updated);
       } catch (error) {
@@ -281,6 +285,16 @@ export function FeishuResourceBindingsPanel({
           <span>{tx("允许审批后的写入", "Allow approved writes")}</span>
         </label>
 
+        <label className="settings-checkbox-row">
+          <input
+            checked={guestReadable}
+            disabled={isPending}
+            onChange={(event) => setGuestReadable(event.currentTarget.checked)}
+            type="checkbox"
+          />
+          <span>{tx("允许外部访客读取", "Allow external guest reads")}</span>
+        </label>
+
         <button
           className="primary-button"
           disabled={isPending || !canSubmit}
@@ -307,70 +321,104 @@ export function FeishuResourceBindingsPanel({
       ) : null}
 
       <div className="feishu-binding-list">
-        {bindings.length > 0 ? bindings.map((binding) => (
-          <article className="feishu-binding-card" key={binding.id}>
-            <div>
-              <strong>{formatFeishuResourceTitle(binding)}</strong>
-              <p>{binding.integrationName}</p>
+        {bindingGroups.length > 0 ? bindingGroups.map((group) => (
+          <div className="feishu-binding-channel-group" key={group.key}>
+            <div className="feishu-binding-channel-group__header">
+              <strong>{group.label}</strong>
+              <span>{group.bindings.length}</span>
             </div>
-            <div className="feishu-binding-card__meta">
-              <span>{tx("飞书", "Feishu")}: {binding.providerResourceReference}</span>
-              <span>{tx("AgentSpace", "AgentSpace")}: {binding.agentSpaceResourceType}</span>
-              <span>{tx("资源 ID", "Resource ID")}: {binding.agentSpaceResourceId}</span>
-              <span>{tx("写入", "Write")}: {binding.canWrite ? tx("需审批", "Approval required") : tx("未授权", "Not allowed")}</span>
-              <span>{tx("状态", "Status")}: {translateBindingStatus(binding.status, tx)}</span>
-              {binding.channelName ? <span>{tx("频道", "Channel")}: {binding.channelName}</span> : null}
-            </div>
-            <div className="feishu-binding-card__actions">
-              {binding.status === "active" ? (
-                <button
-                  className="action-button"
-                  disabled={isPending}
-                  onClick={() => updateBindingStatus(
-                    pauseFeishuResourceBindingAction,
-                    binding.id,
-                    tx("飞书资源映射已暂停。", "Feishu resource mapping paused."),
-                  )}
-                  type="button"
-                >
-                  {tx("暂停", "Pause")}
-                </button>
-              ) : binding.status === "disabled" ? (
-                <button
-                  className="action-button"
-                  disabled={isPending}
-                  onClick={() => updateBindingStatus(
-                    resumeFeishuResourceBindingAction,
-                    binding.id,
-                    tx("飞书资源映射已启用。", "Feishu resource mapping resumed."),
-                  )}
-                  type="button"
-                >
-                  {tx("启用", "Enable")}
-                </button>
-              ) : null}
-              {binding.status !== "archived" ? (
-                <button
-                  className="action-button action-button--danger"
-                  disabled={isPending}
-                  onClick={() => updateBindingStatus(
-                    revokeFeishuResourceBindingAction,
-                    binding.id,
-                    tx("飞书资源映射已撤销。", "Feishu resource mapping revoked."),
-                  )}
-                  type="button"
-                >
-                  {tx("撤销", "Revoke")}
-                </button>
-              ) : null}
-            </div>
-          </article>
+            {group.bindings.map((binding) => (
+              <article className="feishu-binding-card" key={binding.id}>
+                <div>
+                  <strong>{formatFeishuResourceTitle(binding)}</strong>
+                  <p>{binding.integrationName}</p>
+                </div>
+                <div className="feishu-binding-card__meta">
+                  <span>{tx("飞书", "Feishu")}: {binding.providerResourceReference}</span>
+                  <span>{tx("AgentSpace", "AgentSpace")}: {binding.agentSpaceResourceType}</span>
+                  <span>{tx("资源 ID", "Resource ID")}: {binding.agentSpaceResourceId}</span>
+                  <span>{tx("写入", "Write")}: {binding.canWrite ? tx("需审批", "Approval required") : tx("未授权", "Not allowed")}</span>
+                  <span>{tx("访客读取", "Guest read")}: {binding.guestReadable ? tx("允许", "Allowed") : tx("关闭", "Off")}</span>
+                  <span>{tx("状态", "Status")}: {translateBindingStatus(binding.status, tx)}</span>
+                </div>
+                <div className="feishu-binding-card__actions">
+                  {binding.status === "active" ? (
+                    <button
+                      className="action-button"
+                      disabled={isPending}
+                      onClick={() => updateBindingStatus(
+                        pauseFeishuResourceBindingAction,
+                        binding.id,
+                        tx("飞书资源映射已暂停。", "Feishu resource mapping paused."),
+                      )}
+                      type="button"
+                    >
+                      {tx("暂停", "Pause")}
+                    </button>
+                  ) : binding.status === "disabled" ? (
+                    <button
+                      className="action-button"
+                      disabled={isPending}
+                      onClick={() => updateBindingStatus(
+                        resumeFeishuResourceBindingAction,
+                        binding.id,
+                        tx("飞书资源映射已启用。", "Feishu resource mapping resumed."),
+                      )}
+                      type="button"
+                    >
+                      {tx("启用", "Enable")}
+                    </button>
+                  ) : null}
+                  {binding.status !== "archived" ? (
+                    <button
+                      className="action-button action-button--danger"
+                      disabled={isPending}
+                      onClick={() => updateBindingStatus(
+                        revokeFeishuResourceBindingAction,
+                        binding.id,
+                        tx("飞书资源映射已撤销。", "Feishu resource mapping revoked."),
+                      )}
+                      type="button"
+                    >
+                      {tx("撤销", "Revoke")}
+                    </button>
+                  ) : null}
+                </div>
+              </article>
+            ))}
+          </div>
         )) : (
           <p className="settings-empty">{tx("暂无飞书资源映射。", "No Feishu resource mappings yet.")}</p>
         )}
       </div>
     </section>
   );
+}
+
+type FeishuResourceBindingWithIntegration = FeishuIntegrationSettingsItem["resourceBindings"][number] & {
+  integrationName: string;
+};
+
+function groupResourceBindingsByChannel(
+  bindings: FeishuResourceBindingWithIntegration[],
+  tx: SettingsTx,
+): Array<{
+  key: string;
+  label: string;
+  bindings: FeishuResourceBindingWithIntegration[];
+}> {
+  const groups = new Map<string, FeishuResourceBindingWithIntegration[]>();
+  for (const binding of bindings) {
+    const key = binding.channelName?.trim() || "__unscoped__";
+    groups.set(key, [...(groups.get(key) ?? []), binding]);
+  }
+  return [...groups.entries()].map(([key, groupBindings]) => ({
+    key,
+    label: key === "__unscoped__"
+      ? tx("未关联频道", "No linked channel")
+      : `${tx("频道", "Channel")}: ${key}`,
+    bindings: groupBindings,
+  }));
 }
 
 function buildFeishuResourceBindingRequirement(

@@ -688,6 +688,7 @@ describe("Feishu actions", () => {
       channelName: " general ",
       displayName: " Launch brief ",
       allowWrite: true,
+      guestReadable: true,
     });
 
     expect(mockResolveFeishuResourceDescriptorForType).toHaveBeenCalledWith(
@@ -722,6 +723,7 @@ describe("Feishu actions", () => {
       permissionsJson: {
         canRead: true,
         canWrite: true,
+        externalGuestReadable: true,
       },
       createdByUserId: "admin-1",
       metadataJson: {
@@ -743,6 +745,7 @@ describe("Feishu actions", () => {
         agentSpaceResourceType: "channel_document",
         agentSpaceResourceId: "channel-document-feishu-1",
         writeAllowed: true,
+        guestReadable: true,
         externalIdRedacted: true,
       }),
     }));

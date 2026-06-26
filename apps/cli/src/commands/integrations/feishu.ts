@@ -992,6 +992,7 @@ export async function runFeishuIntegrationCommand(args: string[], format: Output
         channelName: getStringFlag(parsed.flags, "channel"),
         displayName: getStringFlag(parsed.flags, "display-name"),
         allowWrite: hasBooleanFlag(parsed.flags, "allow-write"),
+        guestReadable: hasBooleanFlag(parsed.flags, "guest-readable"),
         createdByUserId,
         createdBy: getStringFlag(parsed.flags, "created-by-name") ?? "AgentSpace CLI",
       });
@@ -1697,6 +1698,7 @@ export function createFeishuResourceBindingForCli(
     channelName?: string;
     displayName?: string;
     allowWrite?: boolean;
+    guestReadable?: boolean;
     createdByUserId?: string;
     createdBy?: string;
   },
@@ -1852,7 +1854,10 @@ export function createFeishuResourceBindingForCli(
     channelName,
     displayName,
     status: "active",
-    permissionsJson: input.allowWrite ? { canRead: true, canWrite: true } : undefined,
+    permissionsJson: buildFeishuCliResourceBindingPermissions({
+      allowWrite: input.allowWrite,
+      guestReadable: input.guestReadable,
+    }),
     metadataJson,
     createdByUserId: normalizeOptionalText(input.createdByUserId),
   });
@@ -1872,6 +1877,7 @@ export function createFeishuResourceBindingForCli(
       agentSpaceResourceId: binding.agentSpaceResourceId,
       channelName: binding.channelName,
       writeAllowed: input.allowWrite === true,
+      guestReadable: input.guestReadable === true,
       externalIdRedacted: true,
     },
   });
@@ -1890,6 +1896,22 @@ export function createFeishuResourceBindingForCli(
     agentSpaceResourceType: binding.agentSpaceResourceType,
     agentSpaceResourceId: binding.agentSpaceResourceId,
   };
+}
+
+function buildFeishuCliResourceBindingPermissions(input: {
+  allowWrite?: boolean;
+  guestReadable?: boolean;
+}): Record<string, boolean> | undefined {
+  const permissions: Record<string, boolean> = {};
+  if (input.allowWrite) {
+    permissions.canRead = true;
+    permissions.canWrite = true;
+  }
+  if (input.guestReadable) {
+    permissions.canRead = true;
+    permissions.externalGuestReadable = true;
+  }
+  return Object.keys(permissions).length > 0 ? permissions : undefined;
 }
 
 export async function runFeishuDataOperationForCli(
@@ -5995,7 +6017,7 @@ function printFeishuIntegrationHelp(): void {
   agent-space integrations feishu review-data-operation --workspace-id <id> --approval-id <approval-id> --decision approved|rejected [--comment <text>] [--base-url <url>] [--json]
   agent-space integrations feishu bind-channel --workspace-id <id> --integration <id> --channel <name> --chat-id <oc_xxx> [--chat-type group|p2p] [--chat-name <name>] [--json]
   agent-space integrations feishu bind-user --workspace-id <id> --integration <id> --user-id <agent-space-user-id> --open-id <ou_xxx> [--union-id <on_xxx>] [--feishu-user-id <id>] [--json]
-  agent-space integrations feishu bind-resource --workspace-id <id> --integration <id> --type doc|sheet|base|base_table|base_view --resource <url-or-token> --agent-space-type channel_document|data_table|knowledge_page [--agent-space-id <id>] [--channel <name>] [--allow-write] [--json]
+  agent-space integrations feishu bind-resource --workspace-id <id> --integration <id> --type doc|sheet|base|base_table|base_view --resource <url-or-token> --agent-space-type channel_document|data_table|knowledge_page [--agent-space-id <id>] [--channel <name>] [--allow-write] [--guest-readable] [--json]
 
 Options:
   --workspace-id <id>      AgentSpace workspace id; defaults to AGENT_SPACE_WORKSPACE_ID or default
@@ -6016,6 +6038,7 @@ Options:
   --unbound-user-mode <mode> Agent bot bind: ignore|reply_on_mention|reply_all|require_identity
   --guest-permission-profile <profile> Agent bot bind: none|channel_context_only|channel_readonly
   --require-identity-for <csv> Agent bot bind: comma-separated operations that require a bound AgentSpace identity
+  --guest-readable       Resource bind: allow external guests to read this bound resource in its current channel
   --limit <n>              Outbox drain batch size; defaults to 50
   --base-url <url>         Feishu OpenAPI base URL; defaults to AGENT_SPACE_FEISHU_API_BASE_URL
   --app-url <url>          Public AgentSpace URL used by smoke-plan/smoke-env callback values

@@ -76,6 +76,13 @@ export function FeishuOperationRunsPanel({
                 <span>{tx("策略", "Policy")}: {run.policyDecision ?? tx("未记录", "Not recorded")}</span>
                 <span>{tx("资源", "Resource")}: {run.providerResourceReference}</span>
                 <span>{tx("Actor", "Actor")}: {run.actorId || run.actorType}</span>
+                <span>{tx("来源", "Source")}: {formatGovernanceActor(run, tx)}</span>
+                {run.governanceContext?.channelName ? (
+                  <span>{tx("频道", "Channel")}: {run.governanceContext.channelName}</span>
+                ) : null}
+                {run.governanceContext?.botBindingId ? (
+                  <span>{tx("Bot 绑定", "Bot binding")}: {run.governanceContext.botBindingId}</span>
+                ) : null}
                 <span>{tx("创建时间", "Created")}: {run.createdAt}</span>
                 {run.errorCode ? <span>{tx("错误码", "Error code")}: {run.errorCode}</span> : null}
                 {run.errorMessage ? <span>{tx("错误", "Error")}: {run.errorMessage}</span> : null}
@@ -101,6 +108,33 @@ export function FeishuOperationRunsPanel({
       </div>
     </section>
   );
+}
+
+function formatGovernanceActor(run: FeishuOperationRunWithIntegration, tx: SettingsTx): string {
+  const context = run.governanceContext;
+  if (!context?.actorType) {
+    return run.actorId || run.actorType;
+  }
+  if (context.actorType === "external_guest") {
+    return [
+      tx("外部访客", "External guest"),
+      context.externalActorReference,
+      context.externalGuestPermissionProfile,
+    ].filter(Boolean).join(" · ");
+  }
+  if (context.actorType === "user") {
+    return [
+      tx("用户", "User"),
+      context.actorUserId,
+    ].filter(Boolean).join(" · ");
+  }
+  if (context.actorType === "agent") {
+    return [
+      tx("Agent", "Agent"),
+      context.agentId ?? run.actorId,
+    ].filter(Boolean).join(" · ");
+  }
+  return tx("系统", "System");
 }
 
 function compareRunsByCreatedAtDesc(left: FeishuOperationRunWithIntegration, right: FeishuOperationRunWithIntegration): number {

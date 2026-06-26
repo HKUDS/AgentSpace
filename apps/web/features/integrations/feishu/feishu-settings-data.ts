@@ -166,6 +166,7 @@ export function listFeishuIntegrationSettingsItems(input: {
       channelName: binding.channelName,
       displayName: binding.displayName,
       canWrite: readResourceBindingCanWrite(binding.permissionsJson),
+      guestReadable: readResourceBindingGuestReadable(binding.permissionsJson),
       status: binding.status,
       createdAt: binding.createdAt,
       updatedAt: binding.updatedAt,
@@ -180,6 +181,7 @@ export function listFeishuIntegrationSettingsItems(input: {
       providerResourceTokenRedacted: true,
       actorType: run.actorType,
       actorId: run.actorId,
+      governanceContext: readFeishuDataOperationGovernanceContext(run.requestJson),
       status: run.status,
       policyDecision: readPolicyDecision(run.resultJson) ?? readPolicyDecision(run.requestJson),
       responseSummary: readResponseSummary(run.resultJson),
@@ -677,6 +679,47 @@ function parseJsonRecord(value: string): Record<string, unknown> | undefined {
 function readResourceBindingCanWrite(permissionsJson: string): boolean {
   const permissions = parseJsonRecord(permissionsJson);
   return permissions?.canWrite === true || permissions?.write === true;
+}
+
+function readResourceBindingGuestReadable(permissionsJson: string): boolean {
+  const permissions = parseJsonRecord(permissionsJson);
+  const externalGuest = asRecord(permissions?.externalGuest)
+    ?? asRecord(permissions?.external_guest);
+  return permissions?.guestReadable === true ||
+    permissions?.externalGuestReadable === true ||
+    externalGuest?.read === true ||
+    externalGuest?.canRead === true;
+}
+
+function readFeishuDataOperationGovernanceContext(
+  requestJson: string,
+): FeishuDataOperationRunSettingsItem["governanceContext"] {
+  const parsed = parseJsonRecord(requestJson);
+  const context = asRecord(parsed?.governanceContext);
+  if (!context || context.provider !== FEISHU_PROVIDER_ID) {
+    return undefined;
+  }
+  const actorType = readGovernanceActorType(asString(context.actorType));
+  return {
+    provider: FEISHU_PROVIDER_ID,
+    actorType,
+    agentId: asString(context.agentId),
+    botBindingId: asString(context.botBindingId),
+    channelName: asString(context.channelName),
+    actorUserId: actorType === "user" ? asString(context.actorUserId) : undefined,
+    externalActorReference: actorType === "external_guest" ? asString(context.externalActorReference) : undefined,
+    externalGuestPermissionProfile: actorType === "external_guest"
+      ? asString(context.externalGuestPermissionProfile)
+      : undefined,
+  };
+}
+
+function readGovernanceActorType(
+  value: string | undefined,
+): "user" | "external_guest" | "agent" | "system" | undefined {
+  return value === "user" || value === "external_guest" || value === "agent" || value === "system"
+    ? value
+    : undefined;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {

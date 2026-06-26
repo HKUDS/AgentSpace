@@ -9396,7 +9396,39 @@ textarea:focus {
 }
 
 .feishu-binding-list {
+  display: grid;
+  gap: 0.8rem;
   padding: 1rem;
+}
+
+.feishu-binding-channel-group {
+  display: grid;
+  gap: 0.55rem;
+  min-width: 0;
+}
+
+.feishu-binding-channel-group__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  min-width: 0;
+  padding: 0 0.1rem;
+  color: rgba(0, 0, 0, 0.62);
+  font-size: 0.78rem;
+}
+
+.feishu-binding-channel-group__header strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: #1d1d1f;
+  font-weight: 650;
+}
+
+.feishu-binding-channel-group__header span {
+  flex: 0 0 auto;
+  color: #4b3f83;
+  font-weight: 700;
 }
 
 .feishu-integration-card {

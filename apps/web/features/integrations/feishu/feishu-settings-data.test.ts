@@ -73,6 +73,7 @@ vi.mock("@agent-space/services", () => ({
   FEISHU_REQUIRED_CREDENTIAL_FIELDS: ["app_id", "app_secret", "verification_token", "encrypt_key"],
   FEISHU_REQUIRED_EVENTS: ["im.message.receive_v1", "card.action.trigger"],
   listActiveEmployeesSync: mockListActiveEmployeesSync,
+  sanitizeFeishuOperationResponseSummary: (summary: Record<string, unknown> | undefined) => summary,
   summarizeFeishuStoredCredentials: () => ({
     hasAppSecret: true,
     hasEncryptKey: true,
@@ -513,7 +514,7 @@ describe("Feishu settings data", () => {
         id: "resource-binding-write",
         providerResourceType: "sheet",
         providerResourceToken: "shtcnWrite",
-        permissionsJson: JSON.stringify({ canRead: true, canWrite: true }),
+        permissionsJson: JSON.stringify({ canRead: true, canWrite: true, externalGuestReadable: true }),
       }),
     ]);
 
@@ -531,23 +532,65 @@ describe("Feishu settings data", () => {
       providerResourceReference: binding.providerResourceReference,
       providerResourceTokenRedacted: binding.providerResourceTokenRedacted,
       canWrite: binding.canWrite,
+      guestReadable: binding.guestReadable,
     }))).toEqual([
       {
         id: "resource-binding-read",
         providerResourceReference: "doc / resource 5785f798",
         providerResourceTokenRedacted: true,
         canWrite: false,
+        guestReadable: false,
       },
       {
         id: "resource-binding-write",
         providerResourceReference: "sheet / resource d63d785e",
         providerResourceTokenRedacted: true,
         canWrite: true,
+        guestReadable: true,
       },
     ]);
     expect(JSON.stringify(item)).not.toContain("permissionsJson");
     expect(JSON.stringify(item)).not.toContain("doccnRead");
     expect(JSON.stringify(item)).not.toContain("shtcnWrite");
+  });
+
+  it("surfaces Feishu data-operation governance actor context without raw external ids", () => {
+    mockListExternalDataOperationRunsSync.mockReturnValue([
+      buildDataOperationRun({
+        requestJson: JSON.stringify({
+          policyDecision: "deny",
+          governanceContext: {
+            provider: "feishu",
+            actorType: "external_guest",
+            agentId: "Atlas",
+            botBindingId: "feishu-1",
+            channelName: "general",
+            externalActorReference: "guest-ref-abc123",
+            externalGuestPermissionProfile: "channel_context_only",
+          },
+        }),
+      }),
+    ]);
+
+    const [item] = listFeishuIntegrationSettingsItems({
+      workspaceId: "workspace-1",
+      appUrl: "https://agent.test",
+      viewer: {
+        role: "admin",
+        userId: "admin-1",
+      },
+    });
+
+    expect(item?.operationRuns[0]?.governanceContext).toEqual({
+      provider: "feishu",
+      actorType: "external_guest",
+      agentId: "Atlas",
+      botBindingId: "feishu-1",
+      channelName: "general",
+      externalActorReference: "guest-ref-abc123",
+      externalGuestPermissionProfile: "channel_context_only",
+    });
+    expect(JSON.stringify(item)).not.toContain("ou_guest_raw");
   });
 
   it("marks Base table setup readiness as attention when app token metadata is missing", () => {
@@ -708,6 +751,30 @@ function buildResourceBinding(input: {
     status: "active",
     permissionsJson: input.permissionsJson,
     metadataJson: input.metadataJson ?? "{}",
+    createdAt: "2026-06-24T00:00:00.000Z",
+    updatedAt: "2026-06-24T00:00:00.000Z",
+  };
+}
+
+function buildDataOperationRun(input: {
+  requestJson?: string;
+  resultJson?: string;
+} = {}) {
+  return {
+    id: "operation-run-1",
+    workspaceId: "workspace-1",
+    integrationId: "feishu-1",
+    resourceBindingId: "resource-binding-1",
+    operationType: "sheets.update_range",
+    providerResourceType: "sheet",
+    providerResourceToken: "shtcnSecretRun",
+    actorType: "agent",
+    actorId: "Atlas",
+    status: "failed",
+    requestJson: input.requestJson ?? "{}",
+    resultJson: input.resultJson ?? "{}",
+    errorCode: "feishu.data_operation_external_guest_requires_identity",
+    errorMessage: "External guests must bind an AgentSpace identity before writing Feishu resources.",
     createdAt: "2026-06-24T00:00:00.000Z",
     updatedAt: "2026-06-24T00:00:00.000Z",
   };

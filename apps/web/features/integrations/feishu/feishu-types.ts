@@ -75,9 +75,21 @@ export interface FeishuResourceBindingSettingsItem {
   channelName?: string;
   displayName?: string;
   canWrite: boolean;
+  guestReadable: boolean;
   status: ExternalBindingStatus;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface FeishuDataOperationGovernanceContextSettingsItem {
+  provider: "feishu";
+  actorType?: "user" | "external_guest" | "agent" | "system";
+  agentId?: string;
+  botBindingId?: string;
+  channelName?: string;
+  actorUserId?: string;
+  externalActorReference?: string;
+  externalGuestPermissionProfile?: string;
 }
 
 export interface FeishuDataOperationRunSettingsItem {
@@ -90,6 +102,7 @@ export interface FeishuDataOperationRunSettingsItem {
   providerResourceTokenRedacted: true;
   actorType: ExternalDataOperationActorType;
   actorId?: string;
+  governanceContext?: FeishuDataOperationGovernanceContextSettingsItem;
   status: ExternalDataOperationRunStatus;
   policyDecision?: string;
   responseSummary?: string;
@@ -343,4 +356,5 @@ export interface CreateFeishuResourceBindingInput {
   channelName?: string;
   displayName?: string;
   allowWrite?: boolean;
+  guestReadable?: boolean;
 }

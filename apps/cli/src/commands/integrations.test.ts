@@ -82,6 +82,7 @@ test("integrations help documents Feishu worker deployment controls", async () =
   assert.match(output, /--app-url <url>/);
   assert.match(output, /--openapi-evidence <path>/);
   assert.match(output, /--allow-write/);
+  assert.match(output, /--guest-readable/);
   assert.match(output, /--approval-agent <agent-id>/);
   assert.match(output, /--approval-channel <channel>/);
   assert.match(output, /--approval-id <approval-id>/);
@@ -131,6 +132,7 @@ test("feishu worker --help prints usage without starting the worker", async () =
   assert.match(output, /--app-url <url>/);
   assert.match(output, /--openapi-evidence <path>/);
   assert.match(output, /--allow-write/);
+  assert.match(output, /--guest-readable/);
   assert.match(output, /Drain due Feishu outbox messages once/);
 });
 
@@ -1715,6 +1717,7 @@ test("Feishu CLI binding helpers create sanitized binding reports", () => {
     channelName: "general",
     displayName: "Launch Sheet",
     allowWrite: true,
+    guestReadable: true,
   }, {
     readIntegration,
     readChannel,
@@ -1791,7 +1794,7 @@ test("Feishu CLI binding helpers create sanitized binding reports", () => {
   assert.equal(serialized.includes("shtcn_secret_binding"), false);
   assert.equal(serialized.includes("Secret Launch Chat"), false);
   assert.deepEqual(resourceUpserts.map((input) => (input as { permissionsJson?: unknown }).permissionsJson), [
-    { canRead: true, canWrite: true },
+    { canRead: true, canWrite: true, externalGuestReadable: true },
   ]);
 
   const auditJson = JSON.stringify(audits);
@@ -1800,6 +1803,7 @@ test("Feishu CLI binding helpers create sanitized binding reports", () => {
   assert.match(auditJson, /workspace\.external_user_binding_upserted/);
   assert.match(auditJson, /workspace\.external_resource_binding_upserted/);
   assert.match(auditJson, /"writeAllowed":true/);
+  assert.match(auditJson, /"guestReadable":true/);
   assert.match(auditJson, /"externalIdRedacted":true/);
   assert.equal(auditJson.includes("oc_secret_binding"), false);
   assert.equal(auditJson.includes("ou_secret_binding"), false);
