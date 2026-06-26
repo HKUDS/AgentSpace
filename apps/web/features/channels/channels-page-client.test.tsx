@@ -375,7 +375,10 @@ describe("ChannelsPageClient", () => {
     expect(within(feishuSummary).getByText("Codex")).toBeInTheDocument();
     expect(within(feishuSummary).getByText(/未绑定用户：@Bot 时回复/)).toBeInTheDocument();
     expect(within(feishuSummary).getByText(/访客权限：当前 Channel 上下文/)).toBeInTheDocument();
-    expect(within(feishuSummary).getByText("Guest readable")).toBeInTheDocument();
+    expect(within(feishuSummary).getByText("Doc")).toBeInTheDocument();
+    expect(within(feishuSummary).getByText("Launch Doc")).toBeInTheDocument();
+    expect(within(feishuSummary).getByText(/Guest readable/)).toBeInTheDocument();
+    expect(within(feishuSummary).getByText(/写入需审批/)).toBeInTheDocument();
   });
 
   it("subscribes to channel realtime events and debounces refreshes without clearing the draft", async () => {

@@ -15428,7 +15428,8 @@ textarea:focus {
   font-size: 0.78rem;
 }
 
-.channel-feishu-summary__bot-chip {
+.channel-feishu-summary__bot-chip,
+.channel-feishu-summary__resource-chip {
   display: inline-grid;
   gap: 0.12rem;
   min-width: min(100%, 12rem);
@@ -15439,17 +15440,24 @@ textarea:focus {
   background: rgba(255, 255, 255, 0.72);
 }
 
-.channel-feishu-summary__bot-chip strong {
+.channel-feishu-summary__bot-chip strong,
+.channel-feishu-summary__resource-chip strong {
   color: #163a3b;
   font-size: 0.82rem;
   line-height: 1.2;
 }
 
-.channel-feishu-summary__bot-chip span {
+.channel-feishu-summary__bot-chip span,
+.channel-feishu-summary__resource-chip span,
+.channel-feishu-summary__resource-chip small {
   overflow-wrap: anywhere;
   color: rgba(0, 0, 0, 0.58);
   font-size: 0.72rem;
   line-height: 1.25;
+}
+
+.channel-feishu-summary__resource-chip small {
+  color: rgba(0, 0, 0, 0.48);
 }
 
 .channel-workspace-header__icon-button {
