@@ -876,6 +876,64 @@ describe("AgentsPageClient", () => {
     });
   });
 
+  it("binds a Feishu bot from agent settings with EventCallback advanced options", async () => {
+    const user = userEvent.setup();
+
+    renderAgentsPage({
+      ...data,
+      agents: [
+        {
+          ...data.agents[0]!,
+          canManageFeishuAgentBot: true,
+        },
+      ],
+    });
+
+    await user.click(screen.getByRole("button", { name: "设置" }));
+    await user.type(screen.getByLabelText("App ID"), "cli_planner_event");
+    await user.type(screen.getByLabelText("App Secret"), "secret_planner_event");
+    await user.click(screen.getByText("自定义高级功能"));
+    await user.type(screen.getByLabelText("名称"), "Planner Event Bot");
+    await user.selectOptions(screen.getByLabelText("连接方式"), "http_webhook");
+    await user.type(screen.getByLabelText("Tenant Key"), "tenant_planner");
+    await user.type(screen.getByLabelText(/Verification Token/), "verify_planner");
+    await user.type(screen.getByLabelText("Encrypt Key"), "encrypt_planner");
+    await user.selectOptions(screen.getByLabelText("机器人进群"), "pending_admin_review");
+    await user.selectOptions(screen.getByLabelText("首次消息"), "reply_with_setup_card");
+    await user.selectOptions(screen.getByLabelText("建群审核状态"), "needs_identity_binding");
+    await user.selectOptions(screen.getByLabelText("未绑定用户"), "require_identity");
+    await user.selectOptions(screen.getByLabelText("访客权限"), "none");
+    await user.click(screen.getByRole("button", { name: "绑定 Bot" }));
+
+    await waitFor(() => {
+      expect(createFeishuAgentBotBindingAction).toHaveBeenCalledWith({
+        agentId: "planner",
+        displayName: "Planner Event Bot",
+        transportMode: "http_webhook",
+        appId: "cli_planner_event",
+        appSecret: "secret_planner_event",
+        verificationToken: "verify_planner",
+        encryptKey: "encrypt_planner",
+        tenantKey: "tenant_planner",
+        channelAutoProvisioning: {
+          botAdded: "pending_admin_review",
+          firstMessage: "reply_with_setup_card",
+          reviewStatus: "needs_identity_binding",
+        },
+        externalGuestPolicy: {
+          unboundUserMode: "require_identity",
+          guestPermissionProfile: "none",
+          requireIdentityFor: [
+            "writes",
+            "approvals",
+            "private_resources",
+            "runtime_sensitive_tools",
+          ],
+        },
+      });
+    });
+  });
+
   it("lets admins toggle channel member access for a workspace agent", async () => {
     const user = userEvent.setup();
 
