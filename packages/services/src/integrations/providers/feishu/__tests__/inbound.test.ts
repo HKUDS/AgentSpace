@@ -967,6 +967,57 @@ test("bot added events reuse an existing Feishu chat channel for additional agen
   assert.doesNotMatch(hermesChannelBinding?.metadataJson ?? "", /oc_shared_group|ou_mina|on_mina/);
 });
 
+test("bot added events auto-provision channels from nested camel-case chat payloads", databaseTestOptions, () => {
+  const fixtures = seedBoundFeishuWorkspace({ agentBot: true, bindChannel: false });
+
+  const result = processFeishuInboundEventSync({
+    context: {
+      workspaceId: DEFAULT_WORKSPACE_ID,
+      integrationId: fixtures.integration.id,
+      provider: FEISHU_PROVIDER_ID,
+    },
+    payload: {
+      schema: "2.0",
+      header: {
+        event_id: "evt-atlas-bot-added-nested",
+        event_type: "im.chat.member.bot.added_v1",
+        create_time: "1782220800000",
+        token: "verify-token",
+      },
+      event: {
+        operatorId: {
+          openId: "ou_mina_nested",
+        },
+        chat: {
+          openChatId: "oc_nested_group",
+          chatType: "group",
+          chatI18nNames: {
+            enUs: "Nested Feishu Group",
+          },
+        },
+      },
+    },
+  });
+
+  assert.equal(result.dispatchStatus, "sent");
+  assert.equal(result.reasonCode, "feishu_bot_added_channel_provisioned");
+  assert.ok(result.mappedChannelName);
+
+  const channelBinding = readExternalChannelBindingByExternalChatSync({
+    workspaceId: DEFAULT_WORKSPACE_ID,
+    integrationId: fixtures.integration.id,
+    externalChatId: "oc_nested_group",
+  });
+  assert.ok(channelBinding);
+  assert.equal(channelBinding.externalChatType, "group");
+  assert.equal(channelBinding.externalChatName, "Nested Feishu Group");
+  const metadata = JSON.parse(channelBinding.metadataJson) as Record<string, unknown>;
+  assert.equal(metadata.provisionSource, "bot_added");
+  assert.equal(metadata.agentId, "Atlas");
+  assert.match(String(metadata.createdByExternalActorReference), /^[a-f0-9]{10}$/);
+  assert.doesNotMatch(channelBinding.metadataJson, /oc_nested_group|ou_mina_nested/);
+});
+
 test("bot added events reactivate archived Feishu chat bindings without creating duplicate channels", databaseTestOptions, () => {
   const fixtures = seedBoundFeishuWorkspace({ agentBot: true, bindChannel: false });
   const archivedBinding = upsertExternalChannelBindingSync({

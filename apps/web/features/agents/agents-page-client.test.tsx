@@ -825,6 +825,7 @@ describe("AgentsPageClient", () => {
     expect(screen.getByText("健康")).toBeInTheDocument();
     expect(screen.getByText("agent-space integrations feishu health-check --workspace-id workspace-1 --agent planner --strict --json")).toBeInTheDocument();
     expect(screen.getByText("agent-space integrations feishu bind-agent-bot --workspace-id workspace-1 --agent CHANGE_ME_SECOND_AGENT_NAME --env-file scripts/feishu/.env --app-id-env FEISHU_SECOND_AGENT_APP_ID --app-secret-env FEISHU_SECOND_AGENT_APP_SECRET --json")).toBeInTheDocument();
+    expect(screen.getByText("先在 scripts/feishu/.env 填入第二个飞书 app 凭据，再运行此命令创建 AgentSpace 里的第二个 Bot 绑定。")).toBeInTheDocument();
     expect(screen.getByText("agent-space integrations feishu agent-channel-access --workspace-id workspace-1 --agent planner --access disabled --json")).toBeInTheDocument();
     expect(screen.getByText("agent-space integrations feishu agent-channel-access --workspace-id workspace-1 --agent planner --access enabled --json")).toBeInTheDocument();
     expect(screen.getByText("npm run smoke:feishu -- --env-file scripts/feishu/.env --check-env --json --require-todo120-native")).toBeInTheDocument();

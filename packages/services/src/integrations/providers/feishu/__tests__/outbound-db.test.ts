@@ -240,6 +240,9 @@ test("AgentSpace replies are sent back to the source Feishu thread", databaseTes
       code?: number;
       messageRedacted?: boolean;
       messageReference?: string;
+      msg?: unknown;
+      message?: unknown;
+      data?: unknown;
     };
   };
   assert.match(outboundMetadata.externalChatReference ?? "", /^ref_[a-f0-9]{8}$/);
@@ -254,11 +257,16 @@ test("AgentSpace replies are sent back to the source Feishu thread", databaseTes
   assert.equal(outboundMetadata.feishuResponse?.code, 0);
   assert.equal(outboundMetadata.feishuResponse?.messageRedacted, true);
   assert.equal(typeof outboundMetadata.feishuResponse?.messageReference, "string");
+  assert.deepEqual(Object.keys(outboundMetadata.feishuResponse ?? {}).sort(), [
+    "code",
+    "messageRedacted",
+    "messageReference",
+  ]);
   assert.equal(JSON.stringify(outboundMetadata).includes("oc_tour"), false);
   assert.equal(JSON.stringify(outboundMetadata).includes("om_root"), false);
   assert.equal(JSON.stringify(outboundMetadata).includes("Atlas reply for Feishu"), false);
   assert.equal(JSON.stringify(outboundMetadata).includes("om_reply"), false);
-  assert.equal(JSON.stringify(outboundMetadata).includes("ok"), false);
+  assert.equal(JSON.stringify(outboundMetadata.feishuResponse).includes("ok"), false);
 });
 
 test("Feishu replies without agent id reuse the source agent bot integration", databaseTestOptions, () => {

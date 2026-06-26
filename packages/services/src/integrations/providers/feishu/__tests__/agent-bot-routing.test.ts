@@ -5,6 +5,7 @@ import {
   isFeishuAgentBotMentioned,
   isFeishuBotSenderPayload,
   isFeishuKnownAgentBotSenderPayload,
+  resolveFeishuChatDescriptor,
 } from "../agent-bot-routing.ts";
 import type { FeishuAgentBotBinding } from "../agent-bot-bindings.ts";
 
@@ -91,6 +92,52 @@ test("routes only mentions of the current Feishu agent bot", () => {
     mentionedBot: true,
     content: { text: '<at user_id="ou_unknown">@Bot</at> help' },
   }), binding), true);
+});
+
+test("resolves Feishu chat descriptors from bot-added payload variants", () => {
+  assert.deepEqual(resolveFeishuChatDescriptor({
+    event: {
+      chatId: "oc_event_camel",
+      chatType: "group",
+      chatName: "Event Camel Room",
+    },
+  }), {
+    externalChatId: "oc_event_camel",
+    externalChatName: "Event Camel Room",
+    externalChatType: "group",
+  });
+  assert.deepEqual(resolveFeishuChatDescriptor({
+    event: {
+      chat: {
+        open_chat_id: "oc_nested_snake",
+        type: "group",
+        i18n_names: {
+          en_us: "Nested Snake Room",
+          zh_cn: "Nested CN Room",
+        },
+      },
+    },
+  }), {
+    externalChatId: "oc_nested_snake",
+    externalChatName: "Nested CN Room",
+    externalChatType: "group",
+  });
+  assert.deepEqual(resolveFeishuChatDescriptor({
+    event: {
+      message: {
+        chatId: "oc_message_camel",
+        chatType: "p2p",
+        chatI18nNames: {
+          enUs: "Message Camel Room",
+        },
+      },
+    },
+  }), {
+    externalChatId: "oc_message_camel",
+    externalChatName: "Message Camel Room",
+    externalChatType: "p2p",
+  });
+  assert.equal(resolveFeishuChatDescriptor({ event: {} }), null);
 });
 
 function buildPayload(input: {

@@ -62,8 +62,13 @@ export function resolveFeishuChatDescriptor(payload: Record<string, unknown>): F
   const message = asRecord(event?.message);
   const chat = asRecord(event?.chat) ?? asRecord(message?.chat);
   const externalChatId = asString(message?.chat_id)
+    ?? asString(message?.chatId)
     ?? asString(event?.chat_id)
+    ?? asString(event?.chatId)
     ?? asString(chat?.chat_id)
+    ?? asString(chat?.chatId)
+    ?? asString(chat?.open_chat_id)
+    ?? asString(chat?.openChatId)
     ?? asString(chat?.id);
   if (!externalChatId) {
     return null;
@@ -71,14 +76,58 @@ export function resolveFeishuChatDescriptor(payload: Record<string, unknown>): F
   return {
     externalChatId,
     externalChatType: asString(message?.chat_type)
+      ?? asString(message?.chatType)
       ?? asString(event?.chat_type)
+      ?? asString(event?.chatType)
       ?? asString(chat?.chat_type)
+      ?? asString(chat?.chatType)
       ?? asString(chat?.type),
-    externalChatName: asString(message?.chat_name)
-      ?? asString(event?.chat_name)
-      ?? asString(chat?.name)
-      ?? asString(chat?.chat_name),
+    externalChatName: resolveFeishuChatName({ event, message, chat }),
   };
+}
+
+function resolveFeishuChatName(input: {
+  event: Record<string, unknown> | null;
+  message: Record<string, unknown> | null;
+  chat: Record<string, unknown> | null;
+}): string | undefined {
+  return firstText(
+    asString(input.message?.chat_name),
+    asString(input.message?.chatName),
+    asString(input.event?.chat_name),
+    asString(input.event?.chatName),
+    asString(input.chat?.name),
+    asString(input.chat?.chat_name),
+    asString(input.chat?.chatName),
+    readFeishuI18nName(input.message?.chat_i18n_names),
+    readFeishuI18nName(input.message?.chatI18nNames),
+    readFeishuI18nName(input.event?.chat_i18n_names),
+    readFeishuI18nName(input.event?.chatI18nNames),
+    readFeishuI18nName(input.chat?.i18n_names),
+    readFeishuI18nName(input.chat?.i18nNames),
+    readFeishuI18nName(input.chat?.chat_i18n_names),
+    readFeishuI18nName(input.chat?.chatI18nNames),
+  );
+}
+
+function readFeishuI18nName(value: unknown): string | undefined {
+  const record = asRecord(value);
+  if (!record) {
+    return undefined;
+  }
+  return firstText(
+    asString(record.zh_cn),
+    asString(record.zhCn),
+    asString(record.en_us),
+    asString(record.enUs),
+    asString(record.ja_jp),
+    asString(record.jaJp),
+    ...Object.values(record).map(asString),
+  );
+}
+
+function firstText(...values: Array<string | undefined>): string | undefined {
+  return values.find((value) => Boolean(value?.trim()))?.trim();
 }
 
 export function ensureFeishuAgentMentionText(input: {

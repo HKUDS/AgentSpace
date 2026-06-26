@@ -4314,7 +4314,7 @@ export function buildFeishuSmokeEnvTemplateReport(
         secret: false,
         required: false,
         source: "placeholder",
-        note: "Optional for isolated OpenAPI smoke; required for TODO120 Phase 6 multi-agent smoke as the second disposable Feishu app id.",
+        note: "Optional for isolated OpenAPI smoke; required for TODO120 Phase 6 multi-agent smoke as the second disposable Feishu app id. After filling it, bind the second app with: agent-space integrations feishu bind-agent-bot --workspace-id <id> --agent <second-agent> --env-file scripts/feishu/.env --app-id-env FEISHU_SECOND_AGENT_APP_ID --app-secret-env FEISHU_SECOND_AGENT_APP_SECRET --json",
       },
       {
         key: "FEISHU_SECOND_AGENT_APP_SECRET",
@@ -4322,7 +4322,7 @@ export function buildFeishuSmokeEnvTemplateReport(
         secret: true,
         required: false,
         source: "placeholder",
-        note: "Optional for isolated OpenAPI smoke; required for TODO120 Phase 6 multi-agent smoke as the second Feishu app secret.",
+        note: "Optional for isolated OpenAPI smoke; required for TODO120 Phase 6 multi-agent smoke as the second Feishu app secret. This env value only feeds the bind-agent-bot command; AgentSpace still needs a real second agent bot binding before same-group reuse and thread-collaboration smoke can pass.",
       },
       {
         key: "FEISHU_API_BASE_URL",
@@ -8487,6 +8487,6 @@ Options:
   bind-resource            Create/update a Feishu Docs/Sheets/Base resource binding; output redacts resource tokens
   --openapi-evidence <path> Evidence: also verify redacted strict live smoke artifact from npm run smoke:feishu
   --strict                 Readiness/smoke-plan/evidence: require matching proof; health-check: require all healthy
-  --require <kind>         Gate to enforce: bot, data-plane, worker; evidence also accepts native, guest-policy, failure, or all
+  --require <kind>         Readiness/smoke-plan gate: bot, data-plane, worker; evidence gate: bot, native, guest-policy, data-plane, worker, failure, all
   --json                   Print machine-readable output`);
 }

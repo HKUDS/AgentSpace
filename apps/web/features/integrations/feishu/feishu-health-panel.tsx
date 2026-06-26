@@ -333,7 +333,12 @@ function FeishuSetupGuide({
   if (!guide) {
     return null;
   }
-  const commands = [
+  const commands: Array<{
+    key: string;
+    label: string;
+    note?: string;
+    value: string;
+  }> = [
     {
       key: "health-check",
       label: tx("健康检查", "Health Check"),
@@ -348,6 +353,10 @@ function FeishuSetupGuide({
       ? [{
         key: "bind-second-agent-bot",
         label: tx("绑定第二个 Agent Bot", "Bind Second Agent Bot"),
+        note: tx(
+          "先在 scripts/feishu/.env 填入第二个飞书 app 凭据，再运行此命令创建 AgentSpace 里的第二个 Bot 绑定。",
+          "Fill the second Feishu app credentials in scripts/feishu/.env first, then run this command to create the second AgentSpace bot binding.",
+        ),
         value: guide.commands.bindSecondAgentBot,
       }]
       : []),
@@ -501,7 +510,10 @@ function FeishuSetupGuide({
         {commands.map((command) => (
           <div className="feishu-setup-command" key={command.key}>
             <span>{command.label}</span>
-            <code>{command.value}</code>
+            <div className="feishu-setup-command__body">
+              <code>{command.value}</code>
+              {command.note ? <small>{command.note}</small> : null}
+            </div>
             <button
               className="action-button"
               onClick={() => {

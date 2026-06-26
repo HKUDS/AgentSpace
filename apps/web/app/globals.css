@@ -9242,6 +9242,13 @@ textarea:focus {
   line-height: 1.45;
 }
 
+.feishu-agent-settings-panel__command small {
+  color: #6b7280;
+  font-size: 0.75rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
 .feishu-agent-bot-policy-editor {
   display: grid;
   gap: 0.7rem;
@@ -9959,6 +9966,19 @@ textarea:focus {
   padding: 0.55rem 0.65rem;
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.76);
+}
+
+.feishu-setup-command__body {
+  display: grid;
+  gap: 0.28rem;
+  min-width: 0;
+}
+
+.feishu-setup-command__body small {
+  color: #6b7280;
+  font-size: 0.75rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
 }
 
 .settings-workspace-profile {

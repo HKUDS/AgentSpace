@@ -704,6 +704,9 @@ Feishu Base table -> AgentSpace data_table
 > - AgentSpace `smoke-plan --integration <id>` 已避免误收窄 Phase 6 第二 bot 判定：主 checklist、命令和 final evidence 仍使用指定 integration，但多 agent bot readiness 会扫描同一 workspace 的所有 Feishu agent bot bindings，确保同群复用 / thread collaboration 不会因为选择 data-plane integration 而误报缺少第二个 bot。
 > - AgentSpace final evidence gate 已补 workspace-wide 同群聚合：`evidence --require native/all --integration <id>` 保留指定 integration 的明细和 OpenAPI callback route proof；其中 native 严格判定会按同一个 safe chat reference 聚合同一 workspace 内多个 Feishu agent bot bindings 的 redacted evidence counters，且 scoped gate 要求 selected integration 参与该同群证据；`all` 的 bot / guest-policy / data-plane / worker / failure 仍要求同一个 anchor integration 自身满足，JSON 可用 `summary.scopedAllSatisfied` 区分 selected integration 的本地 all gate 与 workspace-wide native/data-plane 汇总，最终 `strictSatisfied` 还会叠加 OpenAPI artifact 缺失、过期、callback fingerprint 不匹配或未充分脱敏等校验。这避免真实“每个 agent 一个 bot”后第二 bot 的 channel reuse / thread collaboration 证据被 `--integration` 过滤掉，同时避免不同飞书群/租户、无关 bot group 或无关 data-plane integration 的证据被拼接误判。
 > - CLI create / bind-agent-bot / 前端 Feishu setup guide 已同步 Phase 6 native smoke：Settings / Agent Settings 展示的 `check-env` 和 strict live smoke 命令默认带 `--require-todo120-native`，CLI `nextCommands` 与前端 guide 都直接给出 health/readiness/smoke/final evidence、agent-channel-access no-reply smoke 以及第二个 agent bot 的 `bind-agent-bot --app-id-env FEISHU_SECOND_AGENT_APP_ID --app-secret-env FEISHU_SECOND_AGENT_APP_SECRET` 命令，避免用户只跑单 bot OpenAPI smoke。
+> - CLI help / integrations help 已同步 Phase 6 final evidence gate：`evidence --require` 明确列出 `bot|native|guest-policy|data-plane|worker|failure|all`，readiness / smoke-plan 仍只声明其实际支持的 `bot|data-plane|worker`，避免现场误跑窄门禁或误以为 smoke-plan 支持 evidence-only gate。
+> - `smoke-env` / `scripts/feishu/env.example` 模板已明确第二个 Feishu app env 只负责提供凭据，仍必须用 `bind-agent-bot --app-id-env FEISHU_SECOND_AGENT_APP_ID --app-secret-env FEISHU_SECOND_AGENT_APP_SECRET` 在 AgentSpace 里创建第二个 agent bot binding 后，同群复用 / thread collaboration smoke 才可能通过。
+> - Settings / Agent Settings 的 Feishu setup guide 已在“绑定第二个 Agent Bot”命令旁显示同样说明，避免管理员在前端只复制二号 app env 或只运行 OpenAPI smoke，而忘记创建第二个 AgentSpace agent bot binding。
 > - `smoke-plan` / evidence remediation 已补 external guest policy 切换与恢复命令：`reply_on_mention`、`reply_all`、`require_identity`、`ignore` live steps 会输出对应 `auto-provision-policy` 命令，并保留 `require-identity-for writes,approvals,private_resources,runtime_sensitive_tools`；临时 `reply_all` / `require_identity` / `ignore` 步骤会在说明里给出恢复到默认 `reply_on_mention + channel_context_only` 的命令，方便 Phase 6 验证未绑定用户低权限试用、要求绑定身份、关闭回复和未 @bot 忽略后恢复现场。
 > - `smoke-plan` / Settings / Agent Settings 已补 agent/channel policy disabled 切换命令：`live_agent_channel_policy_disabled` 会优先选 Phase 6-ready agent bot 的 AgentSpace agent，输出 `agent-channel-access --access disabled`，并在说明里给出 `--access enabled` 恢复命令，避免把 workspace/data-plane integration 错当成 agent 权限目标。
 
@@ -809,7 +812,7 @@ Feishu Base table -> AgentSpace data_table
 
 ## 风险与开放问题
 
-- [ ] 飞书机器人进群事件在不同 tenant / app 类型下的 payload 字段需真实租户验证。
+- [ ] 飞书机器人进群事件在不同 tenant / app 类型下的 payload 字段需真实租户验证。本地已覆盖 snake_case、camelCase、嵌套 `chat`、`openChatId` 与 i18n 群名变体，并通过 `npm run test:feishu:db`；仍需 disposable tenant/app set 的真实事件样本确认。
 - [x] 第一版限制一个 AgentSpace agent 只能有一个 active Feishu bot binding；重复绑定返回 `feishu.agent_bot_binding.duplicate_agent`，禁用或轮换后再更换。
 - [x] 第一版禁止同一个 Feishu app/tenant 绑定多个 AgentSpace agent；`external_integration` 使用 `(workspace_id, provider, app_id, tenant_key)` 唯一约束，agent bot 绑定返回 `feishu.agent_bot_binding.duplicate_app_tenant`。
 - [x] 自动创建 channel 的命名冲突和归档恢复策略已定义：名称使用 `feishu-<slug>`，冲突时追加 chat 短 hash / 序号； archived binding 会原地恢复并记录 `restoredFromStatus` / `restoredBindingId`。

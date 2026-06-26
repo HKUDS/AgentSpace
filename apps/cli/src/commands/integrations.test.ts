@@ -145,6 +145,8 @@ test("feishu worker --help prints usage without starting the worker", async () =
   assert.match(output, /safe scripts\/feishu\/\.env template/);
   assert.match(output, /manual smoke/);
   assert.match(output, /health-check: require all healthy/);
+  assert.match(output, /--require bot\|native\|guest-policy\|data-plane\|worker\|failure\|all/);
+  assert.match(output, /evidence gate: bot, native, guest-policy, data-plane, worker, failure, all/);
   assert.match(output, /--app-url <url>/);
   assert.match(output, /--openapi-evidence <path>/);
   assert.match(output, /--allow-write/);
@@ -3368,9 +3370,11 @@ test("Feishu smoke-env template prepares callback smoke without leaking saved se
   assert.equal(readSmokeEnvEntry(report, "FEISHU_SECOND_AGENT_APP_ID")?.value, "CHANGE_ME_SECOND_AGENT_APP_ID");
   assert.equal(readSmokeEnvEntry(report, "FEISHU_SECOND_AGENT_APP_ID")?.required, false);
   assert.match(readSmokeEnvEntry(report, "FEISHU_SECOND_AGENT_APP_ID")?.note ?? "", /required for TODO120 Phase 6/);
+  assert.match(readSmokeEnvEntry(report, "FEISHU_SECOND_AGENT_APP_ID")?.note ?? "", /bind-agent-bot --workspace-id <id> --agent <second-agent>/);
   assert.equal(readSmokeEnvEntry(report, "FEISHU_SECOND_AGENT_APP_SECRET")?.secret, true);
   assert.equal(readSmokeEnvEntry(report, "FEISHU_SECOND_AGENT_APP_SECRET")?.required, false);
   assert.match(readSmokeEnvEntry(report, "FEISHU_SECOND_AGENT_APP_SECRET")?.note ?? "", /required for TODO120 Phase 6/);
+  assert.match(readSmokeEnvEntry(report, "FEISHU_SECOND_AGENT_APP_SECRET")?.note ?? "", /same-group reuse and thread-collaboration smoke can pass/);
   assert.equal(readSmokeEnvEntry(report, "FEISHU_SMOKE_DOC_PARENT_BLOCK_ID")?.required, true);
   assert.equal(readSmokeEnvEntry(report, "FEISHU_SMOKE_DOC_APPEND_BLOCKS_JSON")?.required, true);
   assert.equal(readSmokeEnvEntry(report, "FEISHU_SMOKE_SHEET_RANGE")?.required, false);
@@ -3382,6 +3386,7 @@ test("Feishu smoke-env template prepares callback smoke without leaking saved se
   assert.equal(output.stderr, undefined);
   assert.match(output.stdout ?? "", /FEISHU_SMOKE_CALLBACK_URL=https:\/\/agentspace\.test/);
   assert.match(output.stdout ?? "", /FEISHU_SECOND_AGENT_APP_ID=CHANGE_ME_SECOND_AGENT_APP_ID/);
+  assert.match(output.stdout ?? "", /bind-agent-bot --workspace-id <id> --agent <second-agent>/);
   assert.match(output.stdout ?? "", /# secret: FEISHU_SECOND_AGENT_APP_SECRET/);
 
   const serialized = JSON.stringify(report);

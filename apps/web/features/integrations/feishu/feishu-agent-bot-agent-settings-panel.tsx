@@ -132,6 +132,10 @@ export function FeishuAgentBotAgentSettingsPanel({
                 {currentIntegration.setupGuide.commands.bindSecondAgentBot ? (
                   <FeishuAgentSettingsCommand
                     label={tx("绑定第二个 Agent Bot", "Bind second Agent bot")}
+                    note={tx(
+                      "先在 scripts/feishu/.env 填入第二个飞书 app 凭据，再运行此命令创建 AgentSpace 里的第二个 Bot 绑定。",
+                      "Fill the second Feishu app credentials in scripts/feishu/.env first, then run this command to create the second AgentSpace bot binding.",
+                    )}
                     value={currentIntegration.setupGuide.commands.bindSecondAgentBot}
                   />
                 ) : null}
@@ -505,15 +509,18 @@ function FeishuAgentBotSetupReference({
 
 function FeishuAgentSettingsCommand({
   label,
+  note,
   value,
 }: {
   label: string;
+  note?: string;
   value: string;
 }) {
   return (
     <div className="feishu-agent-settings-panel__command">
       <span>{label}</span>
       <code>{value}</code>
+      {note ? <small>{note}</small> : null}
     </div>
   );
 }
