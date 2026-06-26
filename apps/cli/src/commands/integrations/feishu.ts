@@ -549,6 +549,7 @@ export interface FeishuIntegrationEvidence {
   };
   nativeExperience: {
     agentBotRouteEvidence: number;
+    nativeBotReplyEvidence: number;
     boundUserMentionEvidence: number;
     externalGuestMentionEvidence: number;
     agentChannelPolicyDeniedEvidence: number;
@@ -4653,6 +4654,7 @@ function buildFeishuIntegrationEvidence(input: {
   const inboundMessageMappings = input.messageMappings.filter((mapping) => mapping.direction === "inbound").length;
   const outboundMessageMappings = input.messageMappings.filter((mapping) => mapping.direction === "outbound").length;
   const correlatedReplyMappings = countCorrelatedFeishuReplyMappings(input.messageMappings);
+  const nativeBotReplyEvidence = countFeishuNativeBotReplyEvidence(input.messageMappings);
   const agentBotRouteEvidence = countFeishuAgentBotRouteEvidence(input.messageMappings);
   const boundUserMentionEvidence = countFeishuNativeActorMentionEvidence(input.messageMappings, "user");
   const externalGuestMentionEvidence = countFeishuNativeActorMentionEvidence(input.messageMappings, "external_guest");
@@ -4734,6 +4736,7 @@ function buildFeishuIntegrationEvidence(input: {
     outboundMessageMappings > 0 &&
     correlatedReplyMappings > 0;
   const nativeExperienceSatisfied = agentBotRouteEvidence > 0 &&
+    nativeBotReplyEvidence > 0 &&
     boundUserMentionEvidence > 0 &&
     externalGuestMentionEvidence > 0 &&
     agentChannelPolicyDeniedEvidence > 0 &&
@@ -4783,6 +4786,7 @@ function buildFeishuIntegrationEvidence(input: {
     outboundMessageMappings,
     correlatedReplyMappings,
     agentBotRouteEvidence,
+    nativeBotReplyEvidence,
     boundUserMentionEvidence,
     externalGuestMentionEvidence,
     agentChannelPolicyDeniedEvidence,
@@ -4838,6 +4842,7 @@ function buildFeishuIntegrationEvidence(input: {
     },
     nativeExperience: {
       agentBotRouteEvidence,
+      nativeBotReplyEvidence,
       boundUserMentionEvidence,
       externalGuestMentionEvidence,
       agentChannelPolicyDeniedEvidence,
@@ -5077,6 +5082,7 @@ function buildFeishuEvidenceIssues(input: {
   outboundMessageMappings: number;
   correlatedReplyMappings: number;
   agentBotRouteEvidence: number;
+  nativeBotReplyEvidence: number;
   boundUserMentionEvidence: number;
   externalGuestMentionEvidence: number;
   agentChannelPolicyDeniedEvidence: number;
@@ -5133,6 +5139,9 @@ function buildFeishuEvidenceIssues(input: {
   if (!input.nativeExperienceSatisfied) {
     if (input.agentBotRouteEvidence === 0) {
       issues.push("agent_bot_route_evidence_missing");
+    }
+    if (input.nativeBotReplyEvidence === 0) {
+      issues.push("native_agent_bot_reply_evidence_missing");
     }
     if (input.boundUserMentionEvidence === 0) {
       issues.push("bound_user_bot_mention_evidence_missing");
@@ -5519,6 +5528,48 @@ function countCorrelatedFeishuReplyMappings(
     return !inbound?.channelBindingId ||
       !mapping.channelBindingId ||
       inbound.channelBindingId === mapping.channelBindingId;
+  }).length;
+}
+
+function countFeishuNativeBotReplyEvidence(
+  mappings: readonly ExternalMessageMappingRecord[],
+): number {
+  const inboundMappings = mappings.filter((mapping) => mapping.direction === "inbound");
+  return mappings.filter((mapping) => {
+    if (mapping.direction !== "outbound" || !mapping.externalThreadId) {
+      return false;
+    }
+    const inbound = inboundMappings.find((candidate) =>
+      candidate.externalMessageId === mapping.externalThreadId ||
+      candidate.externalThreadId === mapping.externalThreadId
+    );
+    if (
+      !inbound ||
+      (inbound.channelBindingId && mapping.channelBindingId && inbound.channelBindingId !== mapping.channelBindingId)
+    ) {
+      return false;
+    }
+    const inboundMetadata = readJsonRecord(inbound.metadataJson);
+    const outboundMetadata = readJsonRecord(mapping.metadataJson);
+    if (
+      inboundMetadata?.provider !== FEISHU_PROVIDER_ID ||
+      outboundMetadata?.provider !== FEISHU_PROVIDER_ID ||
+      !hasNonEmptyString(inboundMetadata.agentId) ||
+      !hasNonEmptyString(inboundMetadata.botBindingId) ||
+      !hasNonEmptyString(inboundMetadata.externalChatReference) ||
+      outboundMetadata.agentId !== inboundMetadata.agentId ||
+      outboundMetadata.botBindingId !== inboundMetadata.botBindingId ||
+      !hasNonEmptyString(outboundMetadata.externalChatReference)
+    ) {
+      return false;
+    }
+    const policyInput = isRecord(outboundMetadata.agentActionPolicyInput)
+      ? outboundMetadata.agentActionPolicyInput
+      : undefined;
+    const action = isRecord(policyInput?.action) ? policyInput.action : undefined;
+    return hasNonEmptyString(action?.resourceReference) &&
+      action?.resourceIdRedacted === true &&
+      !hasNonEmptyString(action?.resourceId);
   }).length;
 }
 

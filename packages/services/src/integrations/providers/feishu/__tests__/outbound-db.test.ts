@@ -210,10 +210,15 @@ test("AgentSpace replies are sent back to the source Feishu thread", databaseTes
   assert.equal(outboundMapping.externalThreadId, "om_root");
   assert.equal(outboundMapping.channelBindingId, channelBinding.id);
   const outboundMetadata = JSON.parse(outboundMapping.metadataJson) as {
+    externalChatReference?: string;
+    externalThreadReference?: string;
     agentActionPolicyInput?: {
       action?: {
         type?: string;
         operationSummary?: string;
+        resourceId?: string;
+        resourceReference?: string;
+        resourceIdRedacted?: boolean;
       };
     };
     agentActionPolicyDecision?: {
@@ -226,13 +231,20 @@ test("AgentSpace replies are sent back to the source Feishu thread", databaseTes
       messageReference?: string;
     };
   };
+  assert.match(outboundMetadata.externalChatReference ?? "", /^ref_[a-f0-9]{8}$/);
+  assert.match(outboundMetadata.externalThreadReference ?? "", /^ref_[a-f0-9]{8}$/);
   assert.equal(outboundMetadata.agentActionPolicyInput?.action?.type, "external_message.send");
   assert.equal(outboundMetadata.agentActionPolicyInput?.action?.operationSummary, "Send Feishu text reply to a bound chat.");
+  assert.equal(outboundMetadata.agentActionPolicyInput?.action?.resourceId, undefined);
+  assert.match(outboundMetadata.agentActionPolicyInput?.action?.resourceReference ?? "", /^ref_[a-f0-9]{8}$/);
+  assert.equal(outboundMetadata.agentActionPolicyInput?.action?.resourceIdRedacted, true);
   assert.equal(outboundMetadata.agentActionPolicyDecision?.decision, "allow");
   assert.equal(outboundMetadata.agentActionPolicyDecision?.reasonCode, "agent_action.low_risk_external_message_send_allowed");
   assert.equal(outboundMetadata.feishuResponse?.code, 0);
   assert.equal(outboundMetadata.feishuResponse?.messageRedacted, true);
   assert.equal(typeof outboundMetadata.feishuResponse?.messageReference, "string");
+  assert.equal(JSON.stringify(outboundMetadata).includes("oc_tour"), false);
+  assert.equal(JSON.stringify(outboundMetadata).includes("om_root"), false);
   assert.equal(JSON.stringify(outboundMetadata).includes("Atlas reply for Feishu"), false);
   assert.equal(JSON.stringify(outboundMetadata).includes("om_reply"), false);
   assert.equal(JSON.stringify(outboundMetadata).includes("ok"), false);

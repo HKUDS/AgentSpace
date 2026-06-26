@@ -726,6 +726,57 @@ export function decideFeishuOutboundMessagePolicy(input: {
   };
 }
 
+export function buildFeishuOutboundMappingMetadata(input: {
+  integration?: Pick<ExternalIntegrationRecord, "id" | "agentId"> | null;
+  outbox: Pick<ExternalMessageOutboxRecord, "id" | "targetExternalChatId" | "targetExternalThreadId">;
+  policy: FeishuOutboundMessagePolicyResult;
+  feishuResponse: Record<string, unknown>;
+}): Record<string, unknown> {
+  const agentId = asString(input.integration?.agentId);
+  return {
+    provider: FEISHU_PROVIDER_ID,
+    outboxId: input.outbox.id,
+    externalChatReference: formatFeishuOutboundReference(input.outbox.targetExternalChatId),
+    externalThreadReference: formatFeishuOutboundReference(input.outbox.targetExternalThreadId),
+    agentId,
+    botBindingId: agentId ? input.integration?.id : undefined,
+    agentActionPolicyInput: buildSafeFeishuOutboundPolicyInput(input.policy.policyInput),
+    agentActionPolicyDecision: buildSafeFeishuOutboundPolicyDecision(input.policy.decision),
+    feishuResponse: input.feishuResponse,
+  };
+}
+
+function buildSafeFeishuOutboundPolicyInput(policyInput: AgentActionPolicyInput): Record<string, unknown> {
+  const { action, ...rest } = policyInput;
+  const { resourceId, ...safeAction } = action;
+  return {
+    ...rest,
+    action: {
+      ...safeAction,
+      resourceReference: formatFeishuOutboundReference(resourceId),
+      resourceIdRedacted: Boolean(resourceId),
+    },
+  };
+}
+
+function buildSafeFeishuOutboundPolicyDecision(
+  decision: AgentActionPolicyDecision,
+): Record<string, unknown> {
+  const auditData = isRecord(decision.auditData)
+    ? { ...decision.auditData }
+    : undefined;
+  const resourceId = asString(auditData?.resourceId);
+  if (auditData && resourceId) {
+    delete auditData.resourceId;
+    auditData.resourceReference = formatFeishuOutboundReference(resourceId);
+    auditData.resourceIdRedacted = true;
+  }
+  return {
+    ...decision,
+    auditData,
+  };
+}
+
 export async function processDueFeishuOutboxMessages(input: {
   context: IntegrationRuntimeContext;
   client: FeishuApiClient;
@@ -887,6 +938,10 @@ export async function processFeishuOutboxMessage(input: {
       client: input.client,
       payloadJson: locked.payloadJson,
     });
+    const integration = readExternalIntegrationSync({
+      workspaceId: input.context.workspaceId,
+      integrationId: input.context.integrationId,
+    });
     createExternalMessageMappingSync({
       workspaceId: input.context.workspaceId,
       integrationId: input.context.integrationId,
@@ -895,13 +950,12 @@ export async function processFeishuOutboxMessage(input: {
       externalMessageId: sent.externalMessageId,
       externalThreadId: locked.targetExternalThreadId,
       agentSpaceMessageId: locked.agentSpaceMessageId,
-      metadataJson: {
-        outboxId: locked.id,
-        targetExternalChatId: locked.targetExternalChatId,
-        agentActionPolicyInput: policy.policyInput,
-        agentActionPolicyDecision: policy.decision,
+      metadataJson: buildFeishuOutboundMappingMetadata({
+        integration,
+        outbox: locked,
+        policy,
         feishuResponse: sent.safeResponseSummary,
-      },
+      }),
     });
     completeExternalMessageOutboxSync({
       workspaceId: input.context.workspaceId,

@@ -1167,6 +1167,7 @@ test("Feishu evidence report summarizes AgentSpace-side live smoke proof without
   assert.equal(item?.bot.correlatedReplyMappings, 2);
   assert.equal(item?.nativeExperience.satisfied, true);
   assert.equal(item?.nativeExperience.agentBotRouteEvidence, 4);
+  assert.equal(item?.nativeExperience.nativeBotReplyEvidence, 2);
   assert.equal(item?.nativeExperience.boundUserMentionEvidence, 2);
   assert.equal(item?.nativeExperience.externalGuestMentionEvidence, 2);
   assert.equal(item?.nativeExperience.agentChannelPolicyDeniedEvidence, 1);
@@ -1586,6 +1587,7 @@ test("Feishu evidence report gates native agent bot experience proof", () => {
   assert.equal(report.summary.dataPlaneSatisfiedCount, 1);
   const [item] = report.integrations;
   assert.equal(item?.nativeExperience.agentBotRouteEvidence, 1);
+  assert.equal(item?.nativeExperience.nativeBotReplyEvidence, 1);
   assert.equal(item?.nativeExperience.boundUserMentionEvidence, 1);
   assert.equal(item?.nativeExperience.externalGuestMentionEvidence, 0);
   assert.equal(item?.nativeExperience.agentChannelPolicyDeniedEvidence, 0);
@@ -1914,6 +1916,7 @@ test("Feishu evidence report blocks strict gates when local proof is incomplete"
   assert.ok(item?.issues.includes("sent_outbox_missing"));
   assert.ok(item?.issues.includes("outbound_message_mapping_missing"));
   assert.ok(item?.issues.includes("correlated_reply_mapping_missing"));
+  assert.ok(item?.issues.includes("native_agent_bot_reply_evidence_missing"));
   assert.ok(item?.issues.includes("doc_write_evidence_missing"));
   assert.ok(item?.issues.includes("sheet_read_evidence_missing"));
   assert.ok(item?.issues.includes("sheet_write_evidence_missing"));
@@ -4736,7 +4739,6 @@ function buildMessageMapping(
     agentSpaceMessageId: direction === "outbound" ? "message-reply-1" : "message-source-1",
     taskQueueId: direction === "inbound" ? "task-1" : undefined,
     routerSessionId: direction === "inbound" ? "router-1" : undefined,
-    metadataJson: JSON.stringify({ thread: "om_secret" }),
     createdAt: direction === "outbound"
       ? "2026-06-24T00:00:02.000Z"
       : "2026-06-24T00:00:01.000Z",
@@ -4744,6 +4746,7 @@ function buildMessageMapping(
       ? {
         metadataJson: JSON.stringify({
           provider: "feishu",
+          externalChatReference: "chat-ref-hash",
           mappedChannelName: "general",
           dispatchStatus: "sent",
           actorType,
@@ -4765,7 +4768,22 @@ function buildMessageMapping(
           threadBindingId: `thread-${integrationId}`,
         }),
       }
-      : {}),
+      : {
+        metadataJson: JSON.stringify({
+          provider: "feishu",
+          externalChatReference: "chat-ref-hash",
+          externalThreadReference: "thread-ref-hash",
+          agentId: "Atlas",
+          botBindingId: integrationId,
+          agentActionPolicyInput: {
+            action: {
+              type: "external_message.send",
+              resourceReference: "chat-ref-hash",
+              resourceIdRedacted: true,
+            },
+          },
+        }),
+      }),
   } as never;
 }
 

@@ -15,6 +15,7 @@ import {
   buildFeishuIdentityBindingRequiredCard,
   buildFeishuInteractiveCardOutboundMessage,
   buildFeishuMessageCreateRequest,
+  buildFeishuOutboundMappingMetadata,
   buildFeishuOutboundMessagePolicyInput,
   buildFeishuTextOutboundMessages,
   computeFeishuOutboxNextAttemptAt,
@@ -377,6 +378,65 @@ test("buildFeishuOutboundMessagePolicyInput summarizes external sends without me
   });
   assert.equal(policy.decision.decision, "allow");
   assert.equal(policy.decision.reasonCode, "agent_action.low_risk_external_message_send_allowed");
+});
+
+test("buildFeishuOutboundMappingMetadata records safe agent bot reply evidence", () => {
+  const payloadJson = JSON.stringify({
+    receive_id_type: "chat_id",
+    receive_id: "oc_secret_room",
+    reply_to_message_id: "om_secret_root",
+    msg_type: "text",
+    content: JSON.stringify({ text: "secret customer update" }),
+  });
+  const policy = decideFeishuOutboundMessagePolicy({
+    context: {
+      workspaceId: "workspace-1",
+      integrationId: "agent-bot-codex",
+      provider: "feishu",
+    },
+    outbox: {
+      targetExternalChatId: "oc_secret_room",
+      targetExternalThreadId: "om_secret_root",
+      agentSpaceMessageId: "message-1",
+      payloadJson,
+    },
+  });
+
+  const metadata = buildFeishuOutboundMappingMetadata({
+    integration: {
+      id: "agent-bot-codex",
+      agentId: "Codex",
+    },
+    outbox: {
+      id: "external-message-outbox-1",
+      targetExternalChatId: "oc_secret_room",
+      targetExternalThreadId: "om_secret_root",
+    },
+    policy,
+    feishuResponse: {
+      code: 0,
+      messageReference: "ref_safe_reply",
+    },
+  });
+
+  const policyInput = metadata.agentActionPolicyInput as {
+    action?: {
+      resourceId?: string;
+      resourceReference?: string;
+      resourceIdRedacted?: boolean;
+    };
+  };
+  assert.equal(metadata.provider, "feishu");
+  assert.equal(metadata.agentId, "Codex");
+  assert.equal(metadata.botBindingId, "agent-bot-codex");
+  assert.match(String(metadata.externalChatReference), /^ref_[a-f0-9]{8}$/);
+  assert.match(String(metadata.externalThreadReference), /^ref_[a-f0-9]{8}$/);
+  assert.equal(policyInput.action?.resourceId, undefined);
+  assert.match(policyInput.action?.resourceReference ?? "", /^ref_[a-f0-9]{8}$/);
+  assert.equal(policyInput.action?.resourceIdRedacted, true);
+  assert.equal(JSON.stringify(metadata).includes("oc_secret_room"), false);
+  assert.equal(JSON.stringify(metadata).includes("om_secret_root"), false);
+  assert.equal(JSON.stringify(metadata).includes("secret customer update"), false);
 });
 
 test("splitFeishuTextMessageChunks keeps UTF-8 characters intact and labels chunks", () => {
