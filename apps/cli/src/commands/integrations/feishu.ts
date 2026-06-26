@@ -4381,6 +4381,14 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
         issues: hasIntegration ? [] : ["integration_missing"],
       },
       {
+        id: "live_agent_bot_first_message_auto_provision",
+        area: "bot",
+        title: "Live smoke: first mentioned message provisions channel",
+        status: hasIntegration ? "pending" : "blocked",
+        detail: "In a Feishu group that has no AgentSpace channel binding yet, send the first message mentioning the concrete agent bot. Verify AgentSpace records provisionSource=first_message, creates or binds the channel according to policy, and does not require a /agent command.",
+        issues: hasIntegration ? [] : ["integration_missing"],
+      },
+      {
         id: "bind_second_feishu_agent_bot",
         area: "setup",
         title: "Bind second AgentSpace agent to its Feishu bot",

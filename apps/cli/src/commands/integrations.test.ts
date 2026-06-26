@@ -4420,6 +4420,9 @@ test("Feishu smoke plan converts readiness into live smoke checklist without ext
   const bindUser = report.steps.find((step) => step.id === "bind_feishu_user");
   const liveBot = report.steps.find((step) => step.id === "live_bot_message_reply");
   const liveAutoProvision = report.steps.find((step) => step.id === "live_agent_bot_channel_auto_provision");
+  const liveFirstMessageAutoProvision = report.steps.find((step) =>
+    step.id === "live_agent_bot_first_message_auto_provision"
+  );
   const bindSecondAgentBot = report.steps.find((step) => step.id === "bind_second_feishu_agent_bot");
   const liveMultiAgentReuse = report.steps.find((step) => step.id === "live_multi_agent_bot_channel_reuse");
   const liveThreadCollaboration = report.steps.find((step) => step.id === "live_multi_agent_thread_collaboration");
@@ -4464,6 +4467,9 @@ test("Feishu smoke plan converts readiness into live smoke checklist without ext
   assert.doesNotMatch(liveBot?.detail ?? "", /@AgentSpaceBot/);
   assert.equal(liveAutoProvision?.status, "pending");
   assert.match(liveAutoProvision?.detail ?? "", /provisionSource=bot_added/);
+  assert.equal(liveFirstMessageAutoProvision?.status, "pending");
+  assert.match(liveFirstMessageAutoProvision?.detail ?? "", /provisionSource=first_message/);
+  assert.match(liveFirstMessageAutoProvision?.detail ?? "", /does not require a \/agent command/);
   assert.equal(bindSecondAgentBot?.status, "done");
   assert.match(bindSecondAgentBot?.detail ?? "", /2 agent-scoped Feishu bot binding/);
   assert.equal(liveMultiAgentReuse?.status, "pending");
@@ -4665,6 +4671,9 @@ test("Feishu smoke plan includes CLI agent bot bind command when no integration 
   const encryptionStep = report.steps.find((step) => step.id === "configure_credential_encryption_key");
   const createEnvStep = report.steps.find((step) => step.id === "prepare_feishu_create_env");
   const createStep = report.steps.find((step) => step.id === "bind_feishu_agent_bot");
+  const liveFirstMessageAutoProvision = report.steps.find((step) =>
+    step.id === "live_agent_bot_first_message_auto_provision"
+  );
 
   assert.equal(report.integrationCount, 0);
   assert.deepEqual(report.appSetup.requiredCredentialFields, ["app_id", "app_secret"]);
@@ -4686,6 +4695,8 @@ test("Feishu smoke plan includes CLI agent bot bind command when no integration 
   assert.match(createStep?.command ?? "", /--app-secret-env FEISHU_APP_SECRET/);
   assert.doesNotMatch(createStep?.command ?? "", /--verification-token-env/);
   assert.doesNotMatch(createStep?.command ?? "", /--encrypt-key-env/);
+  assert.equal(liveFirstMessageAutoProvision?.status, "blocked");
+  assert.deepEqual(liveFirstMessageAutoProvision?.issues, ["integration_missing"]);
 });
 
 test("Feishu smoke-plan exit code only gates failures in strict mode", () => {
