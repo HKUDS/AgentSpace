@@ -985,6 +985,12 @@ test("unbound Feishu users can dispatch as a governed external guest on agent bo
   const metadata = JSON.parse(mapping.metadataJson) as Record<string, unknown>;
   assert.equal(metadata.actorType, "external_guest");
   assert.equal(metadata.externalGuestPermissionProfile, "channel_context_only");
+  assert.deepEqual(metadata.externalGuestRequireIdentityFor, [
+    "writes",
+    "approvals",
+    "private_resources",
+    "runtime_sensitive_tools",
+  ]);
   assert.equal(metadata.agentId, "Atlas");
   assert.equal(metadata.botBindingId, fixtures.integration.id);
   assert.match(String(metadata.externalGuestReference), /^[a-f0-9]{64}$/);

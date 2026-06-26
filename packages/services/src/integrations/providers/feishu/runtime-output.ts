@@ -21,6 +21,7 @@ import {
 import type { FeishuApiClient } from "./client.ts";
 import { FEISHU_PROVIDER_ID } from "./constants.ts";
 import type { FeishuBoundDataOperationActor } from "./data-plane.ts";
+import type { FeishuExternalGuestRestrictedAction } from "./external-guests.ts";
 import { buildAgentSpaceSettingsIntegrationsDeepLink } from "./links.ts";
 import {
   FEISHU_LARK_CLI_RESULT_MANIFEST_RELATIVE_PATH,
@@ -461,11 +462,13 @@ function buildFeishuRuntimeDataOperationSourceContextFromMapping(input: {
     const permissionProfile = normalizeFeishuGuestPermissionProfile(
       readStringField(metadata, "externalGuestPermissionProfile"),
     );
+    const requireIdentityFor = readRestrictedActionsField(metadata, "externalGuestRequireIdentityFor");
     return {
       actor: {
         actorType: "external_guest",
         providerUserRefHash: externalActorReference,
         permissionProfile,
+        requireIdentityFor,
         sourceChannelName: input.channelName,
         agentId,
         botBindingId,
@@ -477,6 +480,7 @@ function buildFeishuRuntimeDataOperationSourceContextFromMapping(input: {
         channelName: input.channelName,
         externalActorReference,
         externalGuestPermissionProfile: permissionProfile,
+        externalGuestRequireIdentityFor: requireIdentityFor,
       }),
     };
   }
@@ -517,6 +521,10 @@ function buildFeishuRuntimeDataOperationGovernanceContext(input: {
     actorUserId: readStringField(input.sourceContext?.governance, "actorUserId"),
     externalActorReference: readStringField(input.sourceContext?.governance, "externalActorReference"),
     externalGuestPermissionProfile: readStringField(input.sourceContext?.governance, "externalGuestPermissionProfile"),
+    externalGuestRequireIdentityFor: readRestrictedActionsField(
+      input.sourceContext?.governance,
+      "externalGuestRequireIdentityFor",
+    ),
   });
 }
 
@@ -672,6 +680,30 @@ function readPlainObject(value: unknown): Record<string, unknown> | undefined {
 function readStringField(source: Record<string, unknown> | undefined, key: string): string | undefined {
   const value = source?.[key];
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function readRestrictedActionsField(
+  source: Record<string, unknown> | undefined,
+  key: string,
+): FeishuExternalGuestRestrictedAction[] | undefined {
+  const value = source?.[key];
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  const normalized = value
+    .map((item) => typeof item === "string" ? normalizeRestrictedAction(item) : undefined)
+    .filter((item): item is FeishuExternalGuestRestrictedAction => item !== undefined);
+  return normalized.length > 0 ? normalized : undefined;
+}
+
+function normalizeRestrictedAction(value: string): FeishuExternalGuestRestrictedAction | undefined {
+  const normalized = value.trim();
+  return normalized === "writes" ||
+    normalized === "approvals" ||
+    normalized === "private_resources" ||
+    normalized === "runtime_sensitive_tools"
+    ? normalized
+    : undefined;
 }
 
 function readString(value: unknown): string | undefined {

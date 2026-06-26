@@ -472,6 +472,7 @@ test("external guest Feishu writes require identity before approval planning", d
       actorType: "external_guest",
       providerUserRefHash: "guest-ref-write-123",
       permissionProfile: "channel_context_only",
+      requireIdentityFor: ["writes", "approvals", "private_resources"],
       sourceChannelName: "general",
       agentId: "Atlas",
       botBindingId: integration.id,
@@ -482,6 +483,9 @@ test("external guest Feishu writes require identity before approval planning", d
   assert.equal(planned.result.errorCode, "feishu.data_operation_external_guest_requires_identity");
   assert.equal(planned.resourceBinding?.id, binding.id);
   assert.equal(planned.result.data?.requireIdentity, true);
+  assert.equal(planned.result.data?.identityRequirementAction, "writes");
+  assert.equal(planned.result.data?.identityRequirementReasonCode, "feishu_external_guest_write_identity_required");
+  assert.equal(planned.result.data?.identityRequirementPolicyConfigured, true);
   const run = readExternalDataOperationRunSync({
     workspaceId: workspace.id,
     runId: planned.runId,
@@ -498,6 +502,7 @@ test("external guest Feishu writes require identity before approval planning", d
     actorType: "external_guest",
     externalActorReference: "guest-ref-write-123",
     externalGuestPermissionProfile: "channel_context_only",
+    externalGuestRequireIdentityFor: ["writes", "approvals", "private_resources"],
   });
   assert.equal(JSON.stringify(requestJson).includes("blocked"), false);
 });

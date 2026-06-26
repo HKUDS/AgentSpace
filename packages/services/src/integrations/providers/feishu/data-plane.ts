@@ -46,7 +46,12 @@ import {
   syncFeishuDataTablePreviewFromReadResultSync,
   syncFeishuResourceMetadataSnapshotFromResultSync,
 } from "./agent-space-sync.ts";
-import type { FeishuGuestPermissionProfile } from "./external-guests.ts";
+import {
+  defaultFeishuExternalGuestRequireIdentityFor,
+  evaluateFeishuExternalGuestIdentityRequirement,
+  type FeishuExternalGuestRestrictedAction,
+  type FeishuGuestPermissionProfile,
+} from "./external-guests.ts";
 
 export const FEISHU_DATA_OPERATION_DESCRIPTORS: ExternalResourceOperationDescriptor[] = [
   {
@@ -153,6 +158,7 @@ export interface FeishuExternalGuestDataOperationActor {
   sourceChannelName?: string;
   agentId?: string;
   botBindingId?: string;
+  requireIdentityFor?: FeishuExternalGuestRestrictedAction[];
 }
 
 export type FeishuBoundDataOperationActor =
@@ -516,6 +522,12 @@ export async function planBoundFeishuWriteDataOperation(input: {
   });
 
   if (input.actor && isFeishuExternalGuestDataOperationActor(input.actor)) {
+    const identityRequirement = evaluateFeishuExternalGuestIdentityRequirement({
+      policy: {
+        requireIdentityFor: input.actor.requireIdentityFor ?? defaultFeishuExternalGuestRequireIdentityFor(),
+      },
+      action: "writes",
+    });
     const denied = recordFeishuDataOperationDeniedSync({
       context: input.context,
       request: requestWithActorContext,
@@ -524,6 +536,9 @@ export async function planBoundFeishuWriteDataOperation(input: {
       errorMessage: "External guests must bind an AgentSpace identity before writing Feishu resources.",
       data: {
         requireIdentity: true,
+        identityRequirementAction: identityRequirement.action,
+        identityRequirementReasonCode: identityRequirement.reasonCode,
+        identityRequirementPolicyConfigured: identityRequirement.policyConfigured,
       },
     });
     return {
@@ -1570,6 +1585,9 @@ function applyFeishuDataOperationGovernanceContext(
     externalGuestPermissionProfile: actorType === "external_guest"
       ? readStringValue(existing.externalGuestPermissionProfile) ?? externalGuest?.permissionProfile
       : undefined,
+    externalGuestRequireIdentityFor: actorType === "external_guest"
+      ? readStringArrayValue(existing.externalGuestRequireIdentityFor) ?? externalGuest?.requireIdentityFor
+      : undefined,
     externalChatReference: readStringValue(existing.externalChatReference)
       ?? hashFeishuAuditReference(externalGuest?.sourceChatId),
   });
@@ -1836,6 +1854,16 @@ function readString(value: Record<string, unknown>, key: string): string | undef
 
 function readStringValue(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function readStringArrayValue(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  const normalized = value
+    .map((item) => typeof item === "string" ? item.trim() : "")
+    .filter(Boolean);
+  return normalized.length > 0 ? normalized : undefined;
 }
 
 function readBooleanValue(value: unknown): boolean | undefined {

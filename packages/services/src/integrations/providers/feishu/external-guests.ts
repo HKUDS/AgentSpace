@@ -17,16 +17,30 @@ export type FeishuGuestPermissionProfile =
   | "channel_context_only"
   | "channel_readonly";
 
+export type FeishuExternalGuestRestrictedAction =
+  | "writes"
+  | "approvals"
+  | "private_resources"
+  | "runtime_sensitive_tools";
+
 export interface FeishuExternalParticipantPolicy {
   unboundUserMode: FeishuUnboundUserMode;
   guestPermissionProfile: FeishuGuestPermissionProfile;
-  requireIdentityFor: string[];
+  requireIdentityFor: FeishuExternalGuestRestrictedAction[];
 }
 
 export interface FeishuExternalGuestDecision {
   decision: "allow" | "ignore" | "require_identity";
   policy: FeishuExternalParticipantPolicy;
   reasonCode: string;
+}
+
+export interface FeishuExternalGuestIdentityRequirementDecision {
+  decision: "allow" | "require_identity";
+  action: FeishuExternalGuestRestrictedAction;
+  policy: Pick<FeishuExternalParticipantPolicy, "requireIdentityFor">;
+  reasonCode: string;
+  policyConfigured: boolean;
 }
 
 export interface FeishuExternalGuestActor {
@@ -38,6 +52,7 @@ export interface FeishuExternalGuestActor {
   providerDisplayName: string;
   sourceChatId: string;
   permissionProfile: FeishuGuestPermissionProfile;
+  requireIdentityFor: FeishuExternalGuestRestrictedAction[];
 }
 
 export const FEISHU_EXTERNAL_GUEST_DISPLAY_NAME = "Feishu Guest";
@@ -98,13 +113,43 @@ export function readFeishuExternalParticipantPolicy(
       asString(policy?.guestPermissionProfile),
       "channel_context_only",
     ),
-    requireIdentityFor: normalizeStringArray(policy?.requireIdentityFor, [
-      "writes",
-      "approvals",
-      "private_resources",
-      "runtime_sensitive_tools",
-    ]),
+    requireIdentityFor: normalizeRestrictedActions(
+      policy?.requireIdentityFor,
+      defaultFeishuExternalGuestRequireIdentityFor(),
+    ),
   };
+}
+
+export function evaluateFeishuExternalGuestIdentityRequirement(input: {
+  policy: Pick<FeishuExternalParticipantPolicy, "requireIdentityFor">;
+  action: FeishuExternalGuestRestrictedAction;
+}): FeishuExternalGuestIdentityRequirementDecision {
+  const policyConfigured = input.policy.requireIdentityFor.includes(input.action);
+  if (policyConfigured || isHardRequiredExternalGuestIdentityAction(input.action)) {
+    return {
+      decision: "require_identity",
+      action: input.action,
+      policy: input.policy,
+      reasonCode: resolveExternalGuestIdentityRequirementReasonCode(input.action),
+      policyConfigured,
+    };
+  }
+  return {
+    decision: "allow",
+    action: input.action,
+    policy: input.policy,
+    reasonCode: "feishu_external_guest_identity_not_required",
+    policyConfigured,
+  };
+}
+
+export function defaultFeishuExternalGuestRequireIdentityFor(): FeishuExternalGuestRestrictedAction[] {
+  return [
+    "writes",
+    "approvals",
+    "private_resources",
+    "runtime_sensitive_tools",
+  ];
 }
 
 export function ensureFeishuExternalGuestChannelActorSync(input: {
@@ -144,6 +189,7 @@ export function buildFeishuExternalGuestActor(input: {
   externalUserId?: string;
   sourceChatId: string;
   permissionProfile: FeishuGuestPermissionProfile;
+  requireIdentityFor?: FeishuExternalGuestRestrictedAction[];
 }): FeishuExternalGuestActor {
   return {
     actorType: "external_guest",
@@ -159,6 +205,7 @@ export function buildFeishuExternalGuestActor(input: {
     providerDisplayName: FEISHU_EXTERNAL_GUEST_DISPLAY_NAME,
     sourceChatId: input.sourceChatId,
     permissionProfile: input.permissionProfile,
+    requireIdentityFor: input.requireIdentityFor ?? defaultFeishuExternalGuestRequireIdentityFor(),
   };
 }
 
@@ -185,14 +232,44 @@ function normalizeGuestPermissionProfile(
     : fallback;
 }
 
-function normalizeStringArray(value: unknown, fallback: string[]): string[] {
+function normalizeRestrictedActions(
+  value: unknown,
+  fallback: FeishuExternalGuestRestrictedAction[],
+): FeishuExternalGuestRestrictedAction[] {
   if (!Array.isArray(value)) {
     return fallback;
   }
   const normalized = value
-    .map((item) => typeof item === "string" ? item.trim() : "")
-    .filter(Boolean);
+    .map((item) => typeof item === "string" ? normalizeRestrictedAction(item) : undefined)
+    .filter((item): item is FeishuExternalGuestRestrictedAction => item !== undefined);
   return normalized.length > 0 ? normalized : fallback;
+}
+
+function normalizeRestrictedAction(value: string): FeishuExternalGuestRestrictedAction | undefined {
+  const normalized = value.trim();
+  return normalized === "writes" ||
+    normalized === "approvals" ||
+    normalized === "private_resources" ||
+    normalized === "runtime_sensitive_tools"
+    ? normalized
+    : undefined;
+}
+
+function isHardRequiredExternalGuestIdentityAction(action: FeishuExternalGuestRestrictedAction): boolean {
+  return action === "writes" || action === "approvals";
+}
+
+function resolveExternalGuestIdentityRequirementReasonCode(action: FeishuExternalGuestRestrictedAction): string {
+  switch (action) {
+    case "writes":
+      return "feishu_external_guest_write_identity_required";
+    case "approvals":
+      return "feishu_external_guest_approval_identity_required";
+    case "private_resources":
+      return "feishu_external_guest_private_resource_identity_required";
+    case "runtime_sensitive_tools":
+      return "feishu_external_guest_runtime_sensitive_tool_identity_required";
+  }
 }
 
 function resolveHumanNames(channel: {

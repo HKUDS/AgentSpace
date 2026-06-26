@@ -475,6 +475,7 @@ function prepareFeishuInboundDispatchSync(input: ProcessFeishuInboundEventInput)
         externalUserId: externalSenderId,
         sourceChatId: message.externalChatId,
         permissionProfile: guestDecision.policy.guestPermissionProfile,
+        requireIdentityFor: guestDecision.policy.requireIdentityFor,
       });
       const forceAgentMention = shouldForceFeishuAgentMentionForGuest({
         decision: guestDecision,
@@ -593,6 +594,7 @@ function prepareFeishuInboundDispatchSync(input: ProcessFeishuInboundEventInput)
         externalUserId: externalSenderId,
         sourceChatId: message.externalChatId,
         permissionProfile: guestDecision.policy.guestPermissionProfile,
+        requireIdentityFor: guestDecision.policy.requireIdentityFor,
       })
       : undefined;
     const blockedReasonCode = guestDecision?.reasonCode ?? "external_user_unbound";
@@ -1514,6 +1516,7 @@ function createFeishuInboundMapping(input: {
       actorType: input.actorType ?? (input.userId ? "user" : undefined),
       externalGuestReference: input.externalGuestActor?.providerUserRefHash,
       externalGuestPermissionProfile: input.externalGuestActor?.permissionProfile,
+      externalGuestRequireIdentityFor: input.externalGuestActor?.requireIdentityFor,
       externalGuestPolicyDecision: input.externalGuestDecision?.decision,
       externalGuestPolicyReasonCode: input.externalGuestDecision?.reasonCode,
       externalGuestUnboundUserMode: input.externalGuestDecision?.policy.unboundUserMode,
