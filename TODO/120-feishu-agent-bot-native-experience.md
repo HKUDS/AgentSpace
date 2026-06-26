@@ -698,6 +698,7 @@ Feishu Base table -> AgentSpace data_table
 > - External guest / data-plane governance / evidence：`external-guests.ts`、`data-plane.ts`、`apps/cli/src/commands/integrations/feishu.ts`。
 > - Regression tests：`packages/services/src/integrations/providers/feishu/__tests__/inbound.test.ts`、`agent-bot-bindings.test.ts`、`data-plane*.test.ts`、`outbound*.test.ts`、`apps/cli/src/commands/integrations.test.ts`、`apps/web/features/agents/agents-page-client.test.tsx`、`apps/web/features/integrations/feishu/feishu-*.test.ts`、`packages/services/src/permissions/permissions.test.ts`。
 > - 本地回归验证（2026-06-27）：`npm run typecheck`、Feishu service tests、`scripts/feishu/smoke.test.ts`、targeted web Feishu/agent settings Vitest、CLI integrations test 均已通过；web Vitest 使用显式 `AGENT_SPACE_TEST_DATABASE_URL=postgres://localhost/agent_space_test` 覆盖，避免读取应用库配置。
+> - Phase 6 前置检查（2026-06-27）：`.env` / `.env copy` / `scripts/feishu/.env` 均未提供 Feishu live smoke 变量；`npm run smoke:feishu -- --env-file .env --check-env --json` 和 `.env copy` 检查均报告 15 个必填项缺失。`smoke-plan --workspace-id default --app-url https://feishu-e2e.hire-an-agent.online --json` 可生成清单，但当前 workspace 无 Feishu integration，仍停在 `credential_encryption_key_missing` / `integration_missing` / `second_agent_bot_missing` 等真实前置条件。
 
 ### Phase 0：产品语义收口
 

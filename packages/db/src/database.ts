@@ -12,6 +12,8 @@ export const DEFAULT_WORKSPACE_ID = "default";
 
 const WORKER_REQUEST_TIMEOUT_MS = resolveWorkerRequestTimeoutMs();
 const WORKER_WAIT_SLICE_MS = 50;
+const POSTGRES_SCHEMA_LOCK_TIMEOUT_MS = resolveSchemaLockTimeoutMs();
+const POSTGRES_SCHEMA_LOCK_RETRY_MS = 100;
 const WORKER_SIGNAL_BUFFER = new SharedArrayBuffer(4);
 const WORKER_SIGNAL = new Int32Array(WORKER_SIGNAL_BUFFER);
 const POSTGRES_SYNC_WORKER_SOURCE = String.raw`
@@ -525,7 +527,7 @@ function ensureRuntimeSchema(db: PostgresSyncDatabase): void {
   }
 
   let transactionStarted = false;
-  db.prepare("SELECT pg_advisory_lock(?)").get(POSTGRES_SCHEMA_VERSION);
+  acquireRuntimeSchemaLock(db);
   try {
     if (schemaEnsuredForUrl === currentUrl || isRuntimeSchemaCurrent(db)) {
       schemaEnsuredForUrl = currentUrl;
@@ -554,6 +556,60 @@ function ensureRuntimeSchema(db: PostgresSyncDatabase): void {
   } finally {
     db.prepare("SELECT pg_advisory_unlock(?)").get(POSTGRES_SCHEMA_VERSION);
   }
+}
+
+interface RuntimeSchemaLockOptions {
+  timeoutMs?: number;
+  retryMs?: number;
+  now?: () => number;
+  sleep?: (durationMs: number) => void;
+}
+
+export function acquireRuntimeSchemaLockForTests(
+  db: Pick<PostgresSyncDatabase, "prepare">,
+  options: RuntimeSchemaLockOptions = {},
+): { attempts: number } {
+  return acquireRuntimeSchemaLock(db, options);
+}
+
+function acquireRuntimeSchemaLock(
+  db: Pick<PostgresSyncDatabase, "prepare">,
+  options: RuntimeSchemaLockOptions = {},
+): { attempts: number } {
+  const timeoutMs = options.timeoutMs ?? POSTGRES_SCHEMA_LOCK_TIMEOUT_MS;
+  const retryMs = options.retryMs ?? POSTGRES_SCHEMA_LOCK_RETRY_MS;
+  const now = options.now ?? Date.now;
+  const sleep = options.sleep ?? sleepSync;
+  const startedAt = now();
+  let attempts = 0;
+
+  while (true) {
+    attempts += 1;
+    const row = db.prepare("SELECT pg_try_advisory_lock(?) AS acquired").get(POSTGRES_SCHEMA_VERSION) as
+      | { acquired?: boolean }
+      | undefined;
+    if (row?.acquired === true) {
+      return { attempts };
+    }
+
+    const elapsedMs = Math.max(0, now() - startedAt);
+    if (elapsedMs >= timeoutMs) {
+      throw new Error(
+        `PostgreSQL schema migration lock is busy after ${timeoutMs}ms. `
+        + `Another AgentSpace process may be initializing schema version ${POSTGRES_SCHEMA_VERSION}; `
+        + "wait for it to finish or stop the stale process before rerunning the command.",
+      );
+    }
+
+    sleep(Math.min(retryMs, timeoutMs - elapsedMs));
+  }
+}
+
+function sleepSync(durationMs: number): void {
+  if (durationMs <= 0) {
+    return;
+  }
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, durationMs);
 }
 
 function isRuntimeSchemaCurrent(db: PostgresSyncDatabase): boolean {
@@ -839,6 +895,11 @@ function resolveLocalDbPackageJsonPath(): string {
 function resolveWorkerRequestTimeoutMs(): number {
   const parsed = Number.parseInt(process.env.AGENT_SPACE_DB_WORKER_TIMEOUT_MS ?? "", 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 10_000;
+}
+
+function resolveSchemaLockTimeoutMs(): number {
+  const parsed = Number.parseInt(process.env.AGENT_SPACE_DB_SCHEMA_LOCK_TIMEOUT_MS ?? "", 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : Math.max(1_000, WORKER_REQUEST_TIMEOUT_MS - 1_000);
 }
 
 function normalizeWorkerFailure(error: unknown): Error {
