@@ -2122,8 +2122,10 @@ test("Feishu smoke-env template prepares callback smoke without leaking saved se
   assert.equal(readSmokeEnvEntry(report, "FEISHU_ENCRYPT_KEY")?.required, false);
   assert.equal(readSmokeEnvEntry(report, "FEISHU_SECOND_AGENT_APP_ID")?.value, "CHANGE_ME_SECOND_AGENT_APP_ID");
   assert.equal(readSmokeEnvEntry(report, "FEISHU_SECOND_AGENT_APP_ID")?.required, false);
+  assert.match(readSmokeEnvEntry(report, "FEISHU_SECOND_AGENT_APP_ID")?.note ?? "", /required for TODO120 Phase 6/);
   assert.equal(readSmokeEnvEntry(report, "FEISHU_SECOND_AGENT_APP_SECRET")?.secret, true);
   assert.equal(readSmokeEnvEntry(report, "FEISHU_SECOND_AGENT_APP_SECRET")?.required, false);
+  assert.match(readSmokeEnvEntry(report, "FEISHU_SECOND_AGENT_APP_SECRET")?.note ?? "", /required for TODO120 Phase 6/);
   assert.equal(readSmokeEnvEntry(report, "FEISHU_SMOKE_DOC_PARENT_BLOCK_ID")?.required, true);
   assert.equal(readSmokeEnvEntry(report, "FEISHU_SMOKE_DOC_APPEND_BLOCKS_JSON")?.required, true);
   assert.equal(readSmokeEnvEntry(report, "FEISHU_SMOKE_SHEET_RANGE")?.required, false);

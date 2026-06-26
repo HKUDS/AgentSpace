@@ -4012,7 +4012,7 @@ export function buildFeishuSmokeEnvTemplateReport(
         secret: false,
         required: false,
         source: "placeholder",
-        note: "Optional TODO120 multi-agent smoke: second disposable Feishu app id for another AgentSpace agent.",
+        note: "Optional for isolated OpenAPI smoke; required for TODO120 Phase 6 multi-agent smoke as the second disposable Feishu app id.",
       },
       {
         key: "FEISHU_SECOND_AGENT_APP_SECRET",
@@ -4020,7 +4020,7 @@ export function buildFeishuSmokeEnvTemplateReport(
         secret: true,
         required: false,
         source: "placeholder",
-        note: "Optional TODO120 multi-agent smoke: second Feishu app secret used by bind-agent-bot.",
+        note: "Optional for isolated OpenAPI smoke; required for TODO120 Phase 6 multi-agent smoke as the second Feishu app secret.",
       },
       {
         key: "FEISHU_API_BASE_URL",
