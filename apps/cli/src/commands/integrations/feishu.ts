@@ -4435,6 +4435,14 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
         issues: readyForBot ? [] : botIssues,
       },
       {
+        id: "live_external_guest_write_denied",
+        area: "data-plane",
+        title: "Live smoke: external guest write requires identity",
+        status: readyForBot && readyForDataPlane ? "pending" : "blocked",
+        detail: "From an unbound Feishu user, ask the concrete agent bot to write the bound smoke Sheet. Verify AgentSpace records external_guest governance, refuses the final Feishu write with require_identity, sends the identity-binding notice, and does not create a real workspace member.",
+        issues: readyForBot && readyForDataPlane ? [] : uniqueStrings([...botIssues, ...dataPlaneIssues]),
+      },
+      {
         id: "live_agent_channel_policy_disabled",
         area: "bot",
         title: "Live smoke: disabled agent/channel policy blocks replies",

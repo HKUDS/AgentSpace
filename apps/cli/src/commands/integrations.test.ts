@@ -4425,6 +4425,7 @@ test("Feishu smoke plan converts readiness into live smoke checklist without ext
   const liveThreadCollaboration = report.steps.find((step) => step.id === "live_multi_agent_thread_collaboration");
   const liveGuestMention = report.steps.find((step) => step.id === "live_external_guest_agent_bot_mention");
   const liveGuestReplyAll = report.steps.find((step) => step.id === "live_external_guest_reply_all");
+  const liveGuestWriteDenied = report.steps.find((step) => step.id === "live_external_guest_write_denied");
   const livePolicyDisabled = report.steps.find((step) => step.id === "live_agent_channel_policy_disabled");
   const liveAgentDocSummary = report.steps.find((step) => step.id === "live_agent_bound_doc_summary");
   const workerDryRun = report.steps.find((step) => step.id === "run_websocket_worker_dry_run");
@@ -4474,6 +4475,9 @@ test("Feishu smoke plan converts readiness into live smoke checklist without ext
   assert.match(liveGuestMention?.detail ?? "", /external_guest/);
   assert.equal(liveGuestReplyAll?.status, "pending");
   assert.match(liveGuestReplyAll?.detail ?? "", /reply_all/);
+  assert.equal(liveGuestWriteDenied?.status, "pending");
+  assert.match(liveGuestWriteDenied?.detail ?? "", /require_identity/);
+  assert.match(liveGuestWriteDenied?.detail ?? "", /does not create a real workspace member/);
   assert.equal(livePolicyDisabled?.status, "pending");
   assert.match(livePolicyDisabled?.detail ?? "", /without writing a channel message/);
   assert.equal(liveAgentDocSummary?.status, "pending");
@@ -4587,6 +4591,7 @@ test("Feishu smoke plan blocks live smoke steps when local prerequisites are mis
   const bindSecondAgentBot = report.steps.find((step) => step.id === "bind_second_feishu_agent_bot");
   const liveMultiAgentReuse = report.steps.find((step) => step.id === "live_multi_agent_bot_channel_reuse");
   const liveThreadCollaboration = report.steps.find((step) => step.id === "live_multi_agent_thread_collaboration");
+  const liveGuestWriteDenied = report.steps.find((step) => step.id === "live_external_guest_write_denied");
   const liveAgentDocSummary = report.steps.find((step) => step.id === "live_agent_bound_doc_summary");
   const workerDryRun = report.steps.find((step) => step.id === "run_websocket_worker_dry_run");
   const workerReceive = report.steps.find((step) => step.id === "live_websocket_receive_message");
@@ -4628,6 +4633,8 @@ test("Feishu smoke plan blocks live smoke steps when local prerequisites are mis
   assert.ok(liveThreadCollaboration?.issues?.includes("second_agent_bot_missing"));
   assert.equal(report.steps.find((step) => step.id === "live_external_guest_agent_bot_mention")?.status, "blocked");
   assert.equal(report.steps.find((step) => step.id === "live_external_guest_reply_all")?.status, "blocked");
+  assert.equal(liveGuestWriteDenied?.status, "blocked");
+  assert.ok(liveGuestWriteDenied?.issues?.includes("doc_resource_binding_missing"));
   assert.equal(report.steps.find((step) => step.id === "live_agent_channel_policy_disabled")?.status, "blocked");
   assert.equal(liveAgentDocSummary?.status, "blocked");
   assert.ok(liveAgentDocSummary?.issues?.includes("doc_resource_binding_missing"));
