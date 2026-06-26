@@ -5857,8 +5857,29 @@ function countFeishuAgentChannelPolicyDeniedEvidence(
       metadata.botBindingId.trim().length > 0 &&
       typeof metadata.externalChatReference === "string" &&
       metadata.externalChatReference.trim().length > 0 &&
-      Boolean(reasonCode && policyDenialReasonCodes.has(reasonCode));
+      Boolean(reasonCode && policyDenialReasonCodes.has(reasonCode)) &&
+      !hasFeishuCorrelatedOutboundReply(mappings, mapping);
   }).length;
+}
+
+function hasFeishuCorrelatedOutboundReply(
+  mappings: readonly ExternalMessageMappingRecord[],
+  inbound: ExternalMessageMappingRecord,
+): boolean {
+  return mappings.some((mapping) => {
+    if (mapping.direction !== "outbound" || !mapping.externalThreadId) {
+      return false;
+    }
+    const matchesInboundMessage = mapping.externalThreadId === inbound.externalMessageId;
+    const matchesInboundThread = Boolean(inbound.externalThreadId) &&
+      mapping.externalThreadId === inbound.externalThreadId;
+    if (!matchesInboundMessage && !matchesInboundThread) {
+      return false;
+    }
+    return !inbound.channelBindingId ||
+      !mapping.channelBindingId ||
+      inbound.channelBindingId === mapping.channelBindingId;
+  });
 }
 
 function countFeishuBotSenderLoopGuardEvidence(

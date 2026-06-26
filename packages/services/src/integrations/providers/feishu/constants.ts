@@ -83,7 +83,7 @@ export const FEISHU_OPEN_PLATFORM_SETUP_STEPS = [
 
 export const FEISHU_FINAL_EVIDENCE_GATE_REQUIREMENTS = {
   botReply: "processed_inbound + correlated_reply_mapping",
-  nativeAgentBot: "agent_bot_route + bound_user_bot_mention + external_guest_bot_mention + bot_added_auto_provision + first_message_auto_provision + multi_agent_channel_reuse + thread_task_binding + thread_continuation + thread_collaboration + bot_sender_loop_guard + agent_channel_policy_denial",
+  nativeAgentBot: "agent_bot_route + bound_user_bot_mention + external_guest_bot_mention + bot_added_auto_provision + first_message_auto_provision + multi_agent_channel_reuse + thread_task_binding + thread_continuation + thread_collaboration + bot_sender_loop_guard + agent_channel_policy_denial_without_reply",
   guestPolicy: "external_guest_allow + external_guest_reply_all + external_guest_require_identity + external_guest_ignore + external_guest_mention_required",
   workerRestart: "two_correlated_websocket_replies",
   workerCardAction: "processed_approval_card_action",
