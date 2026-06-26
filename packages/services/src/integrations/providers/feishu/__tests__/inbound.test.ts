@@ -880,6 +880,65 @@ test("bot added events reuse an existing Feishu chat channel for additional agen
   assert.doesNotMatch(hermesChannelBinding?.metadataJson ?? "", /oc_shared_group|ou_mina|on_mina/);
 });
 
+test("bot added events reactivate archived Feishu chat bindings without creating duplicate channels", databaseTestOptions, () => {
+  const fixtures = seedBoundFeishuWorkspace({ agentBot: true, bindChannel: false });
+  const archivedBinding = upsertExternalChannelBindingSync({
+    workspaceId: DEFAULT_WORKSPACE_ID,
+    integrationId: fixtures.integration.id,
+    channelName: "general",
+    externalChatId: "oc_restore_group",
+    externalChatType: "group",
+    externalChatName: "Restore Room",
+    status: "archived",
+    metadataJson: {
+      provisionSource: "manual",
+      reviewStatus: "approved",
+      externalChatReference: "legacy-safe-chat-reference",
+    },
+  });
+
+  const result = processFeishuInboundEventSync({
+    context: {
+      workspaceId: DEFAULT_WORKSPACE_ID,
+      integrationId: fixtures.integration.id,
+      provider: FEISHU_PROVIDER_ID,
+    },
+    payload: buildFeishuBotAddedPayload({
+      eventId: "evt-atlas-bot-restored",
+      chatId: "oc_restore_group",
+      chatName: "Restore Room",
+      operatorOpenId: "ou_mina",
+      operatorUnionId: "on_mina",
+    }),
+  });
+
+  assert.equal(result.dispatchStatus, "sent");
+  assert.equal(result.reasonCode, "feishu_bot_added_channel_provisioned");
+  assert.equal(result.mappedChannelName, "general");
+  const state = readWorkspaceStateSync(DEFAULT_WORKSPACE_ID);
+  assert.equal(state.channels.filter((item) => item.name === "general").length, 1);
+  assert.deepEqual(state.channels.find((item) => item.name === "general")?.employeeNames, ["Atlas"]);
+
+  const restoredBinding = readExternalChannelBindingByExternalChatSync({
+    workspaceId: DEFAULT_WORKSPACE_ID,
+    integrationId: fixtures.integration.id,
+    externalChatId: "oc_restore_group",
+  });
+  assert.ok(restoredBinding);
+  assert.equal(restoredBinding.id, archivedBinding.id);
+  assert.equal(restoredBinding.status, "active");
+  assert.equal(restoredBinding.channelName, "general");
+  const metadata = JSON.parse(restoredBinding.metadataJson) as Record<string, unknown>;
+  assert.equal(metadata.provisionSource, "bot_added");
+  assert.equal(metadata.reviewStatus, "approved");
+  assert.equal(metadata.agentId, "Atlas");
+  assert.equal(metadata.botBindingId, fixtures.integration.id);
+  assert.equal(metadata.restoredFromStatus, "archived");
+  assert.equal(metadata.restoredBindingId, archivedBinding.id);
+  assert.match(String(metadata.createdByExternalActorReference), /^[a-f0-9]{10}$/);
+  assert.doesNotMatch(restoredBinding.metadataJson, /oc_restore_group|ou_mina|on_mina/);
+});
+
 test("unbound Feishu users can dispatch as a governed external guest on agent bot mentions", databaseTestOptions, () => {
   const fixtures = seedBoundFeishuWorkspace({ agentBot: true, bindUser: false });
 

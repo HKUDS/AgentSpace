@@ -104,6 +104,24 @@ export function resolveOrProvisionFeishuChannelBindingSync(
     externalChatId,
   });
   if (existingForIntegration) {
+    if (existingForIntegration.status !== "active") {
+      const restored = reactivateExistingFeishuChannelBindingSync({
+        input,
+        binding: existingForIntegration,
+        agentId,
+        externalChatId,
+      });
+      return {
+        binding: restored.binding,
+        channelName: restored.binding.channelName,
+        createdChannel: false,
+        createdBinding: false,
+        reusedProviderChannel: false,
+        addedAgentToChannel: restored.addedAgentToChannel,
+        provisionSource: readProvisionSource(restored.binding) ?? input.provisionSource,
+        reviewStatus: readReviewStatus(restored.binding) ?? "approved",
+      };
+    }
     const addedAgentToChannel = ensureAgentInChannelSync({
       workspaceId,
       channelName: existingForIntegration.channelName,
@@ -265,6 +283,47 @@ export function queueFeishuChannelSetupCardOutboxSync(input: {
   });
 }
 
+function reactivateExistingFeishuChannelBindingSync(input: {
+  input: ResolveOrProvisionFeishuChannelBindingInput;
+  binding: ExternalChannelBindingRecord;
+  agentId: string;
+  externalChatId: string;
+}): {
+  binding: ExternalChannelBindingRecord;
+  addedAgentToChannel: boolean;
+} {
+  const addedAgentToChannel = ensureAgentInChannelSync({
+    workspaceId: input.input.workspaceId,
+    channelName: input.binding.channelName,
+    agentId: input.agentId,
+  });
+  const binding = upsertExternalChannelBindingSync({
+    workspaceId: input.input.workspaceId,
+    integrationId: input.input.integration.id,
+    channelName: input.binding.channelName,
+    externalChatId: input.externalChatId,
+    externalChatType: input.input.externalChatType ?? input.binding.externalChatType,
+    externalChatName: input.input.externalChatName ?? input.binding.externalChatName,
+    status: "active",
+    syncMode: input.binding.syncMode,
+    metadataJson: buildChannelBindingMetadata({
+      integration: input.input.integration,
+      agentId: input.agentId,
+      provisionSource: input.input.provisionSource,
+      reviewStatus: readReviewStatus(input.binding) ?? "approved",
+      externalChatId: input.externalChatId,
+      createdByExternalActorId: input.input.createdByExternalActorId,
+      restoredFromStatus: input.binding.status,
+      restoredBindingId: input.binding.id,
+    }),
+    createdByUserId: input.input.createdByUserId,
+  });
+  return {
+    binding,
+    addedAgentToChannel,
+  };
+}
+
 function ensureAgentInChannelSync(input: {
   workspaceId: string;
   channelName: string;
@@ -319,6 +378,8 @@ function buildChannelBindingMetadata(input: {
   externalChatId: string;
   createdByExternalActorId?: string;
   linkedFromBindingId?: string;
+  restoredFromStatus?: string;
+  restoredBindingId?: string;
 }): Record<string, unknown> {
   const createdByExternalActorReference = input.createdByExternalActorId
     ? shortHash(input.createdByExternalActorId)
@@ -333,6 +394,8 @@ function buildChannelBindingMetadata(input: {
     externalChatReference: shortHash(input.externalChatId),
     createdByExternalActorReference,
     linkedFromBindingId: input.linkedFromBindingId,
+    restoredFromStatus: input.restoredFromStatus,
+    restoredBindingId: input.restoredBindingId,
     autoProvisionedAt: new Date().toISOString(),
   };
 }
