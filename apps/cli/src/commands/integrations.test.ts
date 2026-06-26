@@ -943,6 +943,9 @@ test("Feishu evidence report summarizes AgentSpace-side live smoke proof without
     channelBindingsByIntegrationId: {
       "integration-evidence": [
         buildAutoProvisionedChannelBinding("integration-evidence", "first_message"),
+        buildAutoProvisionedChannelBinding("integration-evidence", "bot_added", {
+          linkedFromBindingId: "channel-atlas-binding",
+        }),
       ],
     },
     threadBindingsByIntegrationId: {
@@ -989,8 +992,10 @@ test("Feishu evidence report summarizes AgentSpace-side live smoke proof without
   assert.equal(item?.nativeExperience.agentBotRouteEvidence, 2);
   assert.equal(item?.nativeExperience.boundUserMentionEvidence, 1);
   assert.equal(item?.nativeExperience.externalGuestMentionEvidence, 1);
-  assert.equal(item?.nativeExperience.autoProvisionedChannelBindings, 1);
+  assert.equal(item?.nativeExperience.autoProvisionedChannelBindings, 2);
+  assert.equal(item?.nativeExperience.botAddedAutoProvisionedChannelBindings, 1);
   assert.equal(item?.nativeExperience.firstMessageAutoProvisionedChannelBindings, 1);
+  assert.equal(item?.nativeExperience.reusedProviderChannelBindings, 1);
   assert.equal(item?.nativeExperience.threadTaskBindings, 1);
   assert.equal(item?.guestPolicy.satisfied, true);
   assert.equal(item?.guestPolicy.externalGuestAllowedEvidence, 1);
@@ -1369,9 +1374,15 @@ test("Feishu evidence report gates native agent bot experience proof", () => {
   assert.equal(item?.nativeExperience.boundUserMentionEvidence, 1);
   assert.equal(item?.nativeExperience.externalGuestMentionEvidence, 0);
   assert.equal(item?.nativeExperience.autoProvisionedChannelBindings, 0);
+  assert.equal(item?.nativeExperience.botAddedAutoProvisionedChannelBindings, 0);
+  assert.equal(item?.nativeExperience.firstMessageAutoProvisionedChannelBindings, 0);
+  assert.equal(item?.nativeExperience.reusedProviderChannelBindings, 0);
   assert.equal(item?.nativeExperience.threadTaskBindings, 0);
   assert.ok(item?.issues.includes("external_guest_bot_mention_evidence_missing"));
   assert.ok(item?.issues.includes("channel_auto_provision_evidence_missing"));
+  assert.ok(item?.issues.includes("bot_added_auto_provision_evidence_missing"));
+  assert.ok(item?.issues.includes("first_message_auto_provision_evidence_missing"));
+  assert.ok(item?.issues.includes("multi_agent_channel_reuse_evidence_missing"));
   assert.ok(item?.issues.includes("thread_task_binding_evidence_missing"));
   assert.equal(JSON.stringify(report).includes("oc_secret"), false);
   assert.equal(JSON.stringify(report).includes("ou_secret"), false);
@@ -1686,6 +1697,9 @@ test("Feishu evidence report blocks strict gates when local proof is incomplete"
   assert.ok(item?.issues.includes("agent_bot_route_evidence_missing"));
   assert.ok(item?.issues.includes("external_guest_bot_mention_evidence_missing"));
   assert.ok(item?.issues.includes("channel_auto_provision_evidence_missing"));
+  assert.ok(item?.issues.includes("bot_added_auto_provision_evidence_missing"));
+  assert.ok(item?.issues.includes("first_message_auto_provision_evidence_missing"));
+  assert.ok(item?.issues.includes("multi_agent_channel_reuse_evidence_missing"));
   assert.ok(item?.issues.includes("thread_task_binding_evidence_missing"));
   assert.ok(item?.issues.includes("external_guest_policy_allow_evidence_missing"));
   assert.ok(item?.issues.includes("external_guest_policy_require_identity_evidence_missing"));
@@ -1698,6 +1712,8 @@ test("Feishu evidence report blocks strict gates when local proof is incomplete"
     "live_agent_bot_direct_mention",
     "live_external_guest_agent_bot_mention",
     "live_agent_bot_channel_auto_provision",
+    "live_agent_bot_first_message_auto_provision",
+    "live_multi_agent_bot_channel_reuse",
     "live_feishu_thread_task_binding",
     "live_external_guest_identity_required",
     "live_external_guest_reply_disabled",
@@ -1727,6 +1743,15 @@ test("Feishu evidence report blocks strict gates when local proof is incomplete"
     step.stepId === "live_agent_bot_channel_auto_provision"
   );
   assert.ok(autoProvisionRemediation?.issues.includes("channel_auto_provision_evidence_missing"));
+  assert.ok(autoProvisionRemediation?.issues.includes("bot_added_auto_provision_evidence_missing"));
+  const firstMessageAutoProvisionRemediation = item?.remediationSteps.find((step) =>
+    step.stepId === "live_agent_bot_first_message_auto_provision"
+  );
+  assert.ok(firstMessageAutoProvisionRemediation?.issues.includes("first_message_auto_provision_evidence_missing"));
+  const multiAgentReuseRemediation = item?.remediationSteps.find((step) =>
+    step.stepId === "live_multi_agent_bot_channel_reuse"
+  );
+  assert.ok(multiAgentReuseRemediation?.issues.includes("multi_agent_channel_reuse_evidence_missing"));
   const threadTaskRemediation = item?.remediationSteps.find((step) =>
     step.stepId === "live_feishu_thread_task_binding"
   );
@@ -4125,6 +4150,9 @@ function buildCompleteFeishuEvidenceInput() {
     channelBindingsByIntegrationId: {
       "integration-evidence": [
         buildAutoProvisionedChannelBinding("integration-evidence", "first_message"),
+        buildAutoProvisionedChannelBinding("integration-evidence", "bot_added", {
+          linkedFromBindingId: "channel-atlas-binding",
+        }),
       ],
     },
     threadBindingsByIntegrationId: {
@@ -4276,6 +4304,9 @@ function buildPolicyBlockedMessageMapping(
 function buildAutoProvisionedChannelBinding(
   integrationId: string,
   provisionSource: "bot_added" | "first_message",
+  options: {
+    linkedFromBindingId?: string;
+  } = {},
 ) {
   return {
     ...(buildChannelBinding(integrationId) as Record<string, unknown>),
@@ -4286,6 +4317,7 @@ function buildAutoProvisionedChannelBinding(
       agentId: "Atlas",
       botBindingId: integrationId,
       externalChatReference: "chat-ref-hash",
+      linkedFromBindingId: options.linkedFromBindingId,
     }),
   } as never;
 }

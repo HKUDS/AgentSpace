@@ -497,6 +497,7 @@ export interface FeishuIntegrationEvidence {
     autoProvisionedChannelBindings: number;
     botAddedAutoProvisionedChannelBindings: number;
     firstMessageAutoProvisionedChannelBindings: number;
+    reusedProviderChannelBindings: number;
     threadTaskBindings: number;
     satisfied: boolean;
   };
@@ -4320,6 +4321,7 @@ function buildFeishuIntegrationEvidence(input: {
     input.channelBindings,
     "first_message",
   );
+  const reusedProviderChannelBindings = countFeishuReusedProviderChannelBindings(input.channelBindings);
   const threadTaskBindings = countFeishuThreadTaskBindingEvidence(input.threadBindings);
   const sentOutboxItems = input.outbox.filter((item) => item.status === "sent").length;
   const failedOutboxItems = input.outbox.filter((item) =>
@@ -4366,6 +4368,9 @@ function buildFeishuIntegrationEvidence(input: {
     boundUserMentionEvidence > 0 &&
     externalGuestMentionEvidence > 0 &&
     autoProvisionedChannelBindings > 0 &&
+    botAddedAutoProvisionedChannelBindings > 0 &&
+    firstMessageAutoProvisionedChannelBindings > 0 &&
+    reusedProviderChannelBindings > 0 &&
     threadTaskBindings > 0;
   const guestPolicySatisfied = externalGuestAllowedEvidence > 0 &&
     externalGuestRequireIdentityEvidence > 0 &&
@@ -4412,6 +4417,9 @@ function buildFeishuIntegrationEvidence(input: {
     externalGuestIgnoreEvidence,
     externalGuestMentionRequiredEvidence,
     autoProvisionedChannelBindings,
+    botAddedAutoProvisionedChannelBindings,
+    firstMessageAutoProvisionedChannelBindings,
+    reusedProviderChannelBindings,
     threadTaskBindings,
     docReadSucceeded,
     agentDocReadSucceeded,
@@ -4458,6 +4466,7 @@ function buildFeishuIntegrationEvidence(input: {
       autoProvisionedChannelBindings,
       botAddedAutoProvisionedChannelBindings,
       firstMessageAutoProvisionedChannelBindings,
+      reusedProviderChannelBindings,
       threadTaskBindings,
       satisfied: nativeExperienceSatisfied,
     },
@@ -4664,6 +4673,9 @@ function buildFeishuEvidenceIssues(input: {
   externalGuestIgnoreEvidence: number;
   externalGuestMentionRequiredEvidence: number;
   autoProvisionedChannelBindings: number;
+  botAddedAutoProvisionedChannelBindings: number;
+  firstMessageAutoProvisionedChannelBindings: number;
+  reusedProviderChannelBindings: number;
   threadTaskBindings: number;
   docReadSucceeded: number;
   agentDocReadSucceeded: number;
@@ -4715,6 +4727,15 @@ function buildFeishuEvidenceIssues(input: {
     }
     if (input.autoProvisionedChannelBindings === 0) {
       issues.push("channel_auto_provision_evidence_missing");
+    }
+    if (input.botAddedAutoProvisionedChannelBindings === 0) {
+      issues.push("bot_added_auto_provision_evidence_missing");
+    }
+    if (input.firstMessageAutoProvisionedChannelBindings === 0) {
+      issues.push("first_message_auto_provision_evidence_missing");
+    }
+    if (input.reusedProviderChannelBindings === 0) {
+      issues.push("multi_agent_channel_reuse_evidence_missing");
     }
     if (input.threadTaskBindings === 0) {
       issues.push("thread_task_binding_evidence_missing");
@@ -4901,6 +4922,24 @@ function mapFeishuEvidenceIssueToRemediationSpec(input: {
         stepId: "live_agent_bot_channel_auto_provision",
         title: "Live smoke: agent bot auto-provisions channel",
         detail: "Add the agent bot to a new Feishu group or send a first mentioned message in an unbound group, then verify the channel binding metadata records bot_added or first_message auto-provisioning.",
+      };
+    case "bot_added_auto_provision_evidence_missing":
+      return {
+        stepId: "live_agent_bot_channel_auto_provision",
+        title: "Live smoke: agent bot auto-provisions channel",
+        detail: "Add the agent bot to a new Feishu group and verify the channel binding metadata records provisionSource=bot_added with safe chat reference metadata.",
+      };
+    case "first_message_auto_provision_evidence_missing":
+      return {
+        stepId: "live_agent_bot_first_message_auto_provision",
+        title: "Live smoke: first mentioned message provisions channel",
+        detail: "Send the first mentioned message from an unbound Feishu group and verify AgentSpace records provisionSource=first_message.",
+      };
+    case "multi_agent_channel_reuse_evidence_missing":
+      return {
+        stepId: "live_multi_agent_bot_channel_reuse",
+        title: "Live smoke: second agent bot reuses channel",
+        detail: "Add a second agent bot to the same Feishu group and verify AgentSpace adds that agent to the existing channel with linkedFromBindingId metadata instead of creating a duplicate channel.",
       };
     case "thread_task_binding_evidence_missing":
       return {
@@ -5131,6 +5170,27 @@ function countFeishuAutoProvisionedChannelBindings(
       return false;
     }
     return metadata?.provider === FEISHU_PROVIDER_ID &&
+      typeof metadata.agentId === "string" &&
+      metadata.agentId.trim().length > 0 &&
+      typeof metadata.botBindingId === "string" &&
+      metadata.botBindingId.trim().length > 0 &&
+      typeof metadata.externalChatReference === "string" &&
+      metadata.externalChatReference.trim().length > 0;
+  }).length;
+}
+
+function countFeishuReusedProviderChannelBindings(
+  bindings: readonly ExternalChannelBindingRecord[],
+): number {
+  return bindings.filter((binding) => {
+    if (binding.status !== "active") {
+      return false;
+    }
+    const metadata = readJsonRecord(binding.metadataJson);
+    return metadata?.provider === FEISHU_PROVIDER_ID &&
+      metadata.provisionSource === "bot_added" &&
+      typeof metadata.linkedFromBindingId === "string" &&
+      metadata.linkedFromBindingId.trim().length > 0 &&
       typeof metadata.agentId === "string" &&
       metadata.agentId.trim().length > 0 &&
       typeof metadata.botBindingId === "string" &&
