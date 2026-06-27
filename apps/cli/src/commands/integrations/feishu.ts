@@ -594,9 +594,12 @@ export interface FeishuHealthCheckCliItem {
 
 export interface FeishuEvidenceReport {
   workspaceId: string;
+  integrationId?: string;
   requiredEvidence: FeishuEvidenceRequirement;
   integrationCount: number;
   strictSatisfied: boolean;
+  issues: string[];
+  remediationSteps: FeishuEvidenceRemediationStep[];
   openApiEvidence?: FeishuOpenApiSmokeEvidenceVerification;
   botAddedPayloadEvidence?: FeishuBotAddedPayloadEvidenceVerification;
   summary: {
@@ -626,6 +629,7 @@ export interface FeishuEvidenceReport {
 export interface FeishuIntegrationEvidence {
   id: string;
   displayName: string;
+  status: string;
   transportMode: string;
   localEvidenceFreshness: FeishuLocalEvidenceFreshnessSummary;
   bot: {
@@ -4407,14 +4411,28 @@ export function buildFeishuEvidenceReport(input: BuildFeishuEvidenceReportInput)
     allEvidenceItems,
     (item) => item.localEvidenceFreshness.staleRows,
   );
+  const reportIssues = buildFeishuEvidenceReportIssues({
+    sourceIntegrationCount: sourceIntegrations.length,
+    scopedIntegrationId: input.integrationId,
+    evidenceItems,
+  });
+  const reportRemediationSteps = buildFeishuEvidenceReportRemediationSteps({
+    workspaceId: input.workspaceId,
+    integrationId: input.integrationId,
+    issues: reportIssues,
+  });
 
   return {
     workspaceId: input.workspaceId,
+    ...(input.integrationId ? { integrationId: input.integrationId } : {}),
     requiredEvidence,
     integrationCount: evidenceItems.length,
-    strictSatisfied: agentSpaceStrictSatisfied &&
+    strictSatisfied: reportIssues.length === 0 &&
+      agentSpaceStrictSatisfied &&
       (!finalOpenApiEvidence || finalOpenApiEvidence.valid) &&
       (!botAddedPayloadEvidence || botAddedPayloadEvidence.valid),
+    issues: reportIssues,
+    remediationSteps: reportRemediationSteps,
     ...(finalOpenApiEvidence ? { openApiEvidence: finalOpenApiEvidence } : {}),
     ...(botAddedPayloadEvidence ? { botAddedPayloadEvidence } : {}),
     summary: {
@@ -4510,6 +4528,7 @@ export function formatFeishuEvidenceCommandText(report: FeishuEvidenceReport): s
   const lines = [
     "AgentSpace Feishu evidence",
     `Workspace: ${report.workspaceId}`,
+    ...(report.integrationId ? [`Selected integration: ${report.integrationId}`] : []),
     `Required evidence: ${report.requiredEvidence}`,
     `Strict evidence satisfied: ${report.strictSatisfied ? "yes" : "no"}`,
     `Integrations: ${report.integrationCount}`,
@@ -4529,15 +4548,27 @@ export function formatFeishuEvidenceCommandText(report: FeishuEvidenceReport): s
     ...formatFeishuArtifactEvidenceLines("OpenAPI strict live", report.openApiEvidence),
     ...formatFeishuArtifactEvidenceLines("Bot-added payload", report.botAddedPayloadEvidence),
     "",
-    "Integration evidence:",
+    "Report issues:",
   ];
 
+  if (report.issues.length === 0) {
+    lines.push("- none");
+  } else {
+    lines.push(`- ${report.issues.slice(0, 12).join(", ")}${report.issues.length > 12 ? ", ..." : ""}`);
+  }
+
+  lines.push(
+    "",
+    "Integration evidence:",
+  );
+
   if (report.integrations.length === 0) {
-    lines.push("- none found; create or select an active Feishu agent bot integration before final evidence.");
+    lines.push(formatFeishuEmptyIntegrationEvidenceLine(report));
   } else {
     for (const item of report.integrations.slice(0, 8)) {
       lines.push(
         `- ${item.displayName} (${item.id}, ${item.transportMode})`,
+        `  status: ${item.status}`,
         `  gates: bot=${formatFeishuCliYesNo(item.bot.satisfied)}, native=${formatFeishuCliYesNo(item.nativeExperience.satisfied)}, guest=${formatFeishuCliYesNo(item.guestPolicy.satisfied)}, data=${formatFeishuCliYesNo(item.dataPlane.satisfied)}, worker=${formatFeishuCliYesNo(item.worker.satisfied)}, failure=${formatFeishuCliYesNo(item.failureVisibility.satisfied)}`,
         `  local evidence freshness: fresh=${item.localEvidenceFreshness.freshRows}, staleIgnored=${item.localEvidenceFreshness.staleRows}, maxAgeHours=${item.localEvidenceFreshness.maxAgeHours}`,
       );
@@ -4605,6 +4636,7 @@ function formatFeishuArtifactEvidenceLines(
 
 function collectFeishuEvidenceRemediationSteps(report: FeishuEvidenceReport): FeishuEvidenceRemediationStep[] {
   const steps = [
+    ...report.remediationSteps,
     ...(report.openApiEvidence?.remediationSteps ?? []),
     ...(report.botAddedPayloadEvidence?.remediationSteps ?? []),
     ...report.integrations.flatMap((item) => item.remediationSteps),
@@ -4624,6 +4656,67 @@ function collectFeishuEvidenceRemediationSteps(report: FeishuEvidenceReport): Fe
 
 function formatFeishuCliYesNo(value: boolean): "yes" | "no" {
   return value ? "yes" : "no";
+}
+
+function formatFeishuEmptyIntegrationEvidenceLine(report: FeishuEvidenceReport): string {
+  if (report.issues.includes("selected_integration_missing") && report.integrationId) {
+    return `- none matched --integration ${report.integrationId}; run smoke-plan without --integration to list active Feishu agent bot bindings, or bind a fresh agent-specific Feishu bot.`;
+  }
+  if (report.issues.includes("integration_missing")) {
+    if (report.integrationId) {
+      return `- no Feishu agent bot integrations found in this workspace; --integration ${report.integrationId} cannot be evaluated until an agent-specific Feishu bot is bound.`;
+    }
+    return "- no Feishu agent bot integrations found; run smoke-plan, then bind a Feishu custom app to a concrete AgentSpace agent.";
+  }
+  return "- none found; create or select an active Feishu agent bot integration before final evidence.";
+}
+
+function buildFeishuEvidenceReportIssues(input: {
+  sourceIntegrationCount: number;
+  scopedIntegrationId?: string;
+  evidenceItems: readonly FeishuIntegrationEvidence[];
+}): string[] {
+  if (input.sourceIntegrationCount === 0) {
+    return ["integration_missing"];
+  }
+  if (input.scopedIntegrationId && input.evidenceItems.length === 0) {
+    return ["selected_integration_missing"];
+  }
+  return [];
+}
+
+function buildFeishuEvidenceReportRemediationSteps(input: {
+  workspaceId: string;
+  integrationId?: string;
+  issues: readonly string[];
+}): FeishuEvidenceRemediationStep[] {
+  const steps: FeishuEvidenceRemediationStep[] = [];
+  for (const issue of input.issues) {
+    switch (issue) {
+      case "integration_missing":
+        steps.push({
+          stepId: "bind_feishu_agent_bot",
+          title: "Live smoke: create an active Feishu agent bot binding",
+          detail: "Final evidence requires at least one active AgentSpace Feishu agent bot binding. Run smoke-plan for the ordered setup checklist, then bind a Feishu custom app to a concrete AgentSpace agent with App ID and App Secret.",
+          issues: [issue],
+          command: [
+            `agent-space integrations feishu smoke-plan --workspace-id ${input.workspaceId}`,
+            `agent-space integrations feishu bind-agent-bot --workspace-id ${input.workspaceId} --agent ${FEISHU_CLI_PLACEHOLDERS.agentName} --env-file scripts/feishu/.env --app-id-env FEISHU_APP_ID --app-secret-env FEISHU_APP_SECRET --json`,
+          ].join("\n"),
+        });
+        break;
+      case "selected_integration_missing":
+        steps.push({
+          stepId: "select_active_agent_bot_binding",
+          title: "Live smoke: select an existing Feishu agent bot binding",
+          detail: "The requested --integration id did not match any Feishu integration in this workspace. Rerun smoke-plan without --integration to find active bindings, or bind a fresh agent-specific Feishu bot before final evidence.",
+          issues: [issue],
+          command: `agent-space integrations feishu smoke-plan --workspace-id ${input.workspaceId}`,
+        });
+        break;
+    }
+  }
+  return steps;
 }
 
 function reconcileFeishuArtifactAnchorConsistency(input: {
@@ -6097,6 +6190,7 @@ function buildFeishuIntegrationEvidence(input: {
   return {
     id: input.integration.id,
     displayName: input.integration.displayName,
+    status: input.integration.status,
     transportMode: input.integration.transportMode,
     localEvidenceFreshness,
     bot: {
