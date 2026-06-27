@@ -2,7 +2,15 @@ import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname } from "node:path";
-import { buildFeishuUrlVerificationResponse } from "../../packages/services/src/integrations/providers/feishu/events.ts";
+import {
+  buildFeishuUrlVerificationResponse,
+  resolveFeishuEventType,
+} from "../../packages/services/src/integrations/providers/feishu/events.ts";
+import {
+  isFeishuBotAddedToChatPayload,
+  resolveFeishuChatDescriptor,
+} from "../../packages/services/src/integrations/providers/feishu/agent-bot-routing.ts";
+import { summarizeFeishuInboundEventPayload } from "../../packages/services/src/integrations/providers/feishu/event-summary.ts";
 import {
   FEISHU_OPENAPI_REQUIRED_DESTRUCTIVE_LIVE_SMOKE_STEPS,
   FEISHU_OPENAPI_REQUIRED_LIVE_SMOKE_STEPS,
@@ -75,6 +83,7 @@ interface SmokeOutput {
   live: boolean;
   strictLive: boolean;
   summary: SmokeSummary;
+  todo120NativeSmoke: SmokeEnvCheckOutput["todo120NativeSmoke"];
   steps: SafeSmokeStep[];
 }
 
@@ -92,6 +101,32 @@ interface SmokeEvidenceVerificationOutput {
     liveFailed: number;
     destructiveLiveChecks: number;
     requiredLiveSteps: number;
+    todo120NativeSmokeReady: boolean;
+    todo120NativeSmokeRequiredForCommand: boolean;
+    todo120NativeSmokeRequired: number;
+    todo120NativeSmokeConfigured: number;
+  };
+}
+
+interface FeishuBotAddedPayloadVerificationOutput {
+  payloadPath: string;
+  valid: boolean;
+  issues: string[];
+  summary: {
+    eventType: string;
+    botAddedEvent: boolean;
+    chatDescriptorPresent: boolean;
+    chatIdSource?: string;
+    chatReference?: string;
+    chatIdRedacted: boolean;
+    chatType?: string;
+    chatNamePresent: boolean;
+    chatNameHash?: string;
+    chatNameLength?: number;
+    externalEventReference?: string;
+    externalEventIdRedacted: boolean;
+    payloadHash: string;
+    rawPayloadStored: false;
   };
 }
 
@@ -209,6 +244,20 @@ class SmokeCliError extends Error {
 }
 
 async function main(): Promise<void> {
+  const verifyBotAddedPayloadPath = readArgValue("--verify-bot-added-payload");
+  if (verifyBotAddedPayloadPath) {
+    const verification = verifyFeishuBotAddedPayloadFile(verifyBotAddedPayloadPath);
+    if (json) {
+      console.log(JSON.stringify(verification, null, 2));
+    } else {
+      printBotAddedPayloadVerificationSummary(verification);
+    }
+    if (!verification.valid) {
+      process.exitCode = 1;
+    }
+    return;
+  }
+
   const verifyEvidencePath = readArgValue("--verify-evidence");
   if (verifyEvidencePath) {
     const verification = verifySmokeEvidenceFile(verifyEvidencePath);
@@ -399,7 +448,16 @@ async function main(): Promise<void> {
   }));
 
   const summary = summarizeSteps({ live, strictLive, steps });
-  const output = buildSmokeOutput({ live, strictLive, summary, steps });
+  const envCheck = buildSmokeEnvCheckOutput(envFilePath, {
+    requireTodo120NativeSmoke,
+  });
+  const output = buildSmokeOutput({
+    live,
+    strictLive,
+    summary,
+    todo120NativeSmoke: envCheck.todo120NativeSmoke,
+    steps,
+  });
   const evidenceWritten = Boolean(evidencePath && summary.strictLiveSatisfied);
   if (evidenceWritten && evidencePath) {
     writeVerifiedEvidenceFile(evidencePath, output);
@@ -1589,6 +1647,108 @@ async function readJsonResponse(response: Response): Promise<Record<string, unkn
   }
 }
 
+function verifyFeishuBotAddedPayloadFile(path: string): FeishuBotAddedPayloadVerificationOutput {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(path, "utf8")) as unknown;
+  } catch {
+    const issues = ["bot_added_payload_unreadable"];
+    return buildFeishuBotAddedPayloadVerificationOutput({
+      payloadPath: path,
+      payload: {},
+      issues,
+    });
+  }
+
+  const payload = parsed && typeof parsed === "object" && !Array.isArray(parsed)
+    ? parsed as Record<string, unknown>
+    : undefined;
+  const issues: string[] = [];
+  if (!payload) {
+    issues.push("bot_added_payload_not_object");
+  }
+
+  const safePayload = payload ?? {};
+  if (!isFeishuBotAddedToChatPayload(safePayload)) {
+    issues.push("bot_added_event_not_recognized");
+  }
+  if (!resolveFeishuChatDescriptor(safePayload)) {
+    issues.push("bot_added_chat_descriptor_missing");
+  }
+
+  const output = buildFeishuBotAddedPayloadVerificationOutput({
+    payloadPath: path,
+    payload: safePayload,
+    issues,
+  });
+  const serialized = JSON.stringify(output);
+  if (containsSecretLikeEvidence(serialized)) {
+    output.issues.push("bot_added_summary_secret_like_value");
+  }
+  if (containsRawFeishuEvidenceIdentifier(serialized)) {
+    output.issues.push("bot_added_summary_raw_feishu_identifier");
+  }
+  if (containsAgentSpaceCallbackUrlEvidence(serialized)) {
+    output.issues.push("bot_added_summary_callback_url");
+  }
+  output.valid = output.issues.length === 0;
+  return output;
+}
+
+function buildFeishuBotAddedPayloadVerificationOutput(input: {
+  payloadPath: string;
+  payload: Record<string, unknown>;
+  issues: string[];
+}): FeishuBotAddedPayloadVerificationOutput {
+  const descriptor = resolveFeishuChatDescriptor(input.payload);
+  const eventSummary = summarizeFeishuInboundEventPayload(input.payload);
+  const externalEventReference = readString(eventSummary.externalEventReference);
+  const externalEventIdRedacted = eventSummary.externalEventIdRedacted === true;
+  const payloadHash = readString(eventSummary.payloadHash) ?? sha256Json(input.payload);
+  const chatName = descriptor?.externalChatName?.trim();
+  return {
+    payloadPath: sanitizeSmokeOutputText(input.payloadPath),
+    valid: input.issues.length === 0,
+    issues: [...input.issues],
+    summary: {
+      eventType: sanitizeSmokeOutputText(resolveFeishuEventType(input.payload)).slice(0, 160),
+      botAddedEvent: isFeishuBotAddedToChatPayload(input.payload),
+      chatDescriptorPresent: Boolean(descriptor),
+      ...(descriptor ? { chatIdSource: resolveFeishuChatIdSource(input.payload) } : {}),
+      ...(descriptor ? { chatReference: buildSafeReference("chat", descriptor.externalChatId) } : {}),
+      chatIdRedacted: Boolean(descriptor?.externalChatId),
+      ...(descriptor?.externalChatType
+        ? { chatType: sanitizeSmokeOutputText(descriptor.externalChatType).slice(0, 80) }
+        : {}),
+      chatNamePresent: Boolean(chatName),
+      ...(chatName ? { chatNameHash: sha256Text(chatName) } : {}),
+      ...(chatName ? { chatNameLength: Buffer.byteLength(chatName, "utf8") } : {}),
+      ...(externalEventReference ? { externalEventReference } : {}),
+      externalEventIdRedacted,
+      payloadHash,
+      rawPayloadStored: false,
+    },
+  };
+}
+
+function resolveFeishuChatIdSource(payload: Record<string, unknown>): string | undefined {
+  const event = readRecord(payload.event);
+  const message = readRecord(event?.message);
+  const chat = readRecord(event?.chat) ?? readRecord(message?.chat);
+  const candidates: Array<[string, unknown]> = [
+    ["event.message.chat_id", message?.chat_id],
+    ["event.message.chatId", message?.chatId],
+    ["event.chat_id", event?.chat_id],
+    ["event.chatId", event?.chatId],
+    ["event.chat.chat_id", chat?.chat_id],
+    ["event.chat.chatId", chat?.chatId],
+    ["event.chat.open_chat_id", chat?.open_chat_id],
+    ["event.chat.openChatId", chat?.openChatId],
+    ["event.chat.id", chat?.id],
+  ];
+  return candidates.find(([, value]) => typeof value === "string" && value.trim())?.[0];
+}
+
 function formatCallbackProbeError(error: unknown, callbackUrl: string | undefined): string {
   let message = formatError(error);
   if (callbackUrl) {
@@ -1607,6 +1767,9 @@ function verifySmokeEvidence(path: string, evidence: unknown): SmokeEvidenceVeri
   const output = evidence && typeof evidence === "object" ? evidence as Partial<SmokeOutput> : undefined;
   const summary = output?.summary && typeof output.summary === "object"
     ? output.summary as Partial<SmokeSummary>
+    : undefined;
+  const todo120NativeSmoke = output?.todo120NativeSmoke && typeof output.todo120NativeSmoke === "object"
+    ? output.todo120NativeSmoke as Partial<SmokeEnvCheckOutput["todo120NativeSmoke"]>
     : undefined;
   const steps = Array.isArray(output?.steps) ? output.steps : [];
 
@@ -1630,6 +1793,22 @@ function verifySmokeEvidence(path: string, evidence: unknown): SmokeEvidenceVeri
   }
   if ((summary?.missingEnv?.length ?? 0) !== 0) {
     issues.push("missing_live_env");
+  }
+  if (!todo120NativeSmoke) {
+    issues.push("todo120_native_smoke_missing");
+  } else {
+    if (todo120NativeSmoke.requiredForCommand !== true) {
+      issues.push("todo120_native_smoke_not_required");
+    }
+    if (todo120NativeSmoke.ready !== true) {
+      issues.push("todo120_native_smoke_not_ready");
+    }
+    if (readNumber(todo120NativeSmoke.required) < 2) {
+      issues.push("todo120_native_smoke_requirement_incomplete");
+    }
+    if (readNumber(todo120NativeSmoke.configured) < readNumber(todo120NativeSmoke.required)) {
+      issues.push("todo120_native_smoke_env_incomplete");
+    }
   }
   if (readNumber(summary?.liveChecks) < FEISHU_OPENAPI_REQUIRED_LIVE_SMOKE_STEPS.length) {
     issues.push("live_check_summary_incomplete");
@@ -1736,6 +1915,10 @@ function verifySmokeEvidence(path: string, evidence: unknown): SmokeEvidenceVeri
       liveFailed: readNumber(summary?.liveFailed),
       destructiveLiveChecks: readNumber(summary?.destructiveLiveChecks),
       requiredLiveSteps: FEISHU_OPENAPI_REQUIRED_LIVE_SMOKE_STEPS.length,
+      todo120NativeSmokeReady: todo120NativeSmoke?.ready === true,
+      todo120NativeSmokeRequiredForCommand: todo120NativeSmoke?.requiredForCommand === true,
+      todo120NativeSmokeRequired: readNumber(todo120NativeSmoke?.required),
+      todo120NativeSmokeConfigured: readNumber(todo120NativeSmoke?.configured),
     },
   };
 }
@@ -1847,10 +2030,33 @@ function readNumber(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
 
+function readString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function readRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
+}
+
+function sha256Json(value: unknown): string {
+  return sha256Text(JSON.stringify(value));
+}
+
+function sha256Text(value: string): string {
+  return createHash("sha256").update(value, "utf8").digest("hex");
+}
+
+function buildSafeReference(kind: string, value: string): string {
+  return `${kind} ${sha256Text(value).slice(0, 16)}`;
+}
+
 function buildSmokeOutput(input: {
   live: boolean;
   strictLive: boolean;
   summary: SmokeSummary;
+  todo120NativeSmoke: SmokeEnvCheckOutput["todo120NativeSmoke"];
   steps: SmokeStep[];
 }): SmokeOutput {
   return {
@@ -1858,6 +2064,7 @@ function buildSmokeOutput(input: {
     live: input.live,
     strictLive: input.strictLive,
     summary: input.summary,
+    todo120NativeSmoke: input.todo120NativeSmoke,
     steps: input.steps.map((step) => ({
       ...step,
       ...(step.detail ? { detail: sanitizeSmokeOutputText(step.detail) } : {}),
@@ -2065,6 +2272,31 @@ function printEvidenceVerificationSummary(input: SmokeEvidenceVerificationOutput
     `Live checks: ${input.summary.livePassed}/${input.summary.liveChecks} passed`
     + `; required steps: ${input.summary.requiredLiveSteps}`
     + `; destructive checks: ${input.summary.destructiveLiveChecks}`,
+  );
+  console.log(
+    `TODO120 native env: ${input.summary.todo120NativeSmokeConfigured}/`
+    + `${input.summary.todo120NativeSmokeRequired} configured`
+    + `; required: ${input.summary.todo120NativeSmokeRequiredForCommand ? "yes" : "no"}`
+    + `; ready: ${input.summary.todo120NativeSmokeReady ? "yes" : "no"}`,
+  );
+  if (input.issues.length > 0) {
+    console.log(`Issues: ${input.issues.join(", ")}`);
+  }
+}
+
+function printBotAddedPayloadVerificationSummary(input: FeishuBotAddedPayloadVerificationOutput): void {
+  console.log(`Feishu bot-added payload: ${input.valid ? "valid" : "invalid"}`);
+  console.log(`Payload: ${input.payloadPath}`);
+  console.log(
+    `Event: ${input.summary.eventType || "(missing)"}`
+    + `; bot-added: ${input.summary.botAddedEvent ? "yes" : "no"}`
+    + `; chat descriptor: ${input.summary.chatDescriptorPresent ? "yes" : "no"}`,
+  );
+  console.log(
+    `Chat: ${input.summary.chatReference ?? "(missing)"}`
+    + `; source: ${input.summary.chatIdSource ?? "(missing)"}`
+    + `; name: ${input.summary.chatNamePresent ? "present" : "missing"}`
+    + "; raw payload stored: no",
   );
   if (input.issues.length > 0) {
     console.log(`Issues: ${input.issues.join(", ")}`);

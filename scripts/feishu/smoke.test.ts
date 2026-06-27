@@ -6,6 +6,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
+const tempFixtureDirectories: string[] = [];
+process.on("exit", () => {
+  for (const directory of tempFixtureDirectories.splice(0)) {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test("verifies a complete strict live Feishu smoke evidence artifact", () => {
   const evidencePath = writeEvidenceFixture(buildEvidenceFixture());
   const result = runVerifyEvidence(evidencePath);
@@ -19,6 +26,10 @@ test("verifies a complete strict live Feishu smoke evidence artifact", () => {
       livePassed: number;
       requiredLiveSteps: number;
       destructiveLiveChecks: number;
+      todo120NativeSmokeReady: boolean;
+      todo120NativeSmokeRequiredForCommand: boolean;
+      todo120NativeSmokeRequired: number;
+      todo120NativeSmokeConfigured: number;
     };
   };
   assert.equal(output.valid, true);
@@ -27,6 +38,10 @@ test("verifies a complete strict live Feishu smoke evidence artifact", () => {
   assert.equal(output.summary.livePassed, 12);
   assert.equal(output.summary.requiredLiveSteps, 12);
   assert.equal(output.summary.destructiveLiveChecks, 3);
+  assert.equal(output.summary.todo120NativeSmokeReady, true);
+  assert.equal(output.summary.todo120NativeSmokeRequiredForCommand, true);
+  assert.equal(output.summary.todo120NativeSmokeRequired, 2);
+  assert.equal(output.summary.todo120NativeSmokeConfigured, 2);
 });
 
 test("rejects old Feishu smoke evidence that lacks Doc append coverage", () => {
@@ -53,6 +68,56 @@ test("rejects old Feishu smoke evidence that lacks Doc append coverage", () => {
   assert.ok(output.issues.includes("live_passed_summary_incomplete"));
   assert.ok(output.issues.includes("doc_append_not_marked_destructive"));
   assert.ok(output.issues.includes("destructive_live_checks_missing"));
+});
+
+test("rejects Feishu smoke evidence without TODO120 native multi-agent proof", () => {
+  const evidence = buildEvidenceFixture();
+  delete (evidence as Partial<ReturnType<typeof buildEvidenceFixture>>).todo120NativeSmoke;
+  const evidencePath = writeEvidenceFixture(evidence);
+  const result = runVerifyEvidence(evidencePath);
+
+  assert.equal(result.status, 1);
+  const output = JSON.parse(result.stdout) as {
+    valid: boolean;
+    issues: string[];
+    summary: {
+      todo120NativeSmokeReady: boolean;
+      todo120NativeSmokeRequiredForCommand: boolean;
+      todo120NativeSmokeRequired: number;
+      todo120NativeSmokeConfigured: number;
+    };
+  };
+  assert.equal(output.valid, false);
+  assert.equal(output.summary.todo120NativeSmokeReady, false);
+  assert.equal(output.summary.todo120NativeSmokeRequiredForCommand, false);
+  assert.equal(output.summary.todo120NativeSmokeRequired, 0);
+  assert.equal(output.summary.todo120NativeSmokeConfigured, 0);
+  assert.ok(output.issues.includes("todo120_native_smoke_missing"));
+});
+
+test("rejects Feishu smoke evidence when TODO120 native multi-agent env was not required", () => {
+  const evidence = buildEvidenceFixture();
+  evidence.todo120NativeSmoke.requiredForCommand = false;
+  const evidencePath = writeEvidenceFixture(evidence);
+  const result = runVerifyEvidence(evidencePath);
+
+  assert.equal(result.status, 1);
+  const output = JSON.parse(result.stdout) as {
+    valid: boolean;
+    issues: string[];
+    summary: {
+      todo120NativeSmokeReady: boolean;
+      todo120NativeSmokeRequiredForCommand: boolean;
+      todo120NativeSmokeRequired: number;
+      todo120NativeSmokeConfigured: number;
+    };
+  };
+  assert.equal(output.valid, false);
+  assert.equal(output.summary.todo120NativeSmokeReady, true);
+  assert.equal(output.summary.todo120NativeSmokeRequiredForCommand, false);
+  assert.equal(output.summary.todo120NativeSmokeRequired, 2);
+  assert.equal(output.summary.todo120NativeSmokeConfigured, 2);
+  assert.ok(output.issues.includes("todo120_native_smoke_not_required"));
 });
 
 test("rejects Feishu smoke evidence with unredacted resource tokens", () => {
@@ -229,6 +294,116 @@ test("dry-run validates Feishu message, bot-added, and card-action EventDispatch
   assert.equal(cardActionStep?.status, "pass");
   assert.match(botAddedStep?.detail ?? "", /bot-added handler/);
   assert.match(cardActionStep?.detail ?? "", /card-action handler/);
+});
+
+test("verifies a captured bot-added payload without leaking Feishu identifiers", () => {
+  const payloadPath = writePayloadFixture({
+    schema: "2.0",
+    header: {
+      event_id: "evt_real_bot_added",
+      event_type: "im.chat.member.bot.added_v1",
+      create_time: "1710000000000",
+      app_id: "cli_real_app",
+      tenant_key: "tenant-real",
+    },
+    event: {
+      chat: {
+        openChatId: "oc_real_secret_chat",
+        type: "group",
+        i18nNames: {
+          zhCn: "真实验收群",
+        },
+      },
+      operator_id: {
+        open_id: "ou_real_operator",
+        union_id: "on_real_operator",
+      },
+    },
+  });
+  const result = spawnSync(
+    process.execPath,
+    [
+      "--experimental-strip-types",
+      "scripts/feishu/smoke.ts",
+      "--verify-bot-added-payload",
+      payloadPath,
+      "--json",
+    ],
+    { cwd: process.cwd(), encoding: "utf8" },
+  );
+
+  assert.equal(result.status, 0, result.stderr);
+  const output = JSON.parse(result.stdout) as {
+    valid: boolean;
+    issues: string[];
+    summary: {
+      botAddedEvent: boolean;
+      chatDescriptorPresent: boolean;
+      chatIdSource?: string;
+      chatReference?: string;
+      chatIdRedacted: boolean;
+      chatNamePresent: boolean;
+      chatNameHash?: string;
+      chatNameLength?: number;
+      rawPayloadStored: boolean;
+    };
+  };
+  assert.equal(output.valid, true);
+  assert.deepEqual(output.issues, []);
+  assert.equal(output.summary.botAddedEvent, true);
+  assert.equal(output.summary.chatDescriptorPresent, true);
+  assert.equal(output.summary.chatIdSource, "event.chat.openChatId");
+  assert.match(output.summary.chatReference ?? "", /^chat [a-f0-9]{16}$/);
+  assert.equal(output.summary.chatIdRedacted, true);
+  assert.equal(output.summary.chatNamePresent, true);
+  assert.match(output.summary.chatNameHash ?? "", /^[a-f0-9]{64}$/);
+  assert.ok((output.summary.chatNameLength ?? 0) > 0);
+  assert.equal(output.summary.rawPayloadStored, false);
+  assert.equal(result.stdout.includes("oc_real_secret_chat"), false);
+  assert.equal(result.stdout.includes("ou_real_operator"), false);
+  assert.equal(result.stdout.includes("on_real_operator"), false);
+  assert.equal(result.stdout.includes("真实验收群"), false);
+});
+
+test("rejects captured payloads that are not bot-added events", () => {
+  const payloadPath = writePayloadFixture({
+    schema: "2.0",
+    header: {
+      event_id: "evt_real_message",
+      event_type: "im.message.receive_v1",
+      create_time: "1710000000000",
+    },
+    event: {
+      message: {
+        message_id: "om_real_message",
+        chat_id: "oc_real_chat",
+        chat_type: "group",
+        message_type: "text",
+        content: "{\"text\":\"hello\"}",
+      },
+    },
+  });
+  const result = spawnSync(
+    process.execPath,
+    [
+      "--experimental-strip-types",
+      "scripts/feishu/smoke.ts",
+      "--verify-bot-added-payload",
+      payloadPath,
+      "--json",
+    ],
+    { cwd: process.cwd(), encoding: "utf8" },
+  );
+
+  assert.equal(result.status, 1);
+  const output = JSON.parse(result.stdout) as {
+    valid: boolean;
+    issues: string[];
+  };
+  assert.equal(output.valid, false);
+  assert.ok(output.issues.includes("bot_added_event_not_recognized"));
+  assert.equal(result.stdout.includes("oc_real_chat"), false);
+  assert.equal(result.stdout.includes("om_real_message"), false);
 });
 
 test("strict-live without live mode cannot be mistaken for completed evidence", () => {
@@ -1625,10 +1800,16 @@ function writeEvidenceFixture(evidence: ReturnType<typeof buildEvidenceFixture>)
   const directory = mkdtempSync(join(tmpdir(), "agentspace-feishu-smoke-"));
   const evidencePath = join(directory, "live.json");
   writeFileSync(evidencePath, `${JSON.stringify(evidence, null, 2)}\n`, "utf8");
-  process.on("exit", () => {
-    rmSync(directory, { recursive: true, force: true });
-  });
+  tempFixtureDirectories.push(directory);
   return evidencePath;
+}
+
+function writePayloadFixture(payload: Record<string, unknown>): string {
+  const directory = mkdtempSync(join(tmpdir(), "agentspace-feishu-payload-"));
+  const payloadPath = join(directory, "callback.json");
+  writeFileSync(payloadPath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
+  tempFixtureDirectories.push(directory);
+  return payloadPath;
 }
 
 function buildEvidenceFixture() {
@@ -1721,6 +1902,14 @@ function buildEvidenceFixture() {
       destructiveLiveChecks: 3,
       missingEnv: [],
       strictLiveSatisfied: true,
+    },
+    todo120NativeSmoke: {
+      ready: true,
+      requiredForCommand: true,
+      required: 2,
+      configured: 2,
+      missing: [],
+      invalid: [],
     },
     steps,
   };

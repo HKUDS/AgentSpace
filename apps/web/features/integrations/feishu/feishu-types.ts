@@ -242,6 +242,7 @@ export interface FeishuIntegrationSetupGuide {
     checkEnv: string;
     strictLiveSmoke: string;
     verifyOpenApiEvidence: string;
+    verifyBotAddedPayload: string;
     smokePlan: string;
     evidence: string;
   };

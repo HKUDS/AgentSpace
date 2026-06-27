@@ -188,6 +188,14 @@ export function FeishuAgentBotAgentSettingsPanel({
                   value={currentIntegration.setupGuide.commands.verifyOpenApiEvidence}
                 />
                 <FeishuAgentSettingsCommand
+                  label={tx("验证进群事件样本", "Verify bot-added payload")}
+                  note={tx(
+                    "把一次真实机器人进群回调 JSON 保存在 runtime-output 后运行；输出只包含脱敏引用、哈希和字段来源。",
+                    "Save one real bot-added callback JSON under runtime-output first; the output only includes redacted references, hashes, and field sources.",
+                  )}
+                  value={currentIntegration.setupGuide.commands.verifyBotAddedPayload}
+                />
+                <FeishuAgentSettingsCommand
                   label={tx("Smoke Plan", "Smoke plan")}
                   value={currentIntegration.setupGuide.commands.smokePlan}
                 />
