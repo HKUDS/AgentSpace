@@ -51,6 +51,8 @@ const FEISHU_TEST_SCOPES = [
 
 const FEISHU_TEST_CREDENTIAL_ENCRYPTION_KEY = Buffer.alloc(32, 7).toString("base64");
 const FEISHU_TEST_LARK_CLI_RESULT_MANIFEST_RELATIVE_PATH = "runtime-output/feishu-data-operation-result.json";
+const FEISHU_TEST_CHAT_REFERENCE = "chat 1234567890abcdef";
+const FEISHU_OTHER_TEST_CHAT_REFERENCE = "chat fedcba0987654321";
 
 test("integrations help documents Feishu worker deployment controls", async () => {
   const logs = await captureConsoleLog(async () => {
@@ -1182,8 +1184,17 @@ test("Feishu evidence report summarizes AgentSpace-side live smoke proof without
       buildIntegrationRecord({
         id: "integration-evidence",
         displayName: "Evidence Feishu",
+        agentId: "Atlas",
         transportMode: "websocket_worker",
         lastHealthStatus: "degraded",
+      }),
+      buildIntegrationRecord({
+        id: "agent-bot-hermes",
+        displayName: "HermesAgent Bot",
+        agentId: "HermesAgent",
+        appId: "cli_hermes_bot",
+        transportMode: "websocket_worker",
+        lastHealthStatus: "healthy",
       }),
     ],
     eventsByIntegrationId: {
@@ -1192,6 +1203,7 @@ test("Feishu evidence report summarizes AgentSpace-side live smoke proof without
         buildApprovalCardActionEvent("integration-evidence", "evt_card_secret"),
         buildIntegrationEvent("integration-evidence", "evt_failed_secret", "im.message.receive_v1", "failed"),
       ],
+      "agent-bot-hermes": [],
     },
     messageMappingsByIntegrationId: {
       "integration-evidence": [
@@ -1208,6 +1220,7 @@ test("Feishu evidence report summarizes AgentSpace-side live smoke proof without
         buildThreadContinuationMapping("integration-evidence"),
         ...buildGuestPolicyEvidenceMappings("integration-evidence"),
       ],
+      "agent-bot-hermes": [],
     },
     channelBindingsByIntegrationId: {
       "integration-evidence": [
@@ -1217,6 +1230,15 @@ test("Feishu evidence report summarizes AgentSpace-side live smoke proof without
           linkedFromBindingId: "channel-atlas-binding",
           linkedFromAgentId: "Atlas",
           linkedFromBotBindingId: "integration-evidence-atlas",
+        }),
+      ],
+      "agent-bot-hermes": [
+        buildAutoProvisionedChannelBinding("agent-bot-hermes", "bot_added", {
+          agentId: "HermesAgent",
+          botBindingId: "agent-bot-hermes",
+          linkedFromBindingId: "channel-integration-evidence",
+          linkedFromAgentId: "Atlas",
+          linkedFromBotBindingId: "integration-evidence",
         }),
       ],
     },
@@ -1234,6 +1256,16 @@ test("Feishu evidence report summarizes AgentSpace-side live smoke proof without
           collaboratingAgentIds: ["Atlas"],
         }),
       ],
+      "agent-bot-hermes": [
+        buildThreadBinding("agent-bot-hermes", {
+          id: "thread-agent-bot-hermes-collaboration",
+          agentId: "HermesAgent",
+          botBindingId: "agent-bot-hermes",
+          threadCollaboration: true,
+          collaboratingAgentIds: ["Atlas"],
+          collaboratingBotBindingIds: ["integration-evidence"],
+        }),
+      ],
     },
     outboxByIntegrationId: {
       "integration-evidence": [
@@ -1246,6 +1278,14 @@ test("Feishu evidence report summarizes AgentSpace-side live smoke proof without
           collaboratingBotBindingIds: ["integration-evidence-atlas"],
         }),
         buildOutboxItem("integration-evidence", "failed"),
+      ],
+      "agent-bot-hermes": [
+        buildThreadCollaborationCardOutboxItem("agent-bot-hermes", {
+          agentId: "HermesAgent",
+          botBindingId: "agent-bot-hermes",
+          collaboratingAgentIds: ["Atlas"],
+          collaboratingBotBindingIds: ["integration-evidence"],
+        }),
       ],
     },
     dataOperationsByIntegrationId: {
@@ -1263,6 +1303,7 @@ test("Feishu evidence report summarizes AgentSpace-side live smoke proof without
         buildDataOperationRun("integration-evidence", "base.mutate_records", "base_table", "succeeded"),
         buildExternalGuestWriteDeniedRun("integration-evidence"),
       ],
+      "agent-bot-hermes": [],
     },
   });
 
@@ -1349,6 +1390,29 @@ test("Feishu evidence report summarizes AgentSpace-side live smoke proof without
   assert.equal(serialized.includes("oc_secret"), false);
   assert.equal(serialized.includes("doccn_secret"), false);
   assert.equal(serialized.includes("ou_secret"), false);
+});
+
+test("Feishu evidence report requires two active distinct agent bot bindings for native final evidence", () => {
+  const report = buildFeishuEvidenceReport({
+    ...buildCompleteFeishuEvidenceInput(),
+    openApiEvidence: buildOpenApiEvidenceFixture(),
+  });
+
+  assert.equal(report.strictSatisfied, false);
+  assert.equal(report.openApiEvidence?.valid, false);
+  assert.ok(report.openApiEvidence?.issues.includes("openapi_app_identity_active_integration_missing"));
+  assert.equal(report.botAddedPayloadEvidence?.valid, false);
+  assert.ok(report.botAddedPayloadEvidence?.issues.includes("bot_added_payload_active_integration_missing"));
+  assert.equal(report.summary.workspaceBotSatisfied, true);
+  assert.equal(report.summary.workspaceNativeExperienceSatisfied, false);
+  assert.equal(report.summary.workspaceAllSatisfied, false);
+  assert.equal(report.summary.scopedAllSatisfied, false);
+  const [item] = report.integrations;
+  assert.equal(item?.nativeExperience.satisfied, true);
+  assert.equal(item?.nativeExperience.reusedProviderChannelBindings, 1);
+  assert.equal(item?.nativeExperience.threadCollaborationEvidence, 1);
+  assert.equal(JSON.stringify(report).includes("cli_hermes_bot"), false);
+  assert.equal(JSON.stringify(report).includes("oc_secret"), false);
 });
 
 test("Feishu evidence report rejects complete historical proof from a disabled agent bot binding", () => {
@@ -1581,7 +1645,10 @@ test("Feishu evidence report ignores disabled second bot evidence in workspace n
 
   assert.equal(report.strictSatisfied, false);
   assert.equal(report.openApiEvidence?.valid, true);
-  assert.equal(report.botAddedPayloadEvidence?.valid, true);
+  assert.equal(report.botAddedPayloadEvidence?.valid, false);
+  assert.ok(report.botAddedPayloadEvidence?.issues.includes(
+    "bot_added_payload_chat_reference_local_evidence_missing",
+  ));
   assert.equal(report.integrationCount, 1);
   assert.deepEqual(report.integrations.map((item) => item.id), ["integration-evidence"]);
   assert.equal(report.summary.workspaceBotSatisfied, true);
@@ -1635,7 +1702,7 @@ test("Feishu evidence report does not satisfy native gate by mixing different ch
           linkedFromAgentId: "Atlas",
           linkedFromBotBindingId: "integration-evidence",
         }), {
-          externalChatReference: "other-chat-ref-hash",
+          externalChatReference: FEISHU_OTHER_TEST_CHAT_REFERENCE,
         }),
       ],
     },
@@ -1654,7 +1721,7 @@ test("Feishu evidence report does not satisfy native gate by mixing different ch
           collaboratingAgentIds: ["Atlas"],
           collaboratingBotBindingIds: ["integration-evidence"],
         }), {
-          externalChatReference: "other-chat-ref-hash",
+          externalChatReference: FEISHU_OTHER_TEST_CHAT_REFERENCE,
         }),
       ],
     },
@@ -1666,7 +1733,7 @@ test("Feishu evidence report does not satisfy native gate by mixing different ch
           botBindingId: "agent-bot-hermes",
           collaboratingAgentIds: ["Atlas"],
           collaboratingBotBindingIds: ["integration-evidence"],
-          externalChatReference: "other-chat-ref-hash",
+          externalChatReference: FEISHU_OTHER_TEST_CHAT_REFERENCE,
         }),
       ],
     },
@@ -1689,7 +1756,7 @@ test("Feishu evidence report does not satisfy native gate by mixing different ch
   assert.equal(item?.nativeExperience.threadCollaborationEvidence, 0);
 
   const serialized = JSON.stringify(report);
-  assert.equal(serialized.includes("other-chat-ref-hash"), false);
+  assert.equal(serialized.includes(FEISHU_OTHER_TEST_CHAT_REFERENCE), false);
   assert.equal(serialized.includes("cli_hermes_bot"), false);
   assert.equal(serialized.includes("oc_secret"), false);
   assert.equal(serialized.includes("ou_secret"), false);
@@ -1706,6 +1773,14 @@ test("Feishu evidence report requires scoped integration to participate in nativ
         displayName: "Selected Feishu",
       }),
       buildIntegrationRecord({
+        id: "agent-bot-atlas",
+        displayName: "Atlas Bot",
+        agentId: "Atlas",
+        appId: "cli_atlas_bot",
+        transportMode: "websocket_worker",
+        lastHealthStatus: "healthy",
+      }),
+      buildIntegrationRecord({
         id: nativeIntegrationId,
         displayName: "HermesAgent Bot",
         agentId: "HermesAgent",
@@ -1716,10 +1791,12 @@ test("Feishu evidence report requires scoped integration to participate in nativ
     ],
     eventsByIntegrationId: {
       "integration-evidence": [],
+      "agent-bot-atlas": [],
       [nativeIntegrationId]: [],
     },
     messageMappingsByIntegrationId: {
       "integration-evidence": [],
+      "agent-bot-atlas": [],
       [nativeIntegrationId]: [
         buildMessageMapping(nativeIntegrationId, "inbound", "om_secret_inbound"),
         buildMessageMapping(nativeIntegrationId, "outbound", "om_secret_reply", "om_secret_inbound"),
@@ -1735,6 +1812,12 @@ test("Feishu evidence report requires scoped integration to participate in nativ
     },
     channelBindingsByIntegrationId: {
       "integration-evidence": [],
+      "agent-bot-atlas": [
+        buildAutoProvisionedChannelBinding("agent-bot-atlas", "first_message", {
+          agentId: "Atlas",
+          botBindingId: "agent-bot-atlas",
+        }),
+      ],
       [nativeIntegrationId]: [
         buildAutoProvisionedChannelBinding(nativeIntegrationId, "first_message"),
         buildAutoProvisionedChannelBinding(nativeIntegrationId, "bot_added", {
@@ -1748,6 +1831,7 @@ test("Feishu evidence report requires scoped integration to participate in nativ
     },
     threadBindingsByIntegrationId: {
       "integration-evidence": [],
+      "agent-bot-atlas": [],
       [nativeIntegrationId]: [
         buildThreadBinding(nativeIntegrationId, {
           taskQueueId: "task-thread-continuation",
@@ -1765,6 +1849,7 @@ test("Feishu evidence report requires scoped integration to participate in nativ
     },
     outboxByIntegrationId: {
       "integration-evidence": [],
+      "agent-bot-atlas": [],
       [nativeIntegrationId]: [
         buildThreadCollaborationCardOutboxItem(nativeIntegrationId, {
           agentId: "HermesAgent",
@@ -1776,6 +1861,7 @@ test("Feishu evidence report requires scoped integration to participate in nativ
     },
     dataOperationsByIntegrationId: {
       "integration-evidence": [],
+      "agent-bot-atlas": [],
       [nativeIntegrationId]: [],
     },
   };
@@ -1792,7 +1878,7 @@ test("Feishu evidence report requires scoped integration to participate in nativ
   assert.equal(scopedReport.summary.workspaceNativeExperienceSatisfied, false);
   assert.equal(scopedReport.summary.scopedAllSatisfied, false);
   assert.equal(workspaceReport.strictSatisfied, true);
-  assert.equal(workspaceReport.integrationCount, 2);
+  assert.equal(workspaceReport.integrationCount, 3);
   assert.equal(workspaceReport.summary.workspaceNativeExperienceSatisfied, true);
   assert.equal(workspaceReport.summary.scopedAllSatisfied, false);
 
@@ -1803,7 +1889,7 @@ test("Feishu evidence report requires scoped integration to participate in nativ
 });
 
 test("Feishu evidence report requires one anchor integration to satisfy non-native all gates", () => {
-  const complete = buildCompleteFeishuEvidenceInput();
+  const complete = withSecondActiveFeishuAgentBotEvidence(buildCompleteFeishuEvidenceInput());
   const input = {
     ...complete,
     requiredEvidence: "all" as const,
@@ -1854,7 +1940,7 @@ test("Feishu evidence report requires one anchor integration to satisfy non-nati
   assert.equal(report.summary.workspaceAllSatisfied, false);
   assert.equal(report.summary.scopedAllSatisfied, false);
   assert.equal(workspaceReport.strictSatisfied, false);
-  assert.equal(workspaceReport.integrationCount, 2);
+  assert.equal(workspaceReport.integrationCount, 3);
   assert.equal(workspaceReport.summary.workspaceNativeExperienceSatisfied, true);
   assert.equal(workspaceReport.summary.workspaceDataPlaneSatisfied, true);
   assert.equal(workspaceReport.summary.workspaceAllSatisfied, false);
@@ -4546,8 +4632,9 @@ test("Feishu evidence report requires identity binding notices to carry safe gue
 });
 
 test("Feishu evidence report can gate on redacted OpenAPI live smoke evidence", () => {
+  const complete = withSecondActiveFeishuAgentBotEvidence(buildCompleteFeishuEvidenceInput());
   const report = buildFeishuEvidenceReport({
-    ...buildCompleteFeishuEvidenceInput(),
+    ...complete,
     openApiEvidencePath: "runtime-output/feishu-smoke/live.json",
     openApiEvidence: buildOpenApiEvidenceFixture(),
   });
@@ -4579,7 +4666,7 @@ test("Feishu evidence report can gate on redacted OpenAPI live smoke evidence", 
   assert.equal(report.botAddedPayloadEvidence?.summary?.appIdHashPresent, true);
   assert.equal(report.botAddedPayloadEvidence?.summary?.appIdentityMatched, true);
   assert.equal(report.botAddedPayloadEvidence?.summary?.tenantKeyMatched, true);
-  assert.equal(report.botAddedPayloadEvidence?.summary?.chatReference, "chat 1234567890abcdef");
+  assert.equal(report.botAddedPayloadEvidence?.summary?.chatReference, FEISHU_TEST_CHAT_REFERENCE);
   assert.equal(report.botAddedPayloadEvidence?.summary?.payloadHashPresent, true);
 
   const oldEvidence = buildOpenApiEvidenceFixture();
@@ -4588,7 +4675,7 @@ test("Feishu evidence report can gate on redacted OpenAPI live smoke evidence", 
   oldEvidence.summary.livePassed = 11;
   oldEvidence.summary.destructiveLiveChecks = 2;
   const oldArtifact = buildFeishuEvidenceReport({
-    ...buildCompleteFeishuEvidenceInput(),
+    ...complete,
     openApiEvidence: oldEvidence,
   });
 
@@ -4614,7 +4701,7 @@ test("Feishu evidence report can gate on redacted OpenAPI live smoke evidence", 
   const missingTodo120Evidence = buildOpenApiEvidenceFixture();
   delete (missingTodo120Evidence as Partial<ReturnType<typeof buildOpenApiEvidenceFixture>>).todo120NativeSmoke;
   const missingTodo120 = buildFeishuEvidenceReport({
-    ...buildCompleteFeishuEvidenceInput(),
+    ...complete,
     openApiEvidence: missingTodo120Evidence,
   });
 
@@ -4629,7 +4716,7 @@ test("Feishu evidence report can gate on redacted OpenAPI live smoke evidence", 
   const notRequiredTodo120Evidence = buildOpenApiEvidenceFixture();
   notRequiredTodo120Evidence.todo120NativeSmoke.requiredForCommand = false;
   const notRequiredTodo120 = buildFeishuEvidenceReport({
-    ...buildCompleteFeishuEvidenceInput(),
+    ...complete,
     openApiEvidence: notRequiredTodo120Evidence,
   });
 
@@ -4644,7 +4731,7 @@ test("Feishu evidence report can gate on redacted OpenAPI live smoke evidence", 
   const missingAppIdentityEvidence = buildOpenApiEvidenceFixture();
   delete (missingAppIdentityEvidence as Partial<ReturnType<typeof buildOpenApiEvidenceFixture>>).appIdentity;
   const missingAppIdentity = buildFeishuEvidenceReport({
-    ...buildCompleteFeishuEvidenceInput(),
+    ...complete,
     openApiEvidence: missingAppIdentityEvidence,
   });
 
@@ -4672,7 +4759,7 @@ test("Feishu evidence report can gate on redacted OpenAPI live smoke evidence", 
     baseUpdateStep.request.path = "/open-apis/bitable/v1/apps/:app_token/tables/:table_id/records/rec_secret";
   }
   const blocked = buildFeishuEvidenceReport({
-    ...buildCompleteFeishuEvidenceInput(),
+    ...complete,
     openApiEvidence: brokenEvidence,
   });
 
@@ -4689,7 +4776,7 @@ test("Feishu evidence report can gate on redacted OpenAPI live smoke evidence", 
     sheetWriteStep.detail = "updated SecretSheet!A1:B2 for doccn_secret and oc_secret";
   }
   const detailLeak = buildFeishuEvidenceReport({
-    ...buildCompleteFeishuEvidenceInput(),
+    ...complete,
     openApiEvidence: detailLeakEvidence,
   });
 
@@ -4707,7 +4794,7 @@ test("Feishu evidence report can gate on redacted OpenAPI live smoke evidence", 
     delete (callbackStep as { callbackRouteFingerprint?: string }).callbackRouteFingerprint;
   }
   const missingCallbackProof = buildFeishuEvidenceReport({
-    ...buildCompleteFeishuEvidenceInput(),
+    ...complete,
     openApiEvidence: missingCallbackProofEvidence,
   });
 
@@ -4725,7 +4812,7 @@ test("Feishu evidence report can gate on redacted OpenAPI live smoke evidence", 
     callbackUrlLeakStep.detail = `verified ${callbackUrl}`;
   }
   const callbackUrlLeak = buildFeishuEvidenceReport({
-    ...buildCompleteFeishuEvidenceInput(),
+    ...complete,
     openApiEvidence: callbackUrlLeakEvidence,
   });
 
@@ -4737,7 +4824,7 @@ test("Feishu evidence report can gate on redacted OpenAPI live smoke evidence", 
   assert.ok(callbackUrlLeak.openApiEvidence?.issues.includes("openapi_callback_url_in_evidence"));
 
   const scopedCallbackProof = buildFeishuEvidenceReport({
-    ...buildCompleteFeishuEvidenceInput(),
+    ...complete,
     integrationId: "integration-evidence",
     openApiEvidence: buildOpenApiEvidenceFixture(),
   });
@@ -4754,7 +4841,7 @@ test("Feishu evidence report can gate on redacted OpenAPI live smoke evidence", 
     (mismatchedCallbackStep as { callbackRouteFingerprint?: string }).callbackRouteFingerprint = "sha256:ffffffffffffffff";
   }
   const mismatchedCallbackProof = buildFeishuEvidenceReport({
-    ...buildCompleteFeishuEvidenceInput(),
+    ...complete,
     integrationId: "integration-evidence",
     openApiEvidence: mismatchedCallbackProofEvidence,
   });
@@ -4767,7 +4854,7 @@ test("Feishu evidence report can gate on redacted OpenAPI live smoke evidence", 
   incompleteSummaryEvidence.summary.liveChecks = 1;
   incompleteSummaryEvidence.summary.livePassed = 1;
   const incompleteSummary = buildFeishuEvidenceReport({
-    ...buildCompleteFeishuEvidenceInput(),
+    ...complete,
     openApiEvidence: incompleteSummaryEvidence,
   });
 
@@ -4782,7 +4869,7 @@ test("Feishu evidence report can gate on redacted OpenAPI live smoke evidence", 
     delete (openApiSheetReadStep as { request?: unknown }).request;
   }
   const missingRequest = buildFeishuEvidenceReport({
-    ...buildCompleteFeishuEvidenceInput(),
+    ...complete,
     openApiEvidence: missingRequestEvidence,
   });
 
@@ -4799,6 +4886,21 @@ test("Feishu evidence report can gate on redacted OpenAPI live smoke evidence", 
 });
 
 test("Feishu evidence report requires OpenAPI smoke evidence to match the scoped Feishu app", () => {
+  const wrongActiveBotEvidence = buildOpenApiEvidenceFixture();
+  wrongActiveBotEvidence.appIdentity.appIdHash = createHash("sha256")
+    .update("cli_hermes_bot", "utf8")
+    .digest("hex");
+  const wrongActiveBot = buildFeishuEvidenceReport({
+    ...withSecondActiveFeishuAgentBotEvidence(buildCompleteFeishuEvidenceInput()),
+    openApiEvidence: wrongActiveBotEvidence,
+  });
+
+  assert.equal(wrongActiveBot.strictSatisfied, false);
+  assert.equal(wrongActiveBot.openApiEvidence?.valid, false);
+  assert.equal(wrongActiveBot.openApiEvidence?.summary?.appIdentityMatched, false);
+  assert.ok(wrongActiveBot.openApiEvidence?.issues.includes("openapi_app_identity_app_id_mismatch"));
+  assert.equal(JSON.stringify(wrongActiveBot).includes("cli_hermes_bot"), false);
+
   const mismatchedAppEvidence = buildOpenApiEvidenceFixture();
   mismatchedAppEvidence.appIdentity.appIdHash = createHash("sha256")
     .update("cli_unrelated_app", "utf8")
@@ -4887,6 +4989,34 @@ test("Feishu evidence report rejects unsafe bot-added payload evidence artifacts
 });
 
 test("Feishu evidence report requires bot-added payload evidence to match the scoped Feishu app", () => {
+  const mismatchedChatEvidence = buildBotAddedPayloadEvidenceFixture();
+  mismatchedChatEvidence.summary.chatReference = FEISHU_OTHER_TEST_CHAT_REFERENCE;
+  const mismatchedChat = buildFeishuEvidenceReport({
+    ...withSecondActiveFeishuAgentBotEvidence(buildCompleteFeishuEvidenceInput()),
+    openApiEvidence: buildOpenApiEvidenceFixture(),
+    botAddedPayloadEvidence: mismatchedChatEvidence,
+  });
+
+  assert.equal(mismatchedChat.strictSatisfied, false);
+  assert.equal(mismatchedChat.botAddedPayloadEvidence?.valid, false);
+  assert.equal(mismatchedChat.botAddedPayloadEvidence?.summary?.appIdentityMatched, true);
+  assert.ok(mismatchedChat.botAddedPayloadEvidence?.issues.includes("bot_added_payload_chat_reference_mismatch"));
+  assert.equal(mismatchedChat.botAddedPayloadEvidence?.summary?.chatReference, FEISHU_OTHER_TEST_CHAT_REFERENCE);
+
+  const wrongActiveBotEvidence = buildBotAddedPayloadEvidenceFixture();
+  wrongActiveBotEvidence.summary.appIdHash = createHash("sha256").update("cli_hermes_bot", "utf8").digest("hex");
+  const wrongActiveBot = buildFeishuEvidenceReport({
+    ...withSecondActiveFeishuAgentBotEvidence(buildCompleteFeishuEvidenceInput()),
+    openApiEvidence: buildOpenApiEvidenceFixture(),
+    botAddedPayloadEvidence: wrongActiveBotEvidence,
+  });
+
+  assert.equal(wrongActiveBot.strictSatisfied, false);
+  assert.equal(wrongActiveBot.botAddedPayloadEvidence?.valid, false);
+  assert.equal(wrongActiveBot.botAddedPayloadEvidence?.summary?.appIdentityMatched, false);
+  assert.ok(wrongActiveBot.botAddedPayloadEvidence?.issues.includes("bot_added_payload_app_id_mismatch"));
+  assert.equal(JSON.stringify(wrongActiveBot).includes("cli_hermes_bot"), false);
+
   const mismatchedAppEvidence = buildBotAddedPayloadEvidenceFixture();
   mismatchedAppEvidence.summary.appIdHash = createHash("sha256").update("cli_unrelated_app", "utf8").digest("hex");
   const mismatchedApp = buildFeishuEvidenceReport({
@@ -4962,7 +5092,7 @@ test("Feishu evidence report reads smoke evidence artifacts from disk", () => {
     );
 
     const report = buildFeishuEvidenceReport({
-      ...buildCompleteFeishuEvidenceInput(),
+      ...withSecondActiveFeishuAgentBotEvidence(buildCompleteFeishuEvidenceInput()),
       openApiEvidencePath: evidencePath,
       botAddedPayloadEvidence: undefined,
       botAddedPayloadEvidencePath,
@@ -4976,7 +5106,7 @@ test("Feishu evidence report reads smoke evidence artifacts from disk", () => {
     assert.equal(report.botAddedPayloadEvidence?.present, true);
     assert.equal(report.botAddedPayloadEvidence?.valid, true);
     assert.equal(report.botAddedPayloadEvidence?.evidencePath, botAddedPayloadEvidencePath);
-    assert.equal(report.botAddedPayloadEvidence?.summary?.chatReference, "chat 1234567890abcdef");
+    assert.equal(report.botAddedPayloadEvidence?.summary?.chatReference, FEISHU_TEST_CHAT_REFERENCE);
 
     const missing = buildFeishuEvidenceReport({
       ...buildCompleteFeishuEvidenceInput(),
@@ -8479,6 +8609,7 @@ function buildCompleteFeishuEvidenceInput() {
       buildIntegrationRecord({
         id: "integration-evidence",
         displayName: "Evidence Feishu",
+        agentId: "Atlas",
         transportMode: "websocket_worker",
         lastHealthStatus: "degraded",
       }),
@@ -8564,6 +8695,71 @@ function buildCompleteFeishuEvidenceInput() {
   };
 }
 
+function withSecondActiveFeishuAgentBotEvidence(input: ReturnType<typeof buildCompleteFeishuEvidenceInput>) {
+  return {
+    ...input,
+    integrations: [
+      ...input.integrations,
+      buildIntegrationRecord({
+        id: "agent-bot-hermes",
+        displayName: "HermesAgent Bot",
+        agentId: "HermesAgent",
+        appId: "cli_hermes_bot",
+        transportMode: "websocket_worker",
+        lastHealthStatus: "healthy",
+      }),
+    ],
+    eventsByIntegrationId: {
+      ...input.eventsByIntegrationId,
+      "agent-bot-hermes": [],
+    },
+    messageMappingsByIntegrationId: {
+      ...input.messageMappingsByIntegrationId,
+      "agent-bot-hermes": [],
+    },
+    channelBindingsByIntegrationId: {
+      ...input.channelBindingsByIntegrationId,
+      "agent-bot-hermes": [
+        buildAutoProvisionedChannelBinding("agent-bot-hermes", "bot_added", {
+          agentId: "HermesAgent",
+          botBindingId: "agent-bot-hermes",
+          linkedFromBindingId: "channel-integration-evidence",
+          linkedFromAgentId: "Atlas",
+          linkedFromBotBindingId: "integration-evidence",
+        }),
+      ],
+    },
+    threadBindingsByIntegrationId: {
+      ...input.threadBindingsByIntegrationId,
+      "agent-bot-hermes": [
+        buildThreadBinding("agent-bot-hermes", {
+          id: "thread-agent-bot-hermes-collaboration",
+          agentId: "HermesAgent",
+          botBindingId: "agent-bot-hermes",
+          threadCollaboration: true,
+          collaboratingAgentIds: ["Atlas"],
+          collaboratingBotBindingIds: ["integration-evidence"],
+        }),
+      ],
+    },
+    outboxByIntegrationId: {
+      ...input.outboxByIntegrationId,
+      "agent-bot-hermes": [
+        buildThreadCollaborationCardOutboxItem("agent-bot-hermes", {
+          agentId: "HermesAgent",
+          botBindingId: "agent-bot-hermes",
+          collaboratingAgentIds: ["Atlas"],
+          collaboratingBotBindingIds: ["integration-evidence"],
+        }),
+      ],
+    },
+    dataOperationsByIntegrationId: {
+      ...input.dataOperationsByIntegrationId,
+      "agent-bot-hermes": [],
+    },
+  };
+}
+
 function buildMessageMapping(
   integrationId: string,
   direction: "inbound" | "outbound",
@@ -8596,7 +8792,7 @@ function buildMessageMapping(
       ? {
         metadataJson: JSON.stringify({
           provider: "feishu",
-          externalChatReference: "chat-ref-hash",
+          externalChatReference: FEISHU_TEST_CHAT_REFERENCE,
           externalThreadReference: "thread-ref-hash",
           mappedChannelName: "general",
           dispatchStatus: "sent",
@@ -8623,14 +8819,14 @@ function buildMessageMapping(
       : {
         metadataJson: JSON.stringify({
           provider: "feishu",
-          externalChatReference: "chat-ref-hash",
+          externalChatReference: FEISHU_TEST_CHAT_REFERENCE,
           externalThreadReference: "thread-ref-hash",
           agentId: "Atlas",
           botBindingId: integrationId,
           agentActionPolicyInput: {
             action: {
               type: "external_message.send",
-              resourceReference: "chat-ref-hash",
+              resourceReference: FEISHU_TEST_CHAT_REFERENCE,
               resourceIdRedacted: true,
             },
           },
@@ -8748,7 +8944,7 @@ function buildExternalGuestReplyAllMapping(integrationId: string) {
     routerSessionId: "router-reply-all",
     metadataJson: JSON.stringify({
       provider: "feishu",
-      externalChatReference: "chat-ref-hash",
+      externalChatReference: FEISHU_TEST_CHAT_REFERENCE,
       externalThreadReference: "thread-ref-hash",
       mappedChannelName: "general",
       dispatchStatus: "sent",
@@ -8783,7 +8979,7 @@ function buildThreadContinuationMapping(integrationId: string) {
     routerSessionId: "router-thread-continuation",
     metadataJson: JSON.stringify({
       provider: "feishu",
-      externalChatReference: "chat-ref-hash",
+      externalChatReference: FEISHU_TEST_CHAT_REFERENCE,
       externalThreadReference: "thread-ref-hash",
       mappedChannelName: "general",
       dispatchStatus: "sent",
@@ -8812,7 +9008,7 @@ function buildAgentChannelPolicyDeniedMapping(integrationId: string) {
     externalEventId: "evt_secret",
     metadataJson: JSON.stringify({
       provider: "feishu",
-      externalChatReference: "chat-ref-hash",
+      externalChatReference: FEISHU_TEST_CHAT_REFERENCE,
       externalThreadReference: "thread-ref-hash",
       mappedChannelName: "general",
       dispatchStatus: "ignored",
@@ -8844,7 +9040,7 @@ function buildBotSenderLoopGuardMapping(integrationId: string) {
     externalEventId: "evt_secret_bot_sender",
     metadataJson: JSON.stringify({
       provider: "feishu",
-      externalChatReference: "chat-ref-hash",
+      externalChatReference: FEISHU_TEST_CHAT_REFERENCE,
       externalThreadReference: "thread-ref-hash",
       mappedChannelName: "general",
       dispatchStatus: "ignored",
@@ -8878,7 +9074,7 @@ function buildPolicyBlockedMessageMapping(
     externalEventId: "evt_secret",
     metadataJson: JSON.stringify({
       provider: "feishu",
-      externalChatReference: "chat-ref-hash",
+      externalChatReference: FEISHU_TEST_CHAT_REFERENCE,
       externalThreadReference: "thread-ref-hash",
       mappedChannelName: "general",
       dispatchStatus: "ignored",
@@ -8924,7 +9120,7 @@ function buildAutoProvisionedChannelBinding(
       reviewStatus: options.reviewStatus ?? "approved",
       agentId,
       botBindingId,
-      externalChatReference: "chat-ref-hash",
+      externalChatReference: FEISHU_TEST_CHAT_REFERENCE,
       linkedFromBindingId: options.linkedFromBindingId,
       linkedFromAgentId: options.linkedFromAgentId,
       linkedFromBotBindingId: options.linkedFromBotBindingId,
@@ -8963,7 +9159,7 @@ function buildThreadBinding(
     status: "active",
     metadataJson: JSON.stringify({
       provider: "feishu",
-      externalChatReference: "chat-ref-hash",
+      externalChatReference: FEISHU_TEST_CHAT_REFERENCE,
       externalThreadReference: "thread-ref-hash",
       agentId,
       botBindingId,
@@ -9111,7 +9307,7 @@ function buildBotAddedPayloadEvidenceFixture() {
       tenantKeyHash: undefined as string | undefined,
       chatDescriptorPresent: true,
       chatIdSource: "event.chat.openChatId",
-      chatReference: "chat 1234567890abcdef",
+      chatReference: FEISHU_TEST_CHAT_REFERENCE,
       chatIdRedacted: true,
       chatType: "group",
       chatNamePresent: true,
@@ -9292,7 +9488,7 @@ function buildOutboxItem(
     metadataJson: options.metadataJson ?? JSON.stringify({
       provider: "feishu",
       outboxSource: "agent_reply",
-      externalChatReference: "chat-ref-hash",
+      externalChatReference: FEISHU_TEST_CHAT_REFERENCE,
       externalThreadReference: "thread-ref-hash",
       agentId: "Codex",
       botBindingId: integrationId,
@@ -9319,7 +9515,7 @@ function buildIdentityBindingNoticeOutboxItem(integrationId: string, status: "fa
         botBindingId: integrationId,
         externalGuestReference: "guest-ref-hash",
         externalGuestPermissionProfile: "none",
-        externalChatReference: "chat-ref-hash",
+        externalChatReference: FEISHU_TEST_CHAT_REFERENCE,
         externalThreadReference: shortHashForTest("om_secret_guest_require_identity"),
       }),
     }) as Record<string, unknown>),
@@ -9352,7 +9548,7 @@ function buildThreadCollaborationCardOutboxItem(
         botBindingId: options.botBindingId ?? integrationId,
         collaboratingAgentIds: options.collaboratingAgentIds ?? ["Atlas"],
         collaboratingBotBindingIds: options.collaboratingBotBindingIds ?? ["integration-evidence-atlas"],
-        externalChatReference: options.externalChatReference ?? "chat-ref-hash",
+        externalChatReference: options.externalChatReference ?? FEISHU_TEST_CHAT_REFERENCE,
         externalThreadReference: options.externalThreadReference ?? "thread-ref-hash",
       }),
     }) as Record<string, unknown>),

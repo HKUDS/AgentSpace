@@ -4198,39 +4198,49 @@ export function buildFeishuEvidenceReport(input: BuildFeishuEvidenceReportInput)
     includeDisabled: true,
   });
   const evidenceSources: FeishuIntegrationEvidenceSource[] = sourceIntegrations.map((integration) => {
-    const events = input.eventsByIntegrationId?.[integration.id] ?? listExternalIntegrationEventsSync({
-      workspaceId: input.workspaceId,
-      integrationId: integration.id,
-      provider: FEISHU_PROVIDER_ID,
-      limit: 100,
-    });
-    const outbox = input.outboxByIntegrationId?.[integration.id] ?? listExternalMessageOutboxSync({
-      workspaceId: input.workspaceId,
-      integrationId: integration.id,
-      limit: 100,
-    });
-    const messageMappings = input.messageMappingsByIntegrationId?.[integration.id] ?? listExternalMessageMappingsSync({
-      workspaceId: input.workspaceId,
-      integrationId: integration.id,
-      limit: 100,
-    });
-    const channelBindings = input.channelBindingsByIntegrationId?.[integration.id] ?? listExternalChannelBindingsSync({
-      workspaceId: input.workspaceId,
-      integrationId: integration.id,
-    });
-    const threadBindings = input.threadBindingsByIntegrationId?.[integration.id] ??
-      listExternalThreadBindingsSync({
-        workspaceId: input.workspaceId,
-        integrationId: integration.id,
-        provider: FEISHU_PROVIDER_ID,
-        limit: 100,
-      });
-    const dataOperations = input.dataOperationsByIntegrationId?.[integration.id] ??
-      listExternalDataOperationRunsSync({
-        workspaceId: input.workspaceId,
-        integrationId: integration.id,
-        limit: 100,
-      });
+    const events = input.eventsByIntegrationId
+      ? input.eventsByIntegrationId[integration.id] ?? []
+      : listExternalIntegrationEventsSync({
+          workspaceId: input.workspaceId,
+          integrationId: integration.id,
+          provider: FEISHU_PROVIDER_ID,
+          limit: 100,
+        });
+    const outbox = input.outboxByIntegrationId
+      ? input.outboxByIntegrationId[integration.id] ?? []
+      : listExternalMessageOutboxSync({
+          workspaceId: input.workspaceId,
+          integrationId: integration.id,
+          limit: 100,
+        });
+    const messageMappings = input.messageMappingsByIntegrationId
+      ? input.messageMappingsByIntegrationId[integration.id] ?? []
+      : listExternalMessageMappingsSync({
+          workspaceId: input.workspaceId,
+          integrationId: integration.id,
+          limit: 100,
+        });
+    const channelBindings = input.channelBindingsByIntegrationId
+      ? input.channelBindingsByIntegrationId[integration.id] ?? []
+      : listExternalChannelBindingsSync({
+          workspaceId: input.workspaceId,
+          integrationId: integration.id,
+        });
+    const threadBindings = input.threadBindingsByIntegrationId
+      ? input.threadBindingsByIntegrationId[integration.id] ?? []
+      : listExternalThreadBindingsSync({
+          workspaceId: input.workspaceId,
+          integrationId: integration.id,
+          provider: FEISHU_PROVIDER_ID,
+          limit: 100,
+        });
+    const dataOperations = input.dataOperationsByIntegrationId
+      ? input.dataOperationsByIntegrationId[integration.id] ?? []
+      : listExternalDataOperationRunsSync({
+          workspaceId: input.workspaceId,
+          integrationId: integration.id,
+          limit: 100,
+        });
     return {
       workspaceId: input.workspaceId,
       integration,
@@ -4259,10 +4269,25 @@ export function buildFeishuEvidenceReport(input: BuildFeishuEvidenceReportInput)
       integrationId: input.integrationId,
     })
     : undefined;
+  const expectedArtifactIdentityIntegrationIds = buildFeishuExpectedEvidenceArtifactIntegrationIds({
+    requiredEvidence,
+    scopedIntegrationId: input.integrationId,
+    evidenceItems: allEvidenceItems,
+    evidenceSources,
+  });
   const expectedBotAddedPayloadIdentityProofs = buildFeishuExpectedBotAddedPayloadIdentityProofs(
     sourceIntegrations,
-    { integrationId: input.integrationId },
+    {
+      integrationId: input.integrationId,
+      integrationIds: expectedArtifactIdentityIntegrationIds,
+    },
   );
+  const expectedBotAddedPayloadChatReferences = buildFeishuExpectedBotAddedPayloadChatReferences({
+    requiredEvidence,
+    scopedIntegrationId: input.integrationId,
+    evidenceSources,
+    anchorIntegrationIds: expectedArtifactIdentityIntegrationIds,
+  });
   const openApiEvidence = requiredEvidence === "all" || input.openApiEvidencePath || input.openApiEvidence !== undefined
     ? verifyFeishuOpenApiSmokeEvidence({
       evidencePath: input.openApiEvidencePath,
@@ -4282,6 +4307,7 @@ export function buildFeishuEvidenceReport(input: BuildFeishuEvidenceReportInput)
       evidencePath: input.botAddedPayloadEvidencePath,
       evidence: input.botAddedPayloadEvidence,
       expectedIdentityProofs: expectedBotAddedPayloadIdentityProofs,
+      expectedChatReferences: expectedBotAddedPayloadChatReferences,
       remediationContext: {
         workspaceId: input.workspaceId,
         integrationId: input.integrationId,
@@ -7702,6 +7728,7 @@ function verifyFeishuBotAddedPayloadEvidence(input: {
   evidencePath?: string;
   evidence?: unknown;
   expectedIdentityProofs?: readonly FeishuExpectedBotAddedPayloadIdentityProof[];
+  expectedChatReferences?: readonly string[];
   remediationContext?: {
     workspaceId: string;
     integrationId?: string;
@@ -7770,6 +7797,15 @@ function verifyFeishuBotAddedPayloadEvidence(input: {
     }
     if (!isSafeFeishuBotAddedReference(summary.chatReference, "chat")) {
       issues.push("bot_added_payload_chat_reference_missing");
+    } else if (input.expectedChatReferences && input.expectedChatReferences.length === 0) {
+      issues.push("bot_added_payload_chat_reference_local_evidence_missing");
+    } else if (
+      (input.expectedChatReferences?.length ?? 0) > 0 &&
+      !input.expectedChatReferences?.some((reference) =>
+        doFeishuSafeReferencesMatch(summary.chatReference, reference)
+      )
+    ) {
+      issues.push("bot_added_payload_chat_reference_mismatch");
     }
     if (summary.externalEventIdRedacted !== true) {
       issues.push("bot_added_payload_event_id_not_redacted");
@@ -7971,11 +8007,17 @@ function buildFeishuExpectedCallbackRouteProof(input: {
 
 function buildFeishuExpectedBotAddedPayloadIdentityProofs(
   integrations: readonly ExternalIntegrationRecord[],
-  input: { integrationId?: string },
+  input: {
+    integrationId?: string;
+    integrationIds?: ReadonlySet<string>;
+  },
 ): FeishuExpectedBotAddedPayloadIdentityProof[] {
   const proofs: FeishuExpectedBotAddedPayloadIdentityProof[] = [];
   for (const integration of integrations) {
     if (input.integrationId && integration.id !== input.integrationId) {
+      continue;
+    }
+    if (input.integrationIds && !input.integrationIds.has(integration.id)) {
       continue;
     }
     if (integration.status !== "active") {
@@ -7993,6 +8035,45 @@ function buildFeishuExpectedBotAddedPayloadIdentityProofs(
     });
   }
   return proofs;
+}
+
+function buildFeishuExpectedEvidenceArtifactIntegrationIds(input: {
+  requiredEvidence: FeishuEvidenceRequirement;
+  scopedIntegrationId?: string;
+  evidenceItems: readonly FeishuIntegrationEvidence[];
+  evidenceSources: readonly FeishuIntegrationEvidenceSource[];
+}): ReadonlySet<string> | undefined {
+  if (input.scopedIntegrationId) {
+    return new Set([input.scopedIntegrationId]);
+  }
+  if (input.requiredEvidence !== "all") {
+    return undefined;
+  }
+  const activeSources = input.evidenceSources.filter((source) => source.integration.status === "active");
+  return new Set(input.evidenceItems
+    .filter((item) =>
+      isFeishuEvidenceSatisfiedExceptNative(item) &&
+      hasFeishuWorkspaceNativeExperienceEvidence(activeSources, {
+        requiredIntegrationId: item.id,
+      })
+    )
+    .map((item) => item.id));
+}
+
+function buildFeishuExpectedBotAddedPayloadChatReferences(input: {
+  requiredEvidence: FeishuEvidenceRequirement;
+  scopedIntegrationId?: string;
+  evidenceSources: readonly FeishuIntegrationEvidenceSource[];
+  anchorIntegrationIds?: ReadonlySet<string>;
+}): readonly string[] | undefined {
+  if (input.requiredEvidence !== "all") {
+    return undefined;
+  }
+  const activeSources = input.evidenceSources.filter((source) => source.integration.status === "active");
+  return listFeishuWorkspaceNativeExperienceChatReferences(activeSources, {
+    requiredIntegrationId: input.scopedIntegrationId,
+    allowedIntegrationIds: input.anchorIntegrationIds,
+  });
 }
 
 function sha256FeishuEvidenceText(value: string): string {
@@ -8099,8 +8180,19 @@ function hasFeishuWorkspaceNativeExperienceEvidence(
   sources: readonly FeishuIntegrationEvidenceSource[],
   options: {
     requiredIntegrationId?: string;
+    allowedIntegrationIds?: ReadonlySet<string>;
   } = {},
 ): boolean {
+  return listFeishuWorkspaceNativeExperienceChatReferences(sources, options).length > 0;
+}
+
+function listFeishuWorkspaceNativeExperienceChatReferences(
+  sources: readonly FeishuIntegrationEvidenceSource[],
+  options: {
+    requiredIntegrationId?: string;
+    allowedIntegrationIds?: ReadonlySet<string>;
+  } = {},
+): string[] {
   const messageMappings = sources.flatMap((source) => source.messageMappings);
   const outbox = sources.flatMap((source) => source.outbox);
   const channelBindings = sources.flatMap((source) => source.channelBindings);
@@ -8112,7 +8204,7 @@ function hasFeishuWorkspaceNativeExperienceEvidence(
     ...threadBindings.map((binding) => readFeishuSafeChatReference(binding.metadataJson)),
   ].filter(hasNonEmptyString));
 
-  return chatReferences.some((chatReference) => {
+  return chatReferences.filter((chatReference) => {
     const scopedMappings = messageMappings.filter((mapping) =>
       readFeishuSafeChatReference(mapping.metadataJson) === chatReference
     );
@@ -8134,6 +8226,15 @@ function hasFeishuWorkspaceNativeExperienceEvidence(
     if (options.requiredIntegrationId && !scopedIntegrationIds.has(options.requiredIntegrationId)) {
       return false;
     }
+    if (
+      options.allowedIntegrationIds &&
+      ![...scopedIntegrationIds].some((integrationId) => options.allowedIntegrationIds?.has(integrationId))
+    ) {
+      return false;
+    }
+    if (!hasDistinctActiveFeishuAgentBotBindingsInScope(sources, scopedIntegrationIds)) {
+      return false;
+    }
 
     return countFeishuAgentBotRouteEvidence(scopedMappings) > 0 &&
       countFeishuNativeBotReplyEvidence(scopedMappings) > 0 &&
@@ -8150,6 +8251,72 @@ function hasFeishuWorkspaceNativeExperienceEvidence(
       countFeishuThreadCollaborationEvidence(scopedThreadBindings) > 0 &&
       countFeishuThreadCollaborationCardEvidence(scopedOutbox, scopedThreadBindings) > 0;
   });
+}
+
+function doFeishuSafeReferencesMatch(left: unknown, right: unknown): boolean {
+  const leftHash = readFeishuSafeReferenceComparableHash(left);
+  const rightHash = readFeishuSafeReferenceComparableHash(right);
+  if (!leftHash || !rightHash) {
+    return false;
+  }
+  return leftHash === rightHash ||
+    (leftHash.length >= rightHash.length && rightHash.length >= 8 && leftHash.startsWith(rightHash)) ||
+    (rightHash.length >= leftHash.length && leftHash.length >= 8 && rightHash.startsWith(leftHash));
+}
+
+function readFeishuSafeReferenceComparableHash(value: unknown): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const normalized = value.trim().toLowerCase();
+  const prefixed = /^(?:chat|event)[ :]([a-f0-9]{8,64})$/.exec(normalized);
+  if (prefixed) {
+    return prefixed[1];
+  }
+  const ref = /^ref_([a-f0-9]{8,64})$/.exec(normalized);
+  if (ref) {
+    return ref[1];
+  }
+  return /^[a-f0-9]{8,64}$/.test(normalized) ? normalized : undefined;
+}
+
+interface FeishuAgentBotBindingIdentity {
+  integrationId: string;
+  agentId: string;
+  appId: string;
+  tenantKey?: string;
+}
+
+function hasDistinctActiveFeishuAgentBotBindingsInScope(
+  sources: readonly FeishuIntegrationEvidenceSource[],
+  scopedIntegrationIds: ReadonlySet<string>,
+): boolean {
+  const identities = sources.flatMap((source): FeishuAgentBotBindingIdentity[] => {
+    const integration = source.integration;
+    if (
+      !scopedIntegrationIds.has(integration.id) ||
+      integration.status !== "active" ||
+      integration.provider !== FEISHU_PROVIDER_ID ||
+      !hasNonEmptyString(integration.agentId) ||
+      !hasNonEmptyString(integration.appId)
+    ) {
+      return [];
+    }
+    return [{
+      integrationId: integration.id.trim(),
+      agentId: integration.agentId.trim(),
+      appId: integration.appId.trim(),
+      ...(hasNonEmptyString(integration.tenantKey) ? { tenantKey: integration.tenantKey.trim() } : {}),
+    }];
+  });
+  const activeIntegrationIds = new Set(identities.map((identity) => identity.integrationId));
+  const distinctAgentIds = new Set(identities.map((identity) => identity.agentId));
+  const distinctAppIds = new Set(identities.map((identity) => identity.appId));
+  const explicitTenantKeys = new Set(identities.map((identity) => identity.tenantKey).filter(hasNonEmptyString));
+  return activeIntegrationIds.size >= 2 &&
+    distinctAgentIds.size >= 2 &&
+    distinctAppIds.size >= 2 &&
+    explicitTenantKeys.size <= 1;
 }
 
 function readFeishuSafeChatReference(metadataJson: string): string | undefined {
