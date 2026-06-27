@@ -451,6 +451,12 @@ export function summarizeFeishuStoredDataOperationGovernanceContext(
       ? readString(governance, "externalGuestResourceAccess")
       : undefined,
     externalChatReference: readString(governance, "externalChatReference"),
+    resourceReference: formatFeishuDataOperationResourceReference({
+      providerResourceType: request.providerResourceType,
+      providerResourceToken: request.providerResourceToken,
+      tableId: readStringParameter(request, "tableId"),
+    }),
+    resourceIdRedacted: true,
   });
   return Object.keys(context).length > 1 ? context : undefined;
 }

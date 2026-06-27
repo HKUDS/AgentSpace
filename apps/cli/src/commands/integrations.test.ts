@@ -1987,6 +1987,10 @@ test("Feishu evidence report requires failed outbox proof to match the agent bot
             target_external_thread_id: "om_secret_failed",
           }),
         }),
+        {
+          ...(buildOutboxItem("integration-evidence", "failed") as Record<string, unknown>),
+          lastError: "provider failed for oc_secret_failed",
+        } as never,
       ],
     },
     dataOperationsByIntegrationId: {
@@ -2001,6 +2005,49 @@ test("Feishu evidence report requires failed outbox proof to match the agent bot
   assert.ok(item?.issues.includes("agent_bot_failure_evidence_missing"));
   assert.equal(JSON.stringify(report).includes("oc_secret_failed"), false);
   assert.equal(JSON.stringify(report).includes("om_secret_failed"), false);
+});
+
+test("Feishu evidence report requires failed data operation proof to match the agent bot and use safe resource context", () => {
+  const report = buildFeishuEvidenceReport({
+    ...buildCompleteFeishuEvidenceInput(),
+    requiredEvidence: "failure",
+    outboxByIntegrationId: {
+      "integration-evidence": [],
+    },
+    dataOperationsByIntegrationId: {
+      "integration-evidence": [
+        buildDataOperationRun("integration-evidence", "base.mutate_records", "base_table", "failed", undefined, {
+          governanceBotBindingId: "other-bot-binding",
+        }),
+        withGovernanceContextFields(
+          buildDataOperationRun("integration-evidence", "sheets.update_range", "sheet", "failed"),
+          {
+            providerResourceToken: "shtcn_secret_failed",
+            external_chat_id: "oc_secret_failed",
+          },
+        ),
+        buildDataOperationRun("integration-evidence", "docs.update_document", "doc", "failed", undefined, {
+          governanceResourceReference: null,
+        }),
+        buildDataOperationRun("integration-evidence", "docs.create_document", "doc", "failed", undefined, {
+          governanceResourceIdRedacted: false,
+        }),
+        buildDataOperationRun("integration-evidence", "docs.update_document", "doc", "failed", undefined, {
+          errorMessage: "provider failed for doccnSecretFailure123",
+        }),
+      ],
+    },
+  });
+
+  assert.equal(report.strictSatisfied, false);
+  assert.equal(report.summary.failureVisibleCount, 0);
+  const [item] = report.integrations;
+  assert.equal(item?.failureVisibility.providerFailureVisible, true);
+  assert.equal(item?.failureVisibility.agentBotFailureEvidence, 0);
+  assert.ok(item?.issues.includes("agent_bot_failure_evidence_missing"));
+  assert.equal(JSON.stringify(report).includes("shtcn_secret_failed"), false);
+  assert.equal(JSON.stringify(report).includes("oc_secret_failed"), false);
+  assert.equal(JSON.stringify(report).includes("doccnSecretFailure123"), false);
 });
 
 test("Feishu worker evidence requires a second correlated reply for restart recovery", () => {
@@ -2625,6 +2672,86 @@ test("Feishu evidence report requires agent bot governance on approved writes", 
   assert.ok(item?.issues.includes("base_mutate_approval_evidence_missing"));
 });
 
+test("Feishu evidence report requires data-plane proof to match the agent bot and use safe resource context", () => {
+  const report = buildFeishuEvidenceReport({
+    ...buildCompleteFeishuEvidenceInput(),
+    requiredEvidence: "data-plane",
+    dataOperationsByIntegrationId: {
+      "integration-evidence": [
+        buildDataOperationRun("integration-evidence", "docs.read_document", "doc", "succeeded", {
+          actorType: "user",
+          actorId: "user-1",
+        }, {
+          governanceBotBindingId: "other-bot-binding",
+        }),
+        withGovernanceContextFields(buildDataOperationRun("integration-evidence", "docs.read_document", "doc", "succeeded", {
+          actorType: "user",
+          actorId: "user-1",
+        }), {
+          open_id: "ou_secret_raw",
+        }),
+        withGovernanceContextFields(buildExternalGuestDocReadRun("integration-evidence"), {
+          resourceReference: "",
+        }),
+        withGovernanceContextFields(buildAgentRuntimeDocReadRun("integration-evidence"), {
+          resourceIdRedacted: false,
+        }),
+        withGovernanceContextFields(
+          buildDataOperationRun("integration-evidence", "docs.update_document", "doc", "succeeded"),
+          {
+            providerResourceToken: "doccn_secret_raw",
+          },
+        ),
+        withGovernanceContextFields(
+          buildDataOperationRun("integration-evidence", "sheets.read_range", "sheet", "succeeded"),
+          {
+            external_chat_id: "oc_secret_raw",
+          },
+        ),
+        buildDataOperationRun("integration-evidence", "sheets.update_range", "sheet", "succeeded", undefined, {
+          governanceBotBindingId: "other-bot-binding",
+        }),
+        buildDataOperationRun("integration-evidence", "base.query_records", "base_table", "succeeded", undefined, {
+          governanceResourceReference: null,
+        }),
+        buildDataOperationRun("integration-evidence", "base.mutate_records", "base_table", "succeeded", undefined, {
+          governanceResourceIdRedacted: false,
+        }),
+        withGovernanceContextFields(buildExternalGuestWriteDeniedRun("integration-evidence"), {
+          resource_token: "tbl_secret_raw",
+        }),
+      ],
+    },
+  });
+
+  assert.equal(report.strictSatisfied, false);
+  assert.equal(report.summary.dataPlaneSatisfiedCount, 0);
+  const [item] = report.integrations;
+  assert.equal(item?.dataPlane.docReadSucceeded, 0);
+  assert.equal(item?.dataPlane.agentDocReadSucceeded, 0);
+  assert.equal(item?.dataPlane.docApprovedWritesSucceeded, 0);
+  assert.equal(item?.dataPlane.sheetReadSucceeded, 0);
+  assert.equal(item?.dataPlane.sheetApprovedWriteSyncSucceeded, 0);
+  assert.equal(item?.dataPlane.baseReadSucceeded, 0);
+  assert.equal(item?.dataPlane.baseApprovedMutationSyncSucceeded, 0);
+  assert.equal(item?.dataPlane.userActorEvidence, 0);
+  assert.equal(item?.dataPlane.externalGuestActorEvidence, 0);
+  assert.equal(item?.dataPlane.externalGuestReadSucceeded, 0);
+  assert.equal(item?.dataPlane.externalGuestWriteDeniedEvidence, 0);
+  assert.ok(item?.issues.includes("doc_read_evidence_missing"));
+  assert.ok(item?.issues.includes("doc_write_approval_evidence_missing"));
+  assert.ok(item?.issues.includes("sheet_read_evidence_missing"));
+  assert.ok(item?.issues.includes("sheet_write_approval_evidence_missing"));
+  assert.ok(item?.issues.includes("base_read_evidence_missing"));
+  assert.ok(item?.issues.includes("base_mutate_approval_evidence_missing"));
+  assert.ok(item?.issues.includes("user_actor_data_operation_evidence_missing"));
+  assert.ok(item?.issues.includes("external_guest_actor_data_operation_evidence_missing"));
+  assert.equal(JSON.stringify(report).includes("ou_secret_raw"), false);
+  assert.equal(JSON.stringify(report).includes("doccn_secret_raw"), false);
+  assert.equal(JSON.stringify(report).includes("oc_secret_raw"), false);
+  assert.equal(JSON.stringify(report).includes("tbl_secret_raw"), false);
+});
+
 test("Feishu evidence report requires user and external guest actor provenance", () => {
   const report = buildFeishuEvidenceReport({
     ...buildCompleteFeishuEvidenceInput(),
@@ -2948,6 +3075,45 @@ test("Feishu evidence report requires bot sender loop guard without a bot reply"
   assert.equal(JSON.stringify(report).includes("om_secret_bot_sender_loop_reply"), false);
 });
 
+test("Feishu evidence report requires no-reply native evidence to avoid raw Feishu ids", () => {
+  const complete = buildCompleteFeishuEvidenceInput();
+  const report = buildFeishuEvidenceReport({
+    ...complete,
+    requiredEvidence: "native",
+    messageMappingsByIntegrationId: {
+      "integration-evidence": complete.messageMappingsByIntegrationId["integration-evidence"].map((mapping) => {
+        const metadataSource = mapping as { metadataJson?: string };
+        const metadata = JSON.parse(metadataSource.metadataJson ?? "{}") as Record<string, unknown>;
+        if (metadata.reasonCode === "feishu_agent_channel_member_access_disabled") {
+          return withMetadataFields(mapping, {
+            external_chat_id: "oc_secret_policy_denied",
+            open_id: "ou_secret_policy_denied",
+          });
+        }
+        if (metadata.reasonCode === "feishu_bot_sender_ignored") {
+          return withMetadataFields(mapping, {
+            externalThreadId: "om_secret_bot_sender",
+            providerOpenId: "ou_secret_bot_sender",
+          });
+        }
+        return mapping;
+      }),
+    },
+  });
+
+  assert.equal(report.strictSatisfied, false);
+  assert.equal(report.summary.nativeExperienceSatisfiedCount, 0);
+  const [item] = report.integrations;
+  assert.equal(item?.nativeExperience.agentChannelPolicyDeniedEvidence, 0);
+  assert.equal(item?.nativeExperience.botSenderLoopGuardEvidence, 0);
+  assert.ok(item?.issues.includes("agent_channel_policy_disabled_evidence_missing"));
+  assert.ok(item?.issues.includes("bot_sender_loop_guard_evidence_missing"));
+  assert.equal(JSON.stringify(report).includes("oc_secret_policy_denied"), false);
+  assert.equal(JSON.stringify(report).includes("ou_secret_policy_denied"), false);
+  assert.equal(JSON.stringify(report).includes("om_secret_bot_sender"), false);
+  assert.equal(JSON.stringify(report).includes("ou_secret_bot_sender"), false);
+});
+
 test("Feishu evidence report requires native route evidence from direct bot mentions", () => {
   const complete = buildCompleteFeishuEvidenceInput();
   const report = buildFeishuEvidenceReport({
@@ -3000,6 +3166,33 @@ test("Feishu evidence report requires native route safe chat and thread context"
   assert.ok(item?.issues.includes("bound_user_bot_mention_evidence_missing"));
   assert.ok(item?.issues.includes("external_guest_bot_mention_evidence_missing"));
   assert.ok(item?.issues.includes("agent_channel_policy_disabled_evidence_missing"));
+});
+
+test("Feishu evidence report requires bound user bot mentions to carry actorUserId without raw Feishu identity", () => {
+  const complete = buildCompleteFeishuEvidenceInput();
+  const report = buildFeishuEvidenceReport({
+    ...complete,
+    requiredEvidence: "native",
+    messageMappingsByIntegrationId: {
+      "integration-evidence": complete.messageMappingsByIntegrationId["integration-evidence"].map((mapping) => {
+        const metadataSource = mapping as { direction?: string; metadataJson?: string };
+        const metadata = JSON.parse(metadataSource.metadataJson ?? "{}") as Record<string, unknown>;
+        return metadataSource.direction === "inbound" && metadata.actorType === "user"
+          ? withMetadataFields(withoutMetadataField(mapping, "actorUserId"), {
+            open_id: "ou_secret_bound_user",
+          })
+          : mapping;
+      }),
+    },
+  });
+
+  assert.equal(report.strictSatisfied, false);
+  assert.equal(report.summary.nativeExperienceSatisfiedCount, 0);
+  const [item] = report.integrations;
+  assert.ok((item?.nativeExperience.agentBotRouteEvidence ?? 0) > 0);
+  assert.equal(item?.nativeExperience.boundUserMentionEvidence, 0);
+  assert.ok(item?.issues.includes("bound_user_bot_mention_evidence_missing"));
+  assert.equal(JSON.stringify(report).includes("ou_secret_bound_user"), false);
 });
 
 test("Feishu evidence report requires thread continuation without re-mentioning the bot", () => {
@@ -7629,7 +7822,7 @@ function buildMessageMapping(
           dispatchStatus: "sent",
           actorType,
           ...(actorType === "user"
-            ? { userId: "user-1" }
+            ? { userId: "user-1", actorUserId: "user-1" }
             : {
               externalGuestReference: "guest-ref-hash",
               externalGuestPermissionProfile: "channel_context_only",
@@ -8475,6 +8668,8 @@ function buildAgentRuntimeDocReadRun(integrationId: string) {
   const governanceContext = buildFeishuTestGovernanceContext({
     actorType: "agent",
     actorId: "agent-1",
+    botBindingId: integrationId,
+    resourceReference: "doc / resource safe-ref",
   });
   return {
     ...(buildDataOperationRun(integrationId, "docs.read_document", "doc", "succeeded") as Record<string, unknown>),
@@ -8576,6 +8771,8 @@ interface DataOperationRunOptions {
   governanceExternalActorReference?: string | null;
   governanceExternalGuestPermissionProfile?: string | null;
   governanceExternalGuestResourceAccess?: string | null;
+  governanceResourceReference?: string | null;
+  governanceResourceIdRedacted?: boolean | null;
   errorCode?: string;
   errorMessage?: string;
 }
@@ -8607,11 +8804,15 @@ function buildDataOperationRun(
     actorType: options.governanceActorType ?? actor.actorType,
     actorId: actor.actorId,
     agentId: options.governanceAgentId,
-    botBindingId: options.governanceBotBindingId,
+    botBindingId: options.governanceBotBindingId === undefined ? integrationId : options.governanceBotBindingId,
     actorUserId: options.governanceActorUserId,
     externalActorReference: options.governanceExternalActorReference,
     externalGuestPermissionProfile: options.governanceExternalGuestPermissionProfile,
     externalGuestResourceAccess: options.governanceExternalGuestResourceAccess,
+    resourceReference: options.governanceResourceReference === undefined
+      ? `${providerResourceType} / resource safe-ref`
+      : options.governanceResourceReference,
+    resourceIdRedacted: options.governanceResourceIdRedacted,
   });
   return {
     id: `${status}-${operationType}-${integrationId}`,
@@ -8661,6 +8862,8 @@ function buildFeishuTestGovernanceContext(input: {
   externalActorReference?: string | null;
   externalGuestPermissionProfile?: string | null;
   externalGuestResourceAccess?: string | null;
+  resourceReference?: string | null;
+  resourceIdRedacted?: boolean | null;
 }) {
   return {
     provider: "feishu",
@@ -8668,6 +8871,10 @@ function buildFeishuTestGovernanceContext(input: {
     ...(input.botBindingId === null ? {} : { botBindingId: input.botBindingId ?? "bot-binding-1" }),
     channelName: "Launch Room",
     actorType: input.actorType,
+    ...(input.resourceReference === null ? {} : { resourceReference: input.resourceReference ?? "resource safe-ref" }),
+    ...(input.resourceIdRedacted === null
+      ? {}
+      : { resourceIdRedacted: input.resourceIdRedacted === undefined ? true : input.resourceIdRedacted }),
     ...(input.actorType === "user" && input.actorUserId !== null
       ? { actorUserId: input.actorUserId ?? input.actorId ?? "user-1" }
       : {}),

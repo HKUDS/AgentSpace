@@ -5687,6 +5687,7 @@ function countAgentRuntimeFeishuDocReadOperations(
     operation.status === "succeeded" &&
     operation.operationType === "docs.read_document" &&
     operation.actorType === "agent" &&
+    hasBoundFeishuGovernedReadContext(operation) &&
     hasFeishuAgentRuntimeDocReadEvidence(operation)
   ).length;
 }
@@ -5733,10 +5734,7 @@ function hasFeishuApprovedDataTableWriteSyncEvidence(operation: ExternalDataOper
 
 function hasFeishuAgentBotGovernedWriteContext(operation: ExternalDataOperationRunRecord): boolean {
   const governanceContext = readFeishuGovernanceContext(operation);
-  if (governanceContext?.provider !== FEISHU_PROVIDER_ID) {
-    return false;
-  }
-  if (!hasNonEmptyString(governanceContext.agentId) || !hasNonEmptyString(governanceContext.botBindingId)) {
+  if (!hasFeishuAgentBotDataOperationContext(operation, governanceContext)) {
     return false;
   }
   const actorType = readFeishuGovernanceActorType(operation);
@@ -5751,13 +5749,10 @@ function hasFeishuAgentBotGovernedWriteContext(operation: ExternalDataOperationR
 
 function hasBoundFeishuGovernedReadContext(operation: ExternalDataOperationRunRecord): boolean {
   const governanceContext = readFeishuGovernanceContext(operation);
-  if (governanceContext?.provider !== FEISHU_PROVIDER_ID) {
-    return false;
-  }
   if (!hasNonEmptyString(operation.resourceBindingId)) {
     return false;
   }
-  if (!hasNonEmptyString(governanceContext.agentId) || !hasNonEmptyString(governanceContext.botBindingId)) {
+  if (!hasFeishuAgentBotDataOperationContext(operation, governanceContext)) {
     return false;
   }
   const actorType = readFeishuGovernanceActorType(operation);
@@ -5785,7 +5780,7 @@ function countFeishuGovernanceActorEvidence(
     if (governanceContext?.actorType !== actorType) {
       return false;
     }
-    if (!hasNonEmptyString(governanceContext.agentId) || !hasNonEmptyString(governanceContext.botBindingId)) {
+    if (!hasFeishuAgentBotDataOperationContext(operation, governanceContext)) {
       return false;
     }
     if (actorType === "user") {
@@ -6682,7 +6677,9 @@ function countFeishuNativeActorMentionEvidence(
         metadata.externalGuestPermissionProfile === "channel_context_only" &&
         hasNoFeishuUserIdentity(metadata);
     }
-    return typeof metadata.userId === "string" && metadata.userId.trim().length > 0;
+    return typeof metadata.actorUserId === "string" &&
+      metadata.actorUserId.trim().length > 0 &&
+      hasNoFeishuRawProviderIdentityContext(metadata);
   }).length;
 }
 
@@ -6709,6 +6706,8 @@ function countFeishuAgentChannelPolicyDeniedEvidence(
       typeof metadata.botBindingId === "string" &&
       metadata.botBindingId.trim().length > 0 &&
       hasFeishuSafeInboundMessageContext(metadata) &&
+      hasNoFeishuRawExternalLocationContext(metadata) &&
+      hasNoFeishuRawProviderIdentityContext(metadata) &&
       metadata.agentBotMentioned === true &&
       Boolean(reasonCode && policyDenialReasonCodes.has(reasonCode)) &&
       !hasFeishuCorrelatedOutboundReply(mappings, mapping);
@@ -6752,6 +6751,8 @@ function countFeishuBotSenderLoopGuardEvidence(
       typeof metadata.botBindingId === "string" &&
       metadata.botBindingId.trim().length > 0 &&
       hasFeishuSafeInboundMessageContext(metadata) &&
+      hasNoFeishuRawExternalLocationContext(metadata) &&
+      hasNoFeishuRawProviderIdentityContext(metadata) &&
       !hasFeishuCorrelatedOutboundReply(mappings, mapping);
   }).length;
 }
@@ -7231,6 +7232,7 @@ function countFeishuFailedOutboxAgentBotEvidence(
       !hasNonEmptyString(metadata.target_external_chat_id) &&
       !hasNonEmptyString(metadata.targetExternalThreadId) &&
       !hasNonEmptyString(metadata.target_external_thread_id) &&
+      hasNoFeishuRawFailureText(item.lastError) &&
       hasFeishuFailureOutboxSource(metadata);
   }).length;
 }
@@ -7250,13 +7252,122 @@ function countFeishuFailedDataOperationAgentBotEvidence(
       return false;
     }
     const governanceContext = readFeishuGovernanceContext(operation);
-    return governanceContext?.provider === FEISHU_PROVIDER_ID &&
+    return hasFeishuAgentBotDataOperationContext(operation, governanceContext) &&
       hasNonEmptyString(operation.resourceBindingId) &&
       hasNonEmptyString(operation.operationType) &&
       hasNonEmptyString(operation.providerResourceType) &&
-      hasNonEmptyString(governanceContext.agentId) &&
-      hasNonEmptyString(governanceContext.botBindingId);
+      hasNoFeishuRawFailureText(operation.errorMessage);
   }).length;
+}
+
+function hasNoFeishuRawFailureText(value: unknown): boolean {
+  if (!hasNonEmptyString(value)) {
+    return true;
+  }
+  return !containsFeishuSecretLikeEvidence(value) &&
+    !containsRawFeishuOpenApiEvidenceIdentifier(value);
+}
+
+function hasFeishuAgentBotDataOperationContext(
+  operation: ExternalDataOperationRunRecord,
+  governanceContext: Record<string, unknown> | undefined,
+): governanceContext is Record<string, unknown> {
+  const botBindingId = readStringMetadata(governanceContext?.botBindingId);
+  return governanceContext?.provider === FEISHU_PROVIDER_ID &&
+    hasNonEmptyString(governanceContext.agentId) &&
+    botBindingId === operation.integrationId &&
+    hasFeishuSafeDataOperationResourceContext(governanceContext);
+}
+
+function hasFeishuSafeDataOperationResourceContext(governanceContext: Record<string, unknown>): boolean {
+  return hasNonEmptyString(governanceContext.resourceReference) &&
+    governanceContext.resourceIdRedacted === true &&
+    hasNoFeishuRawExternalLocationContext(governanceContext) &&
+    hasNoFeishuRawProviderIdentityContext(governanceContext) &&
+    hasNoFeishuRawDataOperationResourceContext(governanceContext);
+}
+
+function hasNoFeishuRawProviderIdentityContext(metadata: Record<string, unknown>): boolean {
+  const rawIdentityFields = [
+    "externalUserId",
+    "externalOpenId",
+    "externalUnionId",
+    "feishuOpenId",
+    "feishuUnionId",
+    "openId",
+    "unionId",
+    "providerUserId",
+    "providerOpenId",
+    "providerUnionId",
+    "senderOpenId",
+    "senderUnionId",
+    "user_id",
+    "open_id",
+    "union_id",
+    "external_user_id",
+    "external_open_id",
+    "external_union_id",
+    "provider_user_id",
+    "provider_open_id",
+    "provider_union_id",
+  ];
+  return rawIdentityFields.every((field) => !hasNonEmptyString(metadata[field]));
+}
+
+function hasNoFeishuRawExternalLocationContext(metadata: Record<string, unknown>): boolean {
+  const rawLocationFields = [
+    "chatId",
+    "externalChatId",
+    "sourceChatId",
+    "targetExternalChatId",
+    "threadId",
+    "externalThreadId",
+    "sourceThreadId",
+    "targetExternalThreadId",
+    "chat_id",
+    "external_chat_id",
+    "source_chat_id",
+    "target_external_chat_id",
+    "thread_id",
+    "external_thread_id",
+    "source_thread_id",
+    "target_external_thread_id",
+  ];
+  return rawLocationFields.every((field) => !hasNonEmptyString(metadata[field]));
+}
+
+function hasNoFeishuRawDataOperationResourceContext(metadata: Record<string, unknown>): boolean {
+  const rawResourceFields = [
+    "providerResourceToken",
+    "externalResourceId",
+    "externalResourceToken",
+    "resourceId",
+    "resourceToken",
+    "rawResourceToken",
+    "docToken",
+    "documentId",
+    "sheetToken",
+    "spreadsheetToken",
+    "baseToken",
+    "appToken",
+    "tableId",
+    "viewId",
+    "provider_resource_token",
+    "external_resource_id",
+    "external_resource_token",
+    "resource_id",
+    "resource_token",
+    "raw_resource_token",
+    "doc_token",
+    "document_id",
+    "sheet_token",
+    "spreadsheet_token",
+    "base_token",
+    "app_token",
+    "table_id",
+    "view_id",
+  ];
+  return rawResourceFields.every((field) => !hasNonEmptyString(metadata[field]));
 }
 
 function verifyFeishuOpenApiSmokeEvidence(input: {

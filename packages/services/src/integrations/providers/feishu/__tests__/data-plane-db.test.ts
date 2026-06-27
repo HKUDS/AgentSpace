@@ -199,6 +199,8 @@ test("bound Feishu Doc reads create an operation run with a safe result summary"
     botBindingId: integration.id,
     channelName: "general",
     actorType: "agent",
+    resourceReference: "doc / resource e1fe795c",
+    resourceIdRedacted: true,
   });
   const resultJson = JSON.parse(run.resultJson) as Record<string, unknown>;
   assert.equal(resultJson.policyDecision, "allow");
@@ -311,6 +313,8 @@ test("agent bot Feishu reads record bound user governance context", databaseTest
     channelName: "general",
     actorType: "user",
     actorUserId: user.id,
+    resourceReference: "doc / resource 80658319",
+    resourceIdRedacted: true,
   });
 });
 
@@ -404,6 +408,8 @@ test("external guest Feishu reads require guest-readable current-channel resourc
     externalGuestPermissionProfile: "channel_context_only",
     externalGuestResourceAccess: "guest_readable_current_channel",
     externalChatReference: "ref_2762fdc95dd841bb",
+    resourceReference: "doc / resource 376203c4",
+    resourceIdRedacted: true,
   });
   assert.equal(JSON.stringify(requestJson).includes("oc_raw_chat_should_not_persist"), false);
 });
@@ -504,6 +510,8 @@ test("external guest Feishu writes require identity before approval planning", d
     externalActorReference: "guest-ref-write-123",
     externalGuestPermissionProfile: "channel_context_only",
     externalGuestRequireIdentityFor: ["writes", "approvals", "private_resources"],
+    resourceReference: "sheet / resource ff403b04",
+    resourceIdRedacted: true,
   });
   assert.equal(JSON.stringify(requestJson).includes("blocked"), false);
 });

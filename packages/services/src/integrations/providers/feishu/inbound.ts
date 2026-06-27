@@ -1607,6 +1607,7 @@ function createFeishuInboundMapping(input: {
       externalThreadReference: buildFeishuInboundSafeThreadReference(input.message),
       mappedChannelName: input.mappedChannelName,
       userId: input.userId,
+      actorUserId: input.actorType === "user" || input.userId ? input.userId : undefined,
       actorType: input.actorType ?? (input.userId ? "user" : undefined),
       externalGuestReference: input.externalGuestActor?.providerUserRefHash,
       externalGuestPermissionProfile: input.externalGuestActor?.permissionProfile,

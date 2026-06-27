@@ -623,6 +623,8 @@ test("summarizes Feishu external guest readable resource access for stored evide
     externalGuestPermissionProfile: "channel_context_only",
     externalGuestResourceAccess: "guest_readable_current_channel",
     externalChatReference: "chat-ref-safe-123",
+    resourceReference: "doc / resource 2b507ee2",
+    resourceIdRedacted: true,
   });
 });
 

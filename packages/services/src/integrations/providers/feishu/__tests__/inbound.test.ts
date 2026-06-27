@@ -210,7 +210,11 @@ test("bound Feishu messages enter the AgentSpace channel message and task queue 
     externalMessageId: "om-bound-1",
   });
   assert.ok(mapping);
-  assert.equal(JSON.parse(mapping.metadataJson).dispatchStatus, "sent");
+  const mappingMetadata = JSON.parse(mapping.metadataJson) as Record<string, unknown>;
+  assert.equal(mappingMetadata.dispatchStatus, "sent");
+  assert.equal(mappingMetadata.actorType, "user");
+  assert.equal(mappingMetadata.actorUserId, fixtures.user.id);
+  assert.doesNotMatch(mapping.metadataJson, /ou_mina|on_mina|oc_general|om-bound-1/);
 });
 
 test("bound Feishu direct messages enter the AgentSpace contact chat path without @Agent", databaseTestOptions, () => {
