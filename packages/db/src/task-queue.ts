@@ -839,11 +839,17 @@ function selectQueuedTaskForRuntime(
 ): Record<string, unknown> | undefined {
   return db
     .prepare(
-      `SELECT id
-       FROM agent_task_queue
-       WHERE runtime_id = ? AND status = 'queued'
-       ${typeof workspaceId === "string" ? "AND workspace_id = ?" : ""}
-       ORDER BY priority DESC, created_at ASC
+      `SELECT t.id
+       FROM agent_task_queue t
+       WHERE t.runtime_id = ? AND t.status = 'queued'
+         AND NOT EXISTS (
+           SELECT 1 FROM agent_task_queue blocker
+           WHERE blocker.agent_id = t.agent_id
+             AND blocker.id != t.id
+             AND blocker.status IN ('claimed', 'running')
+         )
+       ${typeof workspaceId === "string" ? "AND t.workspace_id = ?" : ""}
+       ORDER BY t.priority DESC, t.created_at ASC
        LIMIT 1`,
     )
     .get(...(typeof workspaceId === "string" ? [runtimeId, workspaceId] : [runtimeId])) as Record<string, unknown> | undefined;
@@ -870,6 +876,12 @@ function selectFallbackQueuedTaskForRuntime(
      JOIN agent_runtime r ON r.id = q.runtime_id
      WHERE q.status = 'queued'
        AND q.runtime_id <> ?
+       AND NOT EXISTS (
+         SELECT 1 FROM agent_task_queue blocker
+         WHERE blocker.agent_id = q.agent_id
+           AND blocker.id != q.id
+           AND blocker.status IN ('claimed', 'running')
+       )
        ${typeof workspaceId === "string" ? "AND q.workspace_id = ?" : ""}
      ORDER BY q.priority DESC, q.created_at ASC
      LIMIT 20`,
