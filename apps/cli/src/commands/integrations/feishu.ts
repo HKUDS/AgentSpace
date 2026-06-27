@@ -4980,7 +4980,7 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
         area: "bot",
         title: "Live smoke: unbound Feishu user routes as external guest",
         status: readyForBot ? "pending" : "blocked",
-        detail: "From a Feishu user that is not bound to AgentSpace, mention the agent bot and verify AgentSpace dispatches a low-permission external_guest actor without creating a real workspace member or leaking raw Feishu user ids.",
+        detail: "From a Feishu user that is not bound to AgentSpace, mention the agent bot and verify AgentSpace dispatches actorType=external_guest with permissionProfile=channel_context_only, no userId/actorUserId, task/message dispatch, safe audit references, no real workspace member, and no raw Feishu user ids.",
         command: externalGuestPolicyCommands.replyOnMentionCommand,
         issues: readyForBot ? [] : botIssues,
       },
@@ -5007,7 +5007,7 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
         area: "bot",
         title: "Live smoke: external guest replies can be disabled",
         status: readyForBot ? "pending" : "blocked",
-        detail: `Temporarily set the agent bot external guest policy to ignore, mention the bot from an unbound Feishu user, and verify AgentSpace records the ignore decision without dispatching a task or sending a reply. Restore after this smoke step with: ${externalGuestPolicyCommands.restoreDefaultCommand}`,
+        detail: `Temporarily set the agent bot external guest policy to ignore with permissionProfile=none, mention the bot from an unbound Feishu user, and verify AgentSpace records the ignore decision without dispatching a task or sending a reply. Restore after this smoke step with: ${externalGuestPolicyCommands.restoreDefaultCommand}`,
         command: externalGuestPolicyCommands.ignoreCommand,
         issues: readyForBot ? [] : botIssues,
       },
@@ -5034,7 +5034,7 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
         area: "data-plane",
         title: "Live smoke: external guest write requires identity",
         status: readyForBot && readyForDataPlane ? "pending" : "blocked",
-        detail: `From an unbound Feishu user, ask the concrete agent bot to write a bound smoke Sheet/Base resource. Verify AgentSpace records external_guest governance on a bound write run, refuses the final Feishu write with require_identity, sends the identity-binding notice, and does not create a real workspace member. Restore after this smoke step with: ${externalGuestPolicyCommands.restoreDefaultCommand}`,
+        detail: `From an unbound Feishu user, ask the concrete agent bot to write a bound smoke Sheet/Base resource. Verify AgentSpace records external_guest governance on a bound write run with permissionProfile=none or permissionProfile=channel_context_only, refuses the final Feishu write with require_identity, sends the identity-binding notice, and does not create a real workspace member. Restore after this smoke step with: ${externalGuestPolicyCommands.restoreDefaultCommand}`,
         command: externalGuestPolicyCommands.requireIdentityCommand,
         issues: readyForBot && readyForDataPlane ? [] : uniqueStrings([...botIssues, ...dataPlaneIssues]),
       },
@@ -5043,7 +5043,7 @@ export function buildFeishuSmokePlanReport(input: BuildFeishuSmokePlanReportInpu
         area: "data-plane",
         title: "Live smoke: external guest reads guest-readable resource",
         status: readyForBot && readyForDataPlane ? "pending" : "blocked",
-        detail: "From an unbound Feishu user, ask the concrete agent bot to read a guest-readable Doc/Sheet/Base resource bound to the current channel. Verify the run records external_guest governance and externalGuestResourceAccess=guest_readable_current_channel.",
+        detail: "From an unbound Feishu user, ask the concrete agent bot to read a guest-readable Doc/Sheet/Base resource bound to the current channel. Verify the run records external_guest governance, permissionProfile=channel_context_only, and externalGuestResourceAccess=guest_readable_current_channel.",
         command: [
           externalGuestPolicyCommands.replyOnMentionCommand,
           dataPlaneSmokeCommands.liveDocReadCommand,
@@ -5331,6 +5331,7 @@ function buildFeishuIntegrationEvidence(input: {
     dispatchStatus: "sent",
     reasonCode: "feishu_external_guest_allowed",
     unboundUserMode: "reply_on_mention",
+    expectedPermissionProfile: "channel_context_only",
     agentBotMentioned: true,
     requireDispatchEvidence: true,
   });
@@ -5340,6 +5341,7 @@ function buildFeishuIntegrationEvidence(input: {
     reasonCode: "feishu_external_guest_identity_required",
     dispatchStatus: "ignored",
     unboundUserMode: "require_identity",
+    expectedPermissionProfile: "none",
     agentBotMentioned: true,
     requireNoDispatchEvidence: true,
   });
@@ -5352,6 +5354,7 @@ function buildFeishuIntegrationEvidence(input: {
     reasonCode: "feishu_external_guest_ignored",
     unboundUserMode: "ignore",
     dispatchStatus: "ignored",
+    expectedPermissionProfile: "none",
     agentBotMentioned: true,
     requireNoDispatchEvidence: true,
     requireNoOutboundReply: true,
@@ -5361,6 +5364,7 @@ function buildFeishuIntegrationEvidence(input: {
     reasonCode: "feishu_external_guest_bot_mention_required",
     unboundUserMode: "reply_on_mention",
     dispatchStatus: "ignored",
+    expectedPermissionProfile: "channel_context_only",
     agentBotMentioned: false,
     requireNoDispatchEvidence: true,
     requireNoOutboundReply: true,
@@ -5765,6 +5769,7 @@ function hasBoundFeishuGovernedReadContext(operation: ExternalDataOperationRunRe
   }
   if (actorType === "external_guest") {
     return countFeishuGovernanceActorEvidence([operation], "external_guest") === 1 &&
+      governanceContext.externalGuestPermissionProfile === "channel_context_only" &&
       governanceContext.externalGuestResourceAccess === "guest_readable_current_channel" &&
       hasNonEmptyString(governanceContext.channelName);
   }
@@ -5787,9 +5792,13 @@ function countFeishuGovernanceActorEvidence(
       return hasNonEmptyString(governanceContext.actorUserId);
     }
     return hasNonEmptyString(governanceContext.externalActorReference) &&
-      hasNonEmptyString(governanceContext.externalGuestPermissionProfile) &&
+      isFeishuAcceptedExternalGuestDataPlanePermissionProfile(governanceContext.externalGuestPermissionProfile) &&
       hasNoFeishuUserIdentity(governanceContext);
   }).length;
+}
+
+function isFeishuAcceptedExternalGuestDataPlanePermissionProfile(value: unknown): boolean {
+  return value === "channel_context_only" || value === "none";
 }
 
 function countFeishuExternalGuestWriteDeniedEvidence(
@@ -5821,6 +5830,7 @@ function countFeishuExternalGuestReadEvidence(
       readOperations.has(operation.operationType) &&
       hasNonEmptyString(operation.resourceBindingId) &&
       countFeishuGovernanceActorEvidence([operation], "external_guest") === 1 &&
+      governanceContext?.externalGuestPermissionProfile === "channel_context_only" &&
       governanceContext?.externalGuestResourceAccess === "guest_readable_current_channel" &&
       hasNonEmptyString(governanceContext.channelName);
   }).length;
@@ -5855,7 +5865,32 @@ function hasNonEmptyString(value: unknown): value is string {
 }
 
 function hasNoFeishuUserIdentity(metadata: Record<string, unknown>): boolean {
-  return !hasNonEmptyString(metadata.userId) && !hasNonEmptyString(metadata.actorUserId);
+  const rawIdentityFields = [
+    "userId",
+    "actorUserId",
+    "externalUserId",
+    "externalOpenId",
+    "externalUnionId",
+    "feishuOpenId",
+    "feishuUnionId",
+    "openId",
+    "unionId",
+    "providerUserId",
+    "providerOpenId",
+    "providerUnionId",
+    "senderOpenId",
+    "senderUnionId",
+    "user_id",
+    "open_id",
+    "union_id",
+    "external_user_id",
+    "external_open_id",
+    "external_union_id",
+    "provider_user_id",
+    "provider_open_id",
+    "provider_union_id",
+  ];
+  return rawIdentityFields.every((field) => !hasNonEmptyString(metadata[field]));
 }
 
 function hasFeishuSafeInboundMessageContext(metadata: Record<string, unknown> | undefined): metadata is Record<string, unknown> {
@@ -5914,15 +5949,23 @@ function countFeishuProcessedInboundMessageEvents(events: ExternalIntegrationEve
     return hasNonEmptyString(message?.messageReference) &&
       message?.messageIdRedacted === true &&
       !hasNonEmptyString(message?.messageId) &&
+      !hasNonEmptyString(message?.message_id) &&
       hasNonEmptyString(message?.chatReference) &&
       message?.chatIdRedacted === true &&
       !hasNonEmptyString(message?.chatId) &&
+      !hasNonEmptyString(message?.chat_id) &&
+      hasNonEmptyString(message?.threadReference) &&
+      message?.threadIdRedacted === true &&
       !hasNonEmptyString(message?.threadId) &&
+      !hasNonEmptyString(message?.thread_id) &&
       hasNonEmptyString(sender?.openIdReference) &&
       sender?.openIdRedacted === true &&
       !hasNonEmptyString(sender?.openId) &&
+      !hasNonEmptyString(sender?.open_id) &&
       !hasNonEmptyString(sender?.unionId) &&
-      !hasNonEmptyString(sender?.userId);
+      !hasNonEmptyString(sender?.union_id) &&
+      !hasNonEmptyString(sender?.userId) &&
+      !hasNonEmptyString(sender?.user_id);
   }).length;
 }
 
@@ -5950,8 +5993,27 @@ function countFeishuProcessedApprovalCardActionEvents(events: ExternalIntegratio
       hasFeishuPayloadHashEvidence(approvalCardAction?.payloadHash) &&
       (decision === "approved" || decision === "rejected") &&
       approvalCardAction?.tokenStored === false &&
-      approvalCardAction?.rawActionPayloadStored === false;
+      approvalCardAction?.rawActionPayloadStored === false &&
+      hasNoFeishuRawApprovalCardActionData(approvalCardAction) &&
+      hasNoFeishuUserIdentity(approvalCardAction);
   }).length;
+}
+
+function hasNoFeishuRawApprovalCardActionData(action: Record<string, unknown>): boolean {
+  const rawActionFields = [
+    "token",
+    "actionToken",
+    "action_token",
+    "tenantAccessToken",
+    "tenant_access_token",
+    "rawActionPayload",
+    "raw_action_payload",
+    "actionPayload",
+    "action_payload",
+    "rawPayload",
+    "raw_payload",
+  ];
+  return rawActionFields.every((field) => action[field] === undefined || action[field] === null);
 }
 
 function readJsonRecord(value: string): Record<string, unknown> | undefined {
@@ -6278,14 +6340,14 @@ function mapFeishuEvidenceIssueToRemediationSpec(input: {
       return {
         stepId: "live_external_guest_agent_bot_mention",
         title: "Live smoke: unbound Feishu user routes as external guest",
-        detail: "From an unbound Feishu user, mention the agent-specific bot and verify AgentSpace records external_guest actor metadata without raw Feishu user ids.",
+        detail: "From an unbound Feishu user, mention the agent-specific bot and verify AgentSpace records actorType=external_guest, permissionProfile=channel_context_only, no userId/actorUserId, task/message dispatch, safe audit references, and no raw Feishu user ids.",
         command: externalGuestPolicyCommands.replyOnMentionCommand,
       };
     case "external_guest_policy_allow_evidence_missing":
       return {
         stepId: "live_external_guest_agent_bot_mention",
         title: "Live smoke: unbound Feishu user routes as external guest",
-        detail: "From an unbound Feishu user, mention the agent-specific bot and verify AgentSpace records external_guest policy allow metadata plus the low-permission task dispatch.",
+        detail: "From an unbound Feishu user, mention the agent-specific bot and verify AgentSpace records external_guest policy allow metadata plus low-permission task/message dispatch with permissionProfile=channel_context_only and no userId/actorUserId.",
         command: externalGuestPolicyCommands.replyOnMentionCommand,
       };
     case "external_guest_policy_reply_all_evidence_missing":
@@ -6299,21 +6361,21 @@ function mapFeishuEvidenceIssueToRemediationSpec(input: {
       return {
         stepId: "live_external_guest_identity_required",
         title: "Live smoke: external guest is asked to bind identity",
-        detail: `Set the agent bot external guest policy to require_identity, mention the bot from an unbound Feishu user, and verify AgentSpace records the require_identity decision and sends the binding notice. Restore after this smoke step with: ${externalGuestPolicyCommands.restoreDefaultCommand}`,
+        detail: `Set the agent bot external guest policy to require_identity, mention the bot from an unbound Feishu user, and verify AgentSpace records the require_identity decision and sends the binding notice with externalGuestReference, permissionProfile=none, and no raw Feishu open_id/union_id. Restore after this smoke step with: ${externalGuestPolicyCommands.restoreDefaultCommand}`,
         command: externalGuestPolicyCommands.requireIdentityCommand,
       };
     case "external_guest_identity_binding_notice_evidence_missing":
       return {
         stepId: "live_external_guest_identity_required",
         title: "Live smoke: external guest identity notice is sent",
-        detail: `Set the agent bot external guest policy to require_identity, mention the bot from an unbound Feishu user, drain the Feishu outbox, and verify AgentSpace records a sent identity-binding notice correlated to that ignored inbound message. Restore after this smoke step with: ${externalGuestPolicyCommands.restoreDefaultCommand}`,
+        detail: `Set the agent bot external guest policy to require_identity, mention the bot from an unbound Feishu user, drain the Feishu outbox, and verify AgentSpace records a sent identity-binding notice correlated to that ignored inbound message with externalGuestReference, permissionProfile=none, and no raw Feishu open_id/union_id. Restore after this smoke step with: ${externalGuestPolicyCommands.restoreDefaultCommand}`,
         command: externalGuestPolicyCommands.requireIdentityCommand,
       };
     case "external_guest_policy_ignore_evidence_missing":
       return {
         stepId: "live_external_guest_reply_disabled",
         title: "Live smoke: external guest replies can be disabled",
-        detail: `Set the agent bot external guest policy to ignore, mention the bot from an unbound Feishu user, and verify AgentSpace records the ignore decision without dispatching a task or reply. Restore after this smoke step with: ${externalGuestPolicyCommands.restoreDefaultCommand}`,
+        detail: `Set the agent bot external guest policy to ignore with permissionProfile=none, mention the bot from an unbound Feishu user, and verify AgentSpace records the ignore decision without dispatching a task or reply. Restore after this smoke step with: ${externalGuestPolicyCommands.restoreDefaultCommand}`,
         command: externalGuestPolicyCommands.ignoreCommand,
       };
     case "external_guest_policy_mention_required_evidence_missing":
@@ -6438,7 +6500,7 @@ function mapFeishuEvidenceIssueToRemediationSpec(input: {
       return {
         stepId: "live_external_guest_read_guest_readable",
         title: "Live smoke: external guest reads guest-readable resource",
-        detail: "From an unbound Feishu user, ask an agent bot to read a guest-readable resource bound to the current channel and verify AgentSpace records externalGuestResourceAccess=guest_readable_current_channel.",
+        detail: "From an unbound Feishu user, ask an agent bot to read a guest-readable resource bound to the current channel and verify AgentSpace records permissionProfile=channel_context_only plus externalGuestResourceAccess=guest_readable_current_channel.",
         command: [
           externalGuestPolicyCommands.replyOnMentionCommand,
           dataPlaneCommands.liveDocReadCommand,
@@ -6448,7 +6510,7 @@ function mapFeishuEvidenceIssueToRemediationSpec(input: {
       return {
         stepId: "live_external_guest_write_denied",
         title: "Live smoke: external guest write is denied",
-        detail: `From an unbound Feishu user, ask an agent bot to write a bound Sheet/Base resource and verify AgentSpace records external_guest governance on the bound write operation plus the identity-required denial. Restore after this smoke step with: ${externalGuestPolicyCommands.restoreDefaultCommand}`,
+        detail: `From an unbound Feishu user, ask an agent bot to write a bound Sheet/Base resource and verify AgentSpace records external_guest governance with permissionProfile=none or permissionProfile=channel_context_only on the bound write operation plus the identity-required denial. Restore after this smoke step with: ${externalGuestPolicyCommands.restoreDefaultCommand}`,
         command: [
           externalGuestPolicyCommands.requireIdentityCommand,
           dataPlaneCommands.liveSheetWriteCommand,
@@ -6617,8 +6679,7 @@ function countFeishuNativeActorMentionEvidence(
     if (actorType === "external_guest") {
       return typeof metadata.externalGuestReference === "string" &&
         metadata.externalGuestReference.trim().length > 0 &&
-        typeof metadata.externalGuestPermissionProfile === "string" &&
-        metadata.externalGuestPermissionProfile.trim().length > 0 &&
+        metadata.externalGuestPermissionProfile === "channel_context_only" &&
         hasNoFeishuUserIdentity(metadata);
     }
     return typeof metadata.userId === "string" && metadata.userId.trim().length > 0;
@@ -6702,6 +6763,7 @@ function countFeishuExternalGuestPolicyEvidence(
     dispatchStatus: "sent" | "ignored";
     reasonCode?: string;
     unboundUserMode?: string;
+    expectedPermissionProfile?: string;
     agentBotMentioned?: boolean;
     requireDispatchEvidence?: boolean;
     requireNoDispatchEvidence?: boolean;
@@ -6746,6 +6808,9 @@ function countFeishuExternalGuestPolicyEvidence(
     if (input.unboundUserMode && metadata.externalGuestUnboundUserMode !== input.unboundUserMode) {
       return false;
     }
+    if (input.expectedPermissionProfile && metadata.externalGuestPermissionProfile !== input.expectedPermissionProfile) {
+      return false;
+    }
     if (input.agentBotMentioned !== undefined && metadata.agentBotMentioned !== input.agentBotMentioned) {
       return false;
     }
@@ -6771,8 +6836,7 @@ function countFeishuExternalGuestReplyAllEvidence(
       hasFeishuSafeInboundMessageContext(metadata) &&
       typeof metadata.externalGuestReference === "string" &&
       metadata.externalGuestReference.trim().length > 0 &&
-      typeof metadata.externalGuestPermissionProfile === "string" &&
-      metadata.externalGuestPermissionProfile.trim().length > 0 &&
+      metadata.externalGuestPermissionProfile === "channel_context_only" &&
       hasNoFeishuUserIdentity(metadata) &&
       typeof metadata.agentId === "string" &&
       metadata.agentId.trim().length > 0 &&
@@ -6833,8 +6897,11 @@ function hasMatchingFeishuIdentityBindingNotice(
     metadata.actorType === "external_guest" &&
     metadata.agentId === inboundMetadata.agentId &&
     metadata.botBindingId === inboundMetadata.botBindingId &&
+    metadata.externalGuestReference === inboundMetadata.externalGuestReference &&
+    metadata.externalGuestPermissionProfile === "none" &&
     metadata.externalChatReference === inboundMetadata.externalChatReference &&
     metadata.externalThreadReference === replyTargetReference &&
+    hasNoFeishuUserIdentity(metadata) &&
     !hasNonEmptyString(metadata.externalChatId) &&
     !hasNonEmptyString(metadata.externalThreadId) &&
     !hasNonEmptyString(metadata.targetExternalChatId) &&
@@ -7154,7 +7221,16 @@ function countFeishuFailedOutboxAgentBotEvidence(
     return metadata?.provider === FEISHU_PROVIDER_ID &&
       hasNonEmptyString(metadata.agentId) &&
       hasNonEmptyString(metadata.botBindingId) &&
+      metadata.botBindingId.trim() === item.integrationId &&
       hasNonEmptyString(metadata.externalChatReference) &&
+      !hasNonEmptyString(metadata.externalChatId) &&
+      !hasNonEmptyString(metadata.external_chat_id) &&
+      !hasNonEmptyString(metadata.externalThreadId) &&
+      !hasNonEmptyString(metadata.external_thread_id) &&
+      !hasNonEmptyString(metadata.targetExternalChatId) &&
+      !hasNonEmptyString(metadata.target_external_chat_id) &&
+      !hasNonEmptyString(metadata.targetExternalThreadId) &&
+      !hasNonEmptyString(metadata.target_external_thread_id) &&
       hasFeishuFailureOutboxSource(metadata);
   }).length;
 }

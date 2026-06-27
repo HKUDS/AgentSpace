@@ -1961,6 +1961,48 @@ test("Feishu evidence report requires safe context for failed agent bot outbox p
   assert.equal(JSON.stringify(report).includes("oc_secret"), false);
 });
 
+test("Feishu evidence report requires failed outbox proof to match the agent bot and use redacted targets", () => {
+  const report = buildFeishuEvidenceReport({
+    ...buildCompleteFeishuEvidenceInput(),
+    requiredEvidence: "failure",
+    outboxByIntegrationId: {
+      "integration-evidence": [
+        buildOutboxItem("integration-evidence", "failed", {
+          metadataJson: JSON.stringify({
+            provider: "feishu",
+            outboxSource: "agent_reply",
+            agentId: "Atlas",
+            botBindingId: "other-bot-binding",
+            externalChatReference: "chat-ref-hash",
+          }),
+        }),
+        buildOutboxItem("integration-evidence", "failed", {
+          metadataJson: JSON.stringify({
+            provider: "feishu",
+            outboxSource: "agent_reply",
+            agentId: "Atlas",
+            botBindingId: "integration-evidence",
+            externalChatReference: "chat-ref-hash",
+            external_chat_id: "oc_secret_failed",
+            target_external_thread_id: "om_secret_failed",
+          }),
+        }),
+      ],
+    },
+    dataOperationsByIntegrationId: {
+      "integration-evidence": [],
+    },
+  });
+
+  assert.equal(report.strictSatisfied, false);
+  assert.equal(report.summary.failureVisibleCount, 0);
+  const [item] = report.integrations;
+  assert.equal(item?.failureVisibility.agentBotFailureEvidence, 0);
+  assert.ok(item?.issues.includes("agent_bot_failure_evidence_missing"));
+  assert.equal(JSON.stringify(report).includes("oc_secret_failed"), false);
+  assert.equal(JSON.stringify(report).includes("om_secret_failed"), false);
+});
+
 test("Feishu worker evidence requires a second correlated reply for restart recovery", () => {
   const report = buildFeishuEvidenceReport({
     ...buildCompleteFeishuEvidenceInput(),
@@ -2066,6 +2108,33 @@ test("Feishu worker evidence requires approval card action payload hashes to be 
   assert.equal(item?.worker.satisfied, false);
   assert.ok(item?.issues.includes("websocket_worker_card_action_evidence_missing"));
   assert.equal(JSON.stringify(report).includes("secret approval payload"), false);
+});
+
+test("Feishu worker evidence rejects approval card actions with raw token or action payload", () => {
+  const report = buildFeishuEvidenceReport({
+    ...buildCompleteFeishuEvidenceInput(),
+    eventsByIntegrationId: {
+      "integration-evidence": [
+        buildIntegrationEvent("integration-evidence", "evt_processed_secret", "im.message.receive_v1", "processed"),
+        buildApprovalCardActionEvent("integration-evidence", "evt_card_secret", "processed", {
+          token: "token_secret",
+          raw_action_payload: { value: "action_secret" },
+          open_id: "ou_secret_card_actor",
+        }),
+        buildIntegrationEvent("integration-evidence", "evt_failed_secret", "im.message.receive_v1", "failed"),
+      ],
+    },
+  });
+
+  assert.equal(report.strictSatisfied, false);
+  assert.equal(report.summary.workerSatisfiedCount, 0);
+  const [item] = report.integrations;
+  assert.equal(item?.worker.processedApprovalCardActions, 0);
+  assert.equal(item?.worker.approvalCardActionSatisfied, false);
+  assert.ok(item?.issues.includes("websocket_worker_card_action_evidence_missing"));
+  assert.equal(JSON.stringify(report).includes("token_secret"), false);
+  assert.equal(JSON.stringify(report).includes("action_secret"), false);
+  assert.equal(JSON.stringify(report).includes("ou_secret_card_actor"), false);
 });
 
 test("Feishu evidence report requires reply mappings correlated to inbound messages", () => {
@@ -2189,6 +2258,75 @@ test("Feishu evidence report requires processed inbound events to use safe summa
   assert.equal(JSON.stringify(report).includes("om_secret_raw"), false);
   assert.equal(JSON.stringify(report).includes("oc_secret_raw"), false);
   assert.equal(JSON.stringify(report).includes("ou_secret_raw"), false);
+});
+
+test("Feishu evidence report rejects processed inbound summaries with snake_case raw ids", () => {
+  const report = buildFeishuEvidenceReport({
+    ...buildCompleteFeishuEvidenceInput(),
+    requiredEvidence: "bot",
+    eventsByIntegrationId: {
+      "integration-evidence": [
+        buildIntegrationEvent("integration-evidence", "evt_processed_secret", "im.message.receive_v1", "processed", {
+          ...buildSafeInboundEventPayload(),
+          message: {
+            messageReference: "message-ref-safe",
+            messageIdRedacted: true,
+            message_id: "om_secret_snake",
+            chatReference: "chat-ref-safe",
+            chatIdRedacted: true,
+            chat_id: "oc_secret_snake",
+            thread_id: "om_secret_thread_snake",
+          },
+          sender: {
+            openIdReference: "user-ref-safe",
+            openIdRedacted: true,
+            open_id: "ou_secret_snake",
+            union_id: "on_secret_snake",
+            user_id: "user_secret_snake",
+          },
+        }),
+        buildApprovalCardActionEvent("integration-evidence", "evt_card_secret"),
+        buildIntegrationEvent("integration-evidence", "evt_failed_secret", "im.message.receive_v1", "failed"),
+      ],
+    },
+  });
+
+  assert.equal(report.strictSatisfied, false);
+  assert.equal(report.summary.botSatisfiedCount, 0);
+  const [item] = report.integrations;
+  assert.equal(item?.bot.processedInboundEvents, 0);
+  assert.ok(item?.issues.includes("processed_inbound_event_missing"));
+  assert.equal(JSON.stringify(report).includes("om_secret_snake"), false);
+  assert.equal(JSON.stringify(report).includes("oc_secret_snake"), false);
+  assert.equal(JSON.stringify(report).includes("ou_secret_snake"), false);
+});
+
+test("Feishu evidence report requires processed inbound summaries to carry safe thread references", () => {
+  const report = buildFeishuEvidenceReport({
+    ...buildCompleteFeishuEvidenceInput(),
+    requiredEvidence: "bot",
+    eventsByIntegrationId: {
+      "integration-evidence": [
+        buildIntegrationEvent("integration-evidence", "evt_processed_secret", "im.message.receive_v1", "processed", {
+          ...buildSafeInboundEventPayload(),
+          message: {
+            messageReference: "message-ref-safe",
+            messageIdRedacted: true,
+            chatReference: "chat-ref-safe",
+            chatIdRedacted: true,
+          },
+        }),
+        buildApprovalCardActionEvent("integration-evidence", "evt_card_secret"),
+        buildIntegrationEvent("integration-evidence", "evt_failed_secret", "im.message.receive_v1", "failed"),
+      ],
+    },
+  });
+
+  assert.equal(report.strictSatisfied, false);
+  assert.equal(report.summary.botSatisfiedCount, 0);
+  const [item] = report.integrations;
+  assert.equal(item?.bot.processedInboundEvents, 0);
+  assert.ok(item?.issues.includes("processed_inbound_event_missing"));
 });
 
 test("Feishu evidence report requires approved write metadata for data-plane smoke", () => {
@@ -2577,6 +2715,70 @@ test("Feishu evidence report requires external guest write-deny proof on a bound
   assert.equal(item?.dataPlane.externalGuestActorEvidence, 2);
   assert.equal(item?.dataPlane.externalGuestWriteDeniedEvidence, 0);
   assert.ok(item?.issues.includes("external_guest_write_deny_evidence_missing"));
+});
+
+test("Feishu evidence report requires data-plane guest permission profiles to match TODO120 policy", () => {
+  const complete = buildCompleteFeishuEvidenceInput();
+  const report = buildFeishuEvidenceReport({
+    ...complete,
+    requiredEvidence: "data-plane",
+    dataOperationsByIntegrationId: {
+      "integration-evidence": complete.dataOperationsByIntegrationId["integration-evidence"].map((operation) => {
+        const operationSource = operation as { operationType?: string; status?: string };
+        if (
+          operationSource.operationType === "docs.read_document" &&
+          operationSource.status === "succeeded" &&
+          readTestGovernanceActorType(operation) === "external_guest"
+        ) {
+          return withGovernanceContextFields(operation, { externalGuestPermissionProfile: "channel_readonly" });
+        }
+        if (
+          operationSource.operationType === "base.mutate_records" &&
+          operationSource.status === "failed" &&
+          readTestGovernanceActorType(operation) === "external_guest"
+        ) {
+          return withGovernanceContextFields(operation, { externalGuestPermissionProfile: "channel_readonly" });
+        }
+        return operation;
+      }),
+    },
+  });
+
+  assert.equal(report.strictSatisfied, false);
+  assert.equal(report.summary.dataPlaneSatisfiedCount, 0);
+  const [item] = report.integrations;
+  assert.equal(item?.dataPlane.externalGuestActorEvidence, 0);
+  assert.equal(item?.dataPlane.externalGuestReadSucceeded, 0);
+  assert.equal(item?.dataPlane.externalGuestWriteDeniedEvidence, 0);
+  assert.ok(item?.issues.includes("external_guest_actor_data_operation_evidence_missing"));
+});
+
+test("Feishu evidence report accepts require_identity write denial with no guest permissions", () => {
+  const complete = buildCompleteFeishuEvidenceInput();
+  const report = buildFeishuEvidenceReport({
+    ...complete,
+    requiredEvidence: "data-plane",
+    dataOperationsByIntegrationId: {
+      "integration-evidence": complete.dataOperationsByIntegrationId["integration-evidence"].map((operation) => {
+        const operationSource = operation as { operationType?: string; status?: string };
+        if (
+          operationSource.operationType === "base.mutate_records" &&
+          operationSource.status === "failed" &&
+          readTestGovernanceActorType(operation) === "external_guest"
+        ) {
+          return withGovernanceContextFields(operation, { externalGuestPermissionProfile: "none" });
+        }
+        return operation;
+      }),
+    },
+  });
+
+  assert.equal(report.strictSatisfied, true);
+  assert.equal(report.summary.dataPlaneSatisfiedCount, 1);
+  const [item] = report.integrations;
+  assert.equal(item?.dataPlane.externalGuestActorEvidence, 2);
+  assert.equal(item?.dataPlane.externalGuestReadSucceeded, 1);
+  assert.equal(item?.dataPlane.externalGuestWriteDeniedEvidence, 1);
 });
 
 test("Feishu evidence report rejects incomplete data-plane actor governance context", () => {
@@ -3153,6 +3355,48 @@ test("Feishu evidence report requires external guest allow proof from reply_on_m
   assert.ok(item?.issues.includes("external_guest_policy_allow_evidence_missing"));
 });
 
+test("Feishu evidence report requires external guest dispatch permission profile to be channel_context_only", () => {
+  const complete = buildCompleteFeishuEvidenceInput();
+  const weakenedMappings = complete.messageMappingsByIntegrationId["integration-evidence"].map((mapping) => {
+    const metadataSource = mapping as { externalMessageId?: string };
+    if (
+      metadataSource.externalMessageId !== "om_secret_restart_inbound" &&
+      metadataSource.externalMessageId !== "om_secret_guest_reply_all"
+    ) {
+      return mapping;
+    }
+    return withMetadataFields(mapping, { externalGuestPermissionProfile: "channel_readonly" });
+  });
+
+  const nativeReport = buildFeishuEvidenceReport({
+    ...complete,
+    requiredEvidence: "native",
+    messageMappingsByIntegrationId: {
+      "integration-evidence": weakenedMappings,
+    },
+  });
+
+  assert.equal(nativeReport.strictSatisfied, false);
+  const [nativeItem] = nativeReport.integrations;
+  assert.equal(nativeItem?.nativeExperience.externalGuestMentionEvidence, 0);
+  assert.ok(nativeItem?.issues.includes("external_guest_bot_mention_evidence_missing"));
+
+  const guestPolicyReport = buildFeishuEvidenceReport({
+    ...complete,
+    requiredEvidence: "guest-policy",
+    messageMappingsByIntegrationId: {
+      "integration-evidence": weakenedMappings,
+    },
+  });
+
+  assert.equal(guestPolicyReport.strictSatisfied, false);
+  const [guestPolicyItem] = guestPolicyReport.integrations;
+  assert.equal(guestPolicyItem?.guestPolicy.externalGuestAllowedEvidence, 0);
+  assert.equal(guestPolicyItem?.guestPolicy.externalGuestReplyAllEvidence, 0);
+  assert.ok(guestPolicyItem?.issues.includes("external_guest_policy_allow_evidence_missing"));
+  assert.ok(guestPolicyItem?.issues.includes("external_guest_policy_reply_all_evidence_missing"));
+});
+
 test("Feishu evidence report requires blocked guest policies without dispatch or replies", () => {
   const report = buildFeishuEvidenceReport({
     ...buildCompleteFeishuEvidenceInput(),
@@ -3212,6 +3456,30 @@ test("Feishu evidence report requires blocked guest policies without dispatch or
   assert.equal(JSON.stringify(report).includes("om_secret_guest_ignored"), false);
 });
 
+test("Feishu evidence report requires ignore policy proof to use no guest permissions", () => {
+  const complete = buildCompleteFeishuEvidenceInput();
+  const report = buildFeishuEvidenceReport({
+    ...complete,
+    requiredEvidence: "guest-policy",
+    messageMappingsByIntegrationId: {
+      "integration-evidence": complete.messageMappingsByIntegrationId["integration-evidence"].map((mapping) => {
+        const metadataSource = mapping as { externalMessageId?: string };
+        if (metadataSource.externalMessageId !== "om_secret_guest_ignored") {
+          return mapping;
+        }
+        return withMetadataFields(mapping, { externalGuestPermissionProfile: "channel_context_only" });
+      }),
+    },
+  });
+
+  assert.equal(report.strictSatisfied, false);
+  assert.equal(report.summary.guestPolicySatisfiedCount, 0);
+  const [item] = report.integrations;
+  assert.equal(item?.guestPolicy.externalGuestIgnoreEvidence, 0);
+  assert.equal(item?.guestPolicy.externalGuestMentionRequiredEvidence, 1);
+  assert.ok(item?.issues.includes("external_guest_policy_ignore_evidence_missing"));
+});
+
 test("Feishu evidence report requires a sent identity binding notice for require_identity", () => {
   const complete = buildCompleteFeishuEvidenceInput();
   const report = buildFeishuEvidenceReport({
@@ -3266,6 +3534,42 @@ test("Feishu evidence report requires identity binding notices to be sent to the
   assert.equal(item?.guestPolicy.externalGuestIdentityBindingNoticeEvidence, 0);
   assert.ok(item?.issues.includes("external_guest_identity_binding_notice_evidence_missing"));
   assert.equal(JSON.stringify(report).includes("om_secret_wrong_thread"), false);
+});
+
+test("Feishu evidence report requires identity binding notices to carry safe guest context", () => {
+  const missingGuestReferenceNotice = withoutMetadataField({
+    ...(buildIdentityBindingNoticeOutboxItem("integration-evidence") as Record<string, unknown>),
+    id: "sent-integration-evidence-identity-binding-notice-missing-guest-reference",
+  } as never, "externalGuestReference");
+  const wrongPermissionProfileNotice = withMetadataFields({
+    ...(buildIdentityBindingNoticeOutboxItem("integration-evidence") as Record<string, unknown>),
+    id: "sent-integration-evidence-identity-binding-notice-wrong-profile",
+  } as never, { externalGuestPermissionProfile: "channel_context_only" });
+  const rawUserIdentityNotice = withMetadataFields({
+    ...(buildIdentityBindingNoticeOutboxItem("integration-evidence") as Record<string, unknown>),
+    id: "sent-integration-evidence-identity-binding-notice-raw-user",
+  } as never, { openId: "ou_secret_notice" });
+  const report = buildFeishuEvidenceReport({
+    ...buildCompleteFeishuEvidenceInput(),
+    requiredEvidence: "guest-policy",
+    outboxByIntegrationId: {
+      "integration-evidence": [
+        buildOutboxItem("integration-evidence", "sent"),
+        missingGuestReferenceNotice,
+        wrongPermissionProfileNotice,
+        rawUserIdentityNotice,
+        buildOutboxItem("integration-evidence", "failed"),
+      ],
+    },
+  });
+
+  assert.equal(report.strictSatisfied, false);
+  assert.equal(report.summary.guestPolicySatisfiedCount, 0);
+  const [item] = report.integrations;
+  assert.equal(item?.guestPolicy.externalGuestRequireIdentityEvidence, 1);
+  assert.equal(item?.guestPolicy.externalGuestIdentityBindingNoticeEvidence, 0);
+  assert.ok(item?.issues.includes("external_guest_identity_binding_notice_evidence_missing"));
+  assert.equal(JSON.stringify(report).includes("ou_secret_notice"), false);
 });
 
 test("Feishu evidence report can gate on redacted OpenAPI live smoke evidence", () => {
@@ -3830,6 +4134,10 @@ test("Feishu evidence report blocks strict gates when local proof is incomplete"
   );
   assert.ok(guestMentionRemediation?.issues.includes("external_guest_bot_mention_evidence_missing"));
   assert.ok(guestMentionRemediation?.issues.includes("external_guest_policy_allow_evidence_missing"));
+  assert.match(guestMentionRemediation?.detail ?? "", /permissionProfile=channel_context_only/);
+  assert.match(guestMentionRemediation?.detail ?? "", /no userId\/actorUserId/);
+  assert.match(guestMentionRemediation?.detail ?? "", /task\/message dispatch/);
+  assert.match(guestMentionRemediation?.detail ?? "", /safe audit references/);
   const agentChannelPolicyRemediation = item?.remediationSteps.find((step) =>
     step.stepId === "live_agent_channel_policy_disabled"
   );
@@ -3874,12 +4182,16 @@ test("Feishu evidence report blocks strict gates when local proof is incomplete"
   assert.ok(requireIdentityRemediation?.issues.includes("external_guest_policy_require_identity_evidence_missing"));
   assert.ok(requireIdentityRemediation?.issues.includes("external_guest_identity_binding_notice_evidence_missing"));
   assert.match(requireIdentityRemediation?.command ?? "", /--unbound-user-mode require_identity/);
+  assert.match(requireIdentityRemediation?.detail ?? "", /externalGuestReference/);
+  assert.match(requireIdentityRemediation?.detail ?? "", /permissionProfile=none/);
+  assert.match(requireIdentityRemediation?.detail ?? "", /raw Feishu open_id\/union_id/);
   assert.match(requireIdentityRemediation?.detail ?? "", /Restore after this smoke step/);
   const ignoreRemediation = item?.remediationSteps.find((step) =>
     step.stepId === "live_external_guest_reply_disabled"
   );
   assert.ok(ignoreRemediation?.issues.includes("external_guest_policy_ignore_evidence_missing"));
   assert.match(ignoreRemediation?.command ?? "", /--unbound-user-mode ignore/);
+  assert.match(ignoreRemediation?.detail ?? "", /permissionProfile=none/);
   assert.match(ignoreRemediation?.detail ?? "", /Restore after this smoke step/);
   const mentionRequiredRemediation = item?.remediationSteps.find((step) =>
     step.stepId === "live_unmentioned_guest_message_ignored"
@@ -3934,6 +4246,7 @@ test("Feishu evidence report blocks strict gates when local proof is incomplete"
     step.stepId === "live_external_guest_read_guest_readable"
   );
   assert.ok(guestActorRemediation?.issues.includes("external_guest_actor_data_operation_evidence_missing"));
+  assert.match(guestActorRemediation?.detail ?? "", /permissionProfile=channel_context_only/);
   assert.match(guestActorRemediation?.command ?? "", /--unbound-user-mode reply_on_mention/);
   assert.match(guestActorRemediation?.command ?? "", /--operation read-doc/);
   const failureRemediation = item?.remediationSteps.find((step) => step.stepId === "live_failure_visibility");
@@ -6452,7 +6765,12 @@ test("Feishu smoke plan converts readiness into live smoke checklist without ext
   assert.equal(liveThreadContinuation?.status, "pending");
   assert.match(liveThreadContinuation?.detail ?? "", /threadContinuation=true/);
   assert.equal(liveGuestMention?.status, "pending");
-  assert.match(liveGuestMention?.detail ?? "", /external_guest/);
+  assert.match(liveGuestMention?.detail ?? "", /actorType=external_guest/);
+  assert.match(liveGuestMention?.detail ?? "", /permissionProfile=channel_context_only/);
+  assert.match(liveGuestMention?.detail ?? "", /no userId\/actorUserId/);
+  assert.match(liveGuestMention?.detail ?? "", /task\/message dispatch/);
+  assert.match(liveGuestMention?.detail ?? "", /safe audit references/);
+  assert.match(liveGuestMention?.detail ?? "", /no real workspace member/);
   assert.match(liveGuestMention?.command ?? "", /auto-provision-policy --workspace-id workspace-1 --integration integration-ready/);
   assert.match(liveGuestMention?.command ?? "", /--unbound-user-mode reply_on_mention/);
   assert.match(liveGuestMention?.command ?? "", /--guest-permission-profile channel_context_only/);
@@ -6469,6 +6787,7 @@ test("Feishu smoke plan converts readiness into live smoke checklist without ext
   assert.match(liveGuestIdentityRequired?.command ?? "", /--guest-permission-profile none/);
   assert.equal(liveGuestReplyDisabled?.status, "pending");
   assert.match(liveGuestReplyDisabled?.detail ?? "", /ignore decision/);
+  assert.match(liveGuestReplyDisabled?.detail ?? "", /permissionProfile=none/);
   assert.match(liveGuestReplyDisabled?.detail ?? "", /Restore after this smoke step/);
   assert.match(liveGuestReplyDisabled?.command ?? "", /--unbound-user-mode ignore/);
   assert.match(liveGuestReplyDisabled?.command ?? "", /--guest-permission-profile none/);
@@ -6481,11 +6800,14 @@ test("Feishu smoke plan converts readiness into live smoke checklist without ext
   assert.match(liveBoundUserDataOperation?.command ?? "", /--operation read-doc/);
   assert.equal(liveGuestWriteDenied?.status, "pending");
   assert.match(liveGuestWriteDenied?.detail ?? "", /require_identity/);
+  assert.match(liveGuestWriteDenied?.detail ?? "", /permissionProfile=none/);
+  assert.match(liveGuestWriteDenied?.detail ?? "", /permissionProfile=channel_context_only/);
   assert.match(liveGuestWriteDenied?.detail ?? "", /Restore after this smoke step/);
   assert.match(liveGuestWriteDenied?.detail ?? "", /does not create a real workspace member/);
   assert.match(liveGuestWriteDenied?.command ?? "", /--unbound-user-mode require_identity/);
   assert.equal(liveGuestReadableRead?.status, "pending");
   assert.match(liveGuestReadableRead?.detail ?? "", /guest-readable/);
+  assert.match(liveGuestReadableRead?.detail ?? "", /permissionProfile=channel_context_only/);
   assert.match(liveGuestReadableRead?.detail ?? "", /externalGuestResourceAccess=guest_readable_current_channel/);
   assert.match(liveGuestReadableRead?.command ?? "", /--unbound-user-mode reply_on_mention/);
   assert.match(liveGuestReadableRead?.command ?? "", /--operation read-doc/);
@@ -7590,7 +7912,7 @@ function buildPolicyBlockedMessageMapping(
       reasonCode: input.reasonCode,
       actorType: "external_guest",
       externalGuestReference: "guest-ref-hash",
-      externalGuestPermissionProfile: input.unboundUserMode === "require_identity" ? "none" : "channel_context_only",
+      externalGuestPermissionProfile: input.unboundUserMode === "reply_on_mention" ? "channel_context_only" : "none",
       externalGuestPolicyDecision: input.decision,
       externalGuestPolicyReasonCode: input.reasonCode,
       externalGuestUnboundUserMode: input.unboundUserMode,
@@ -8022,6 +8344,8 @@ function buildIdentityBindingNoticeOutboxItem(integrationId: string, status: "fa
         actorType: "external_guest",
         agentId: "Atlas",
         botBindingId: integrationId,
+        externalGuestReference: "guest-ref-hash",
+        externalGuestPermissionProfile: "none",
         externalChatReference: "chat-ref-hash",
         externalThreadReference: shortHashForTest("om_secret_guest_require_identity"),
       }),
@@ -8195,6 +8519,13 @@ function buildExternalGuestWriteDeniedRun(
 }
 
 function withGovernanceUserIdentity<T extends { requestJson: string }>(operation: T): T {
+  return withGovernanceContextFields(operation, { actorUserId: "user-should-not-exist" });
+}
+
+function withGovernanceContextFields<T extends { requestJson: string }>(
+  operation: T,
+  fields: Record<string, unknown>,
+): T {
   const request = JSON.parse(operation.requestJson) as Record<string, unknown>;
   const governanceContext = typeof request.governanceContext === "object" && request.governanceContext !== null
     ? request.governanceContext as Record<string, unknown>
@@ -8205,10 +8536,18 @@ function withGovernanceUserIdentity<T extends { requestJson: string }>(operation
       ...request,
       governanceContext: {
         ...governanceContext,
-        actorUserId: "user-should-not-exist",
+        ...fields,
       },
     }),
   };
+}
+
+function readTestGovernanceActorType(operation: { requestJson: string }): string | undefined {
+  const request = JSON.parse(operation.requestJson) as Record<string, unknown>;
+  const governanceContext = typeof request.governanceContext === "object" && request.governanceContext !== null
+    ? request.governanceContext as Record<string, unknown>
+    : {};
+  return typeof governanceContext.actorType === "string" ? governanceContext.actorType : undefined;
 }
 
 function withoutResourceBindingId<T extends { resourceBindingId?: string }>(operation: T): T {
