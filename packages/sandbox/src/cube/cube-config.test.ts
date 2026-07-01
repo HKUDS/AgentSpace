@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { resolve } from "node:path";
 import test from "node:test";
 import {
   CUBE_MOUNT_WORKDIR_ENV,
@@ -19,6 +20,10 @@ function buildOptions(env: NodeJS.ProcessEnv = {}): SandboxConnectOptions {
     workDir: "/tmp/agent-space-cube-test",
     env,
   };
+}
+
+function expectedResolvedWorkDir(): string {
+  return resolve(buildOptions().workDir);
 }
 
 test("resolveSandboxProvider falls back to local and honors legacy provider env", () => {
@@ -62,7 +67,7 @@ test("resolveCubeSandboxConfig reads E2B-compatible env vars and derives timeout
   assert.equal(config.mountWorkDir, false);
   assert.deepEqual(config.metadata, {
     "agent-space.runtime-id": "runtime-cube-test",
-    "agent-space.work-dir": "/tmp/agent-space-cube-test",
+    "agent-space.work-dir": expectedResolvedWorkDir(),
   });
 });
 
@@ -94,7 +99,7 @@ test("resolveCubeSandboxConfig can mount the daemon workDir into the Cube sandbo
   assert.equal(config.metadata["agent-space.mount-path"], "/workspace");
   assert.equal(
     config.metadata["host-mount"],
-    JSON.stringify([{ hostPath: "/tmp/agent-space-cube-test", mountPath: "/workspace", readOnly: false }]),
+    JSON.stringify([{ hostPath: expectedResolvedWorkDir(), mountPath: "/workspace", readOnly: false }]),
   );
 });
 

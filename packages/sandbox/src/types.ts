@@ -24,6 +24,8 @@ export interface ExecController {
   closeStdin(): void;
 }
 
+import type { SandboxPolicy, SandboxTerminationReason } from "./policy.ts";
+
 export interface ExecResult {
   stdout: string;
   stderr: string;
@@ -31,6 +33,10 @@ export interface ExecResult {
   signal?: NodeJS.Signals;
   durationMs: number;
   timedOut: boolean;
+  stdoutTruncated?: boolean;
+  stderrTruncated?: boolean;
+  outputLimitExceeded?: boolean;
+  terminationReason?: SandboxTerminationReason;
 }
 
 export interface FileEntry {
@@ -48,6 +54,7 @@ export interface SandboxConnectOptions {
   workDir: string;
   provider?: SandboxProvider;
   env?: NodeJS.ProcessEnv;
+  policy?: SandboxPolicy;
 }
 
 export const SANDBOX_TASK_TIMEOUT_ENV = "AGENT_SPACE_TASK_TIMEOUT_MS";
