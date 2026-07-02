@@ -62,15 +62,20 @@ export function getDaemonChannelWorkDirPath(
     threadId: string;
     agentId: string;
     workspaceId?: string;
+    runtimeIdSuffix?: string;
   },
 ): string {
-  return join(
+  const segments = [
     getDaemonWorkspaceExecutionRootDir(stateDir, input.workspaceId ?? DEFAULT_WORKSPACE_ID),
     "workdirs",
     "channels",
     sanitizeStoragePathSegment(input.threadId, "channel"),
     sanitizeStoragePathSegment(input.agentId, "agent"),
-  );
+  ];
+  if (input.runtimeIdSuffix) {
+    segments.push(sanitizeStoragePathSegment(input.runtimeIdSuffix, "runtime"));
+  }
+  return join(...segments);
 }
 
 export function getDaemonRemoteTaskWorkDirPath(

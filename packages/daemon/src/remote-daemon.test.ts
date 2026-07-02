@@ -20,7 +20,7 @@ test("buildRemoteDaemonConfig reads env-backed defaults without repository state
     },
   );
 
-  assert.equal(config.stateDir, join("/tmp/daemon-home", ".agent-space-daemon"));
+  assert.equal(config.stateDir, resolve("/tmp/daemon-home", ".agent-space-daemon"));
   assert.equal(config.daemonKey, "daemon-box");
   assert.equal(config.deviceName, "daemon-box");
   assert.equal(config.runtimeName, "Remote Agent");
@@ -89,7 +89,7 @@ test("buildRemoteDaemonRelaunchCommand reuses the installed daemon bin without s
   });
 
   assert.equal(command.command, "/usr/bin/node");
-  assert.equal(command.args[0], "/opt/agent-space/bin/agent-space-daemon.js");
+  assert.equal(command.args[0], resolve("/opt/agent-space/bin/agent-space-daemon.js"));
   assert.equal(command.args.includes("--experimental-strip-types"), false);
   assert.deepEqual(command.args.slice(1, 8), [
     "start",
