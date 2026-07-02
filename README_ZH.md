@@ -81,6 +81,8 @@ AgentSpace 支持两种部署模式，可以按团队需要选择：
 
 ## 最新动态
 
+- **2026-07-02** — 飞书功能已全部通过测试，并已合并到 `main` 分支。
+
 - **2026-06-26** — 本地 `quality:web` 命令现在更贴近 Web static-check 流程，会在 lint 和 Vitest 之前额外检查 Web 测试用 TypeScript project。
 
 - **2026-06-24** — OpenCode 已迁移到 AgentRouter 执行路径。OpenCode 任务现在与其他 AgentRouter harness 一样，统一使用 JSON event 归一化、session 传递、结构化诊断和 runtime tool PATH 能力注入。
