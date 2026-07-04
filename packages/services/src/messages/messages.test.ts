@@ -34,6 +34,7 @@ import {
   sendContactMessageSync,
   sendHumanDirectMessageSync,
   setEmployeeChannelMemberAccessSync,
+  streamAgentChannelReplyDeltaSync,
   stopAutoContinuationSync,
   subscribeWorkspaceRealtimeEvents,
   unpinMessageSync,
@@ -1194,6 +1195,76 @@ test("replacePendingChannelMessageSync publishes realtime thread change events",
   assert.equal(events.length, 1);
   assert.equal(events[0]?.type, "channel.thread.changed");
   assert.equal(events[0]?.channelName, "tour visit");
+});
+
+test("streamAgentChannelReplyDeltaSync updates the pending message and publishes realtime update events", () => {
+  seedWorkspace();
+  postMessageSync({
+    channel: "tour visit",
+    speaker: "Atlas",
+    role: "agent",
+    summary: "Thinking",
+    code: "agent.pending",
+    status: "pending",
+  });
+  const events: Array<{ type: string; channelName: string; messageId?: string }> = [];
+  const unsubscribe = subscribeWorkspaceRealtimeEvents(DEFAULT_WORKSPACE_ID, (event) => events.push(event));
+
+  const first = streamAgentChannelReplyDeltaSync({
+    channel: "tour visit",
+    pendingSpeaker: "Atlas",
+    delta: "你好",
+    sourceTaskQueueId: "queue-stream",
+  });
+  const second = streamAgentChannelReplyDeltaSync({
+    channel: "tour visit",
+    pendingSpeaker: "Atlas",
+    delta: "，我正在处理。",
+    sourceTaskQueueId: "queue-stream",
+  });
+  unsubscribe();
+
+  const streamedMessage = readWorkspaceStateSync().messages.find((message) => message.id === first?.id);
+  assert.ok(streamedMessage);
+  assert.equal(streamedMessage.summary, "你好，我正在处理。");
+  assert.equal(streamedMessage.status, "pending");
+  assert.equal(streamedMessage.data?.stream_started, "true");
+  assert.equal(streamedMessage.data?.source_task_queue_id, "queue-stream");
+  assert.equal(second?.id, first?.id);
+  assert.equal(events.length, 2);
+  assert.equal(events[0]?.type, "channel.message.updated");
+  assert.equal(events[0]?.messageId, first?.id);
+  assert.equal(events[1]?.type, "channel.message.updated");
+});
+
+test("completeAgentChannelReplySync preserves stream metadata from the pending reply", () => {
+  seedWorkspace();
+  postMessageSync({
+    channel: "tour visit",
+    speaker: "Atlas",
+    role: "agent",
+    summary: "Thinking",
+    code: "agent.pending",
+    status: "pending",
+  });
+  streamAgentChannelReplyDeltaSync({
+    channel: "tour visit",
+    pendingSpeaker: "Atlas",
+    delta: "你好",
+    sourceTaskQueueId: "queue-stream",
+  });
+
+  const result = completeAgentChannelReplySync({
+    channel: "tour visit",
+    pendingSpeaker: "Atlas",
+    speaker: "Atlas",
+    summary: "你好，任务完成。",
+    sourceTaskQueueId: "queue-stream",
+  });
+
+  assert.equal(result.message.status, "completed");
+  assert.equal(result.message.data?.stream_started, "true");
+  assert.equal(result.message.data?.source_task_queue_id, "queue-stream");
 });
 
 test("runtime tool approval requests are visible and reviewable in channel messages", () => {

@@ -74,6 +74,14 @@ export async function GET(
                 sequence: event.sequence,
                 createdAt: event.createdAt,
               }
+            : event.type === "channel.message.updated"
+              ? {
+                  type: event.type,
+                  channelName: event.channelName,
+                  messageId: event.messageId,
+                  sequence: event.sequence,
+                  updatedAt: event.updatedAt,
+                }
             : event.type === "channel.thread.changed"
               ? {
                   type: event.type,

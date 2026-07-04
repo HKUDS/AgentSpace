@@ -420,10 +420,12 @@ function useChannelRealtimeRefresh({
     };
 
     source.addEventListener("channel.message.created", scheduleRefresh as EventListener);
+    source.addEventListener("channel.message.updated", scheduleRefresh as EventListener);
     source.addEventListener("channel.thread.changed", scheduleRefresh as EventListener);
 
     return () => {
       source.removeEventListener("channel.message.created", scheduleRefresh as EventListener);
+      source.removeEventListener("channel.message.updated", scheduleRefresh as EventListener);
       source.removeEventListener("channel.thread.changed", scheduleRefresh as EventListener);
       source.close();
       if (refreshTimerRef.current !== null) {

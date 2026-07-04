@@ -45,6 +45,7 @@ import {
 import { canReadChannelForActorSync } from "../channel-access/channel-access.ts";
 import {
   publishChannelMessageCreatedEvent,
+  publishChannelMessageUpdatedEvent,
   publishChannelThreadChangedEvent,
 } from "../realtime/events.ts";
 
@@ -673,6 +674,16 @@ export function completeAgentChannelReplySync(input: {
     throw new Error(`Channel "${input.channel}" does not exist.`);
   }
 
+  const pendingMessage = input.pendingSpeaker?.trim()
+    ? state.messages.find(
+        (message) =>
+          sameValue(message.channel ?? "", channel.name) &&
+          message.role === "agent" &&
+          message.status === "pending" &&
+          sameValue(message.speaker, input.pendingSpeaker ?? ""),
+      )
+    : undefined;
+
   if (input.pendingSpeaker?.trim()) {
     state.messages = state.messages.filter(
       (message) =>
@@ -697,6 +708,14 @@ export function completeAgentChannelReplySync(input: {
     status: "completed",
     attachments: input.attachments,
     mentions: mentionParse.allMentions,
+    data: pendingMessage?.data?.stream_started === "true"
+      ? {
+          stream_started: "true",
+          ...(pendingMessage.data.source_task_queue_id
+            ? { source_task_queue_id: pendingMessage.data.source_task_queue_id }
+            : {}),
+        }
+      : undefined,
   }, effectiveWorkspaceId);
 
   const dispatchResult = shouldProcessMentions
@@ -771,6 +790,13 @@ export function replacePendingChannelMessageSync(input: {
   attachments?: MessageAttachment[];
 }, workspaceId?: string): AgentSpaceState {
   const state = ensureWorkspaceStateSync(workspaceId);
+  const pendingMessage = state.messages.find(
+    (message) =>
+      sameValue(message.channel ?? "", input.channel) &&
+      message.role === "agent" &&
+      message.status === "pending" &&
+      sameValue(message.speaker, input.pendingSpeaker),
+  );
 
   state.messages = state.messages.filter(
     (message) =>
@@ -788,6 +814,14 @@ export function replacePendingChannelMessageSync(input: {
     summary: input.summary,
     status: input.status ?? "completed",
     attachments: input.attachments,
+    data: pendingMessage?.data?.stream_started === "true"
+      ? {
+          stream_started: "true",
+          ...(pendingMessage.data.source_task_queue_id
+            ? { source_task_queue_id: pendingMessage.data.source_task_queue_id }
+            : {}),
+        }
+      : undefined,
   }, workspaceId);
 
   const nextState = writeWorkspaceStateSync(state, workspaceId);
@@ -797,6 +831,59 @@ export function replacePendingChannelMessageSync(input: {
     changedAt: message.time,
   });
   return nextState;
+}
+
+export function streamAgentChannelReplyDeltaSync(input: {
+  channel: string;
+  pendingSpeaker: string;
+  delta: string;
+  sourceTaskQueueId?: string;
+}, workspaceId?: string): WorkspaceMessage | null {
+  const delta = input.delta;
+  if (!delta) {
+    return null;
+  }
+
+  const state = ensureWorkspaceStateSync(workspaceId);
+  const effectiveWorkspaceId = workspaceId ?? DEFAULT_WORKSPACE_ID;
+  const channelName = input.channel.trim();
+  const pendingSpeaker = input.pendingSpeaker.trim();
+  if (!channelName || !pendingSpeaker) {
+    return null;
+  }
+
+  const message = state.messages.find((item) =>
+    sameValue(item.channel ?? "", channelName) &&
+    item.role === "agent" &&
+    item.status === "pending" &&
+    sameValue(item.speaker, pendingSpeaker)
+  );
+  if (!message) {
+    return null;
+  }
+
+  const streamStarted = message.data?.stream_started === "true";
+  const baseSummary = streamStarted
+    ? message.summary
+    : message.code === "agent.pending"
+      ? ""
+      : message.summary;
+  const updatedAt = new Date().toISOString();
+  message.summary = `${baseSummary}${delta}`;
+  message.data = {
+    ...(message.data ?? {}),
+    stream_started: "true",
+    ...(input.sourceTaskQueueId ? { source_task_queue_id: input.sourceTaskQueueId } : {}),
+  };
+
+  writeWorkspaceStateSync(state, effectiveWorkspaceId);
+  publishChannelMessageUpdatedEvent({
+    workspaceId: effectiveWorkspaceId,
+    channelName,
+    messageId: message.id,
+    updatedAt,
+  });
+  return message;
 }
 
 function buildAgentOutputMentionParseWarnings(parse: ChannelMentionParseResult): string[] {
