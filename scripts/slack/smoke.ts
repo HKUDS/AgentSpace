@@ -11,8 +11,9 @@ interface SlackSmokeEnvItem {
 
 interface SlackSmokeOutput {
   generatedAt: string;
-  live: false;
+  live: boolean;
   ready: boolean;
+  liveResult?: SlackSmokeLiveResult;
   summary: {
     required: number;
     passed: number;
@@ -21,6 +22,16 @@ interface SlackSmokeOutput {
   missingRequired: string[];
   items: SlackSmokeEnvItem[];
   nextCommands: string[];
+}
+
+interface SlackSmokeLiveResult {
+  attempted: boolean;
+  ok: boolean;
+  channelReference?: string;
+  messageReference?: string;
+  retryAfterSeconds?: number;
+  errorCode?: string;
+  errorMessage?: string;
 }
 
 interface ParsedArgs {
@@ -39,7 +50,9 @@ const REQUIRED_ENV = [
 async function main(): Promise<void> {
   const parsed = parseArgs(process.argv.slice(2));
   const env = readEnv(getStringFlag(parsed.flags, "env-file"));
-  const output = buildSlackSmokeDryRunOutput(env);
+  const output = parsed.flags.live === true
+    ? await buildSlackSmokeLiveOutput(env)
+    : buildSlackSmokeDryRunOutput(env);
   if (parsed.flags.json === true) {
     console.log(JSON.stringify(output, null, 2));
   } else {
@@ -81,13 +94,133 @@ export function buildSlackSmokeDryRunOutput(env: Record<string, string | undefin
   };
 }
 
+export async function buildSlackSmokeLiveOutput(env: Record<string, string | undefined>): Promise<SlackSmokeOutput> {
+  const dryRunOutput = buildSlackSmokeDryRunOutput(env);
+  const botToken = env.SLACK_BOT_TOKEN?.trim();
+  const channelId = env.SLACK_SMOKE_CHANNEL_ID?.trim();
+  const messageText = env.SLACK_SMOKE_MESSAGE_TEXT?.trim() || "AgentSpace Slack smoke";
+  const threadTs = env.SLACK_SMOKE_THREAD_TS?.trim();
+  const missingLive = [
+    ...(botToken && !isPlaceholderValue(botToken) ? [] : ["SLACK_BOT_TOKEN"]),
+    ...(channelId && !isPlaceholderValue(channelId) ? [] : ["SLACK_SMOKE_CHANNEL_ID"]),
+  ];
+  const items = [
+    ...dryRunOutput.items,
+    {
+      key: "SLACK_BOT_TOKEN",
+      required: true,
+      status: missingLive.includes("SLACK_BOT_TOKEN") ? "fail" : "pass",
+      note: missingLive.includes("SLACK_BOT_TOKEN") ? "missing_or_placeholder" : "configured",
+    } satisfies SlackSmokeEnvItem,
+  ];
+  if (dryRunOutput.missingRequired.length > 0 || missingLive.length > 0) {
+    const missingRequired = [...new Set([...dryRunOutput.missingRequired, ...missingLive])];
+    return {
+      ...dryRunOutput,
+      live: true,
+      ready: false,
+      liveResult: {
+        attempted: false,
+        ok: false,
+        errorCode: "slack.smoke.live_env_incomplete",
+        errorMessage: "Slack live smoke requires a complete env and SLACK_BOT_TOKEN.",
+      },
+      summary: {
+        required: items.length,
+        passed: items.filter((item) => item.status === "pass").length,
+        failed: missingRequired.length,
+      },
+      missingRequired,
+      items,
+    };
+  }
+
+  const liveResult = await sendSlackSmokeMessage({
+    botToken: botToken ?? "",
+    channelId: channelId ?? "",
+    text: messageText,
+    threadTs,
+    baseUrl: env.SLACK_API_BASE_URL?.trim(),
+  });
+  return {
+    ...dryRunOutput,
+    live: true,
+    ready: liveResult.ok,
+    liveResult,
+    summary: {
+      required: items.length,
+      passed: items.filter((item) => item.status === "pass").length,
+      failed: liveResult.ok ? 0 : 1,
+    },
+    missingRequired: liveResult.ok ? [] : dryRunOutput.missingRequired,
+    items,
+  };
+}
+
+async function sendSlackSmokeMessage(input: {
+  botToken: string;
+  channelId: string;
+  text: string;
+  threadTs?: string;
+  baseUrl?: string;
+}): Promise<SlackSmokeLiveResult> {
+  try {
+    const response = await fetch(`${input.baseUrl || "https://slack.com/api"}/chat.postMessage`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${input.botToken}`,
+        "content-type": "application/json; charset=utf-8",
+      },
+      body: JSON.stringify({
+        channel: input.channelId,
+        text: input.text,
+        ...(input.threadTs ? { thread_ts: input.threadTs } : {}),
+      }),
+    });
+    const data = await response.json() as Record<string, unknown>;
+    const ok = response.ok && data.ok === true;
+    const retryAfter = Number(response.headers.get("retry-after"));
+    return {
+      attempted: true,
+      ok,
+      channelReference: buildSafeReference("channel", typeof data.channel === "string" ? data.channel : input.channelId),
+      messageReference: typeof data.ts === "string" ? buildSafeReference("message", data.ts) : undefined,
+      retryAfterSeconds: Number.isFinite(retryAfter) ? retryAfter : undefined,
+      errorCode: ok ? undefined : normalizeSlackSmokeErrorCode(data.error, response.status),
+      errorMessage: ok
+        ? undefined
+        : sanitizeSlackSmokeMessage(typeof data.error === "string" ? data.error : `Slack chat.postMessage failed with HTTP ${response.status}.`, [input.botToken, input.channelId, input.threadTs]),
+    };
+  } catch (error) {
+    return {
+      attempted: true,
+      ok: false,
+      channelReference: buildSafeReference("channel", input.channelId),
+      errorCode: "slack.smoke.network_failed",
+      errorMessage: sanitizeSlackSmokeMessage(error instanceof Error ? error.message : String(error), [input.botToken, input.channelId, input.threadTs]),
+    };
+  }
+}
+
 function formatSlackSmokeDryRunOutput(output: SlackSmokeOutput): string {
   const lines = [
-    `Slack smoke dry-run: ${output.ready ? "ready" : "blocked"}`,
+    `Slack smoke ${output.live ? "live" : "dry-run"}: ${output.ready ? "ready" : "blocked"}`,
     `Required env: ${output.summary.passed}/${output.summary.required}`,
   ];
   for (const item of output.items) {
     lines.push(`- ${item.key}: ${item.status} (${item.note})`);
+  }
+  if (output.liveResult) {
+    lines.push(`Live send: ${output.liveResult.ok ? "sent" : "failed"}`);
+    if (output.liveResult.channelReference) {
+      lines.push(`- channel: ${output.liveResult.channelReference}`);
+    }
+    if (output.liveResult.messageReference) {
+      lines.push(`- message: ${output.liveResult.messageReference}`);
+    }
+    if (output.liveResult.errorCode) {
+      lines.push(`- error: ${output.liveResult.errorCode}`);
+    }
   }
   lines.push("Next commands:");
   for (const command of output.nextCommands) {
@@ -98,8 +231,8 @@ function formatSlackSmokeDryRunOutput(output: SlackSmokeOutput): string {
 
 function readEnv(envFile: string | undefined): Record<string, string | undefined> {
   return {
-    ...process.env,
     ...(envFile ? parseEnvFile(readFileSync(envFile, "utf8")) : {}),
+    ...process.env,
   };
 }
 
@@ -181,6 +314,46 @@ function isWellFormedEnvValue(key: string, value: string | undefined): boolean {
 
 function isPlaceholderValue(value: string | undefined): boolean {
   return /CHANGE_ME|REPLACE_ME|example\.com|xxx/i.test(value ?? "");
+}
+
+function normalizeSlackSmokeErrorCode(value: unknown, status: number): string {
+  if (status === 429 || value === "ratelimited") {
+    return "slack.smoke.rate_limited";
+  }
+  if (typeof value === "string" && value.trim()) {
+    return `slack.smoke.${value.trim().replace(/[^a-z0-9_]+/gi, "_").toLowerCase()}`;
+  }
+  return "slack.smoke.post_message_failed";
+}
+
+function buildSafeReference(kind: string, value: string | undefined): string | undefined {
+  const normalized = value?.trim();
+  if (!normalized) {
+    return undefined;
+  }
+  if (normalized.length <= 8) {
+    return `${kind} ${normalized.slice(0, 2)}...${normalized.slice(-2)}`;
+  }
+  return `${kind} ${normalized.slice(0, 4)}...${normalized.slice(-4)}`;
+}
+
+function sanitizeSlackSmokeMessage(
+  message: string | undefined,
+  sensitiveValues: Array<string | undefined>,
+): string | undefined {
+  if (!message) {
+    return undefined;
+  }
+  let sanitized = message
+    .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]+/gi, "Bearer [redacted]")
+    .replace(/\b(xoxb|xapp)-[A-Za-z0-9-]+/gi, "[redacted]");
+  for (const value of sensitiveValues
+    .map((item) => item?.trim())
+    .filter((item): item is string => Boolean(item))
+    .sort((left, right) => right.length - left.length)) {
+    sanitized = sanitized.split(value).join("[redacted]");
+  }
+  return sanitized.slice(0, 1000);
 }
 
 void main();

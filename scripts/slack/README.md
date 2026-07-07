@@ -20,3 +20,11 @@ The dry-run validates callback URL shape, workspace/integration ids, and disposa
 npm run cli -- integrations slack health-check --workspace-id default --integration CHANGE_ME_SLACK_INTEGRATION_ID --json
 npm run cli -- integrations slack readiness --workspace-id default --integration CHANGE_ME_SLACK_INTEGRATION_ID --strict --json
 ```
+
+Send one disposable live Slack message after readiness passes:
+
+```bash
+SLACK_BOT_TOKEN=xoxb-... npm run smoke:slack -- --env-file scripts/slack/.env --live --json
+```
+
+The live command calls `chat.postMessage` for `SLACK_SMOKE_CHANNEL_ID`, optionally in `SLACK_SMOKE_THREAD_TS`. Its JSON output redacts the bot token and returns only short channel/message references. `SLACK_API_BASE_URL` can point at a fake Slack API server for tests; otherwise it defaults to `https://slack.com/api`.
