@@ -27,6 +27,14 @@ Bind a Slack app to one AgentSpace agent when testing agent-scoped routing:
 npm run cli -- integrations slack bind-agent-bot --workspace-id default --agent CHANGE_ME_AGENTSPACE_AGENT_NAME --app-id CHANGE_ME_SLACK_APP_ID --team-id CHANGE_ME_SLACK_TEAM_ID --env-file scripts/slack/.env --bot-token-env SLACK_BOT_TOKEN --signing-secret-env SLACK_SIGNING_SECRET --app-level-token-env SLACK_APP_TOKEN --json
 ```
 
+Enable Interactivity in the Slack app when testing Block Kit approvals:
+
+```text
+https://agentspace.example.com/api/integrations/slack/interactions?workspaceId=default&integrationId=CHANGE_ME_SLACK_INTEGRATION_ID
+```
+
+Slack Block Kit buttons currently handle AgentSpace `runtime_tool` approvals only. External data-operation approvals stay disabled until their provider-specific approved-write execution is wired through Slack callbacks.
+
 Send one disposable live Slack message after readiness passes:
 
 ```bash

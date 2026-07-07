@@ -12,6 +12,7 @@ import {
   buildSlackReference,
   SLACK_DEFAULT_SCOPES,
   SLACK_EVENT_CALLBACK_PATH,
+  SLACK_INTERACTION_CALLBACK_PATH,
   SLACK_PROVIDER_ID,
   SLACK_REQUIRED_CREDENTIAL_FIELDS,
   SLACK_REQUIRED_EVENTS,
@@ -219,6 +220,11 @@ export function buildSlackIntegrationCreationGuide(input: {
     integrationId: "created-integration-id",
     appUrl: trimmedAppUrl,
   });
+  const interactionCallbackUrlTemplate = buildSlackInteractionCallbackUrl({
+    workspaceId: input.workspaceId,
+    integrationId: "created-integration-id",
+    appUrl: trimmedAppUrl,
+  });
   const oauthCallbackUrlTemplate = buildPublicAppUrl(SLACK_OAUTH_CALLBACK_PATH, trimmedAppUrl);
   return {
     requiredCredentialFields: [...SLACK_REQUIRED_CREDENTIAL_FIELDS],
@@ -227,9 +233,11 @@ export function buildSlackIntegrationCreationGuide(input: {
     socketModeCredentialFields: [...SLACK_SOCKET_MODE_CREDENTIAL_FIELDS],
     socketModeScopes: [...SLACK_SOCKET_MODE_SCOPES],
     eventCallbackPath: SLACK_EVENT_CALLBACK_PATH,
+    interactionCallbackPath: SLACK_INTERACTION_CALLBACK_PATH,
     publicAppUrlStatus: trimmedAppUrl ? "configured" : "missing",
     ...(trimmedAppUrl ? { publicAppUrl: trimmedAppUrl } : {}),
     callbackUrlTemplate,
+    interactionCallbackUrlTemplate,
     ...(trimmedAppUrl ? { oauthStartUrl: buildPublicAppUrl(SLACK_OAUTH_START_PATH, trimmedAppUrl) } : {}),
     oauthCallbackUrlTemplate,
     developerConsoleUrl: SLACK_DEVELOPER_CONSOLE_URL,
@@ -276,6 +284,18 @@ export function buildSlackEventCallbackUrl(input: {
   return buildPublicAppUrl(`${SLACK_EVENT_CALLBACK_PATH}?${searchParams.toString()}`, input.appUrl);
 }
 
+export function buildSlackInteractionCallbackUrl(input: {
+  workspaceId: string;
+  integrationId: string;
+  appUrl?: string;
+}): string {
+  const searchParams = new URLSearchParams({
+    workspaceId: input.workspaceId,
+    integrationId: input.integrationId,
+  });
+  return buildPublicAppUrl(`${SLACK_INTERACTION_CALLBACK_PATH}?${searchParams.toString()}`, input.appUrl);
+}
+
 function buildSlackIntegrationSetupGuide(input: {
   workspaceId: string;
   integrationId: string;
@@ -293,6 +313,7 @@ function buildSlackIntegrationSetupGuide(input: {
       ? [...SLACK_DEFAULT_SCOPES, ...SLACK_SOCKET_MODE_SCOPES]
       : [...SLACK_DEFAULT_SCOPES],
     eventCallbackPath: SLACK_EVENT_CALLBACK_PATH,
+    interactionCallbackPath: SLACK_INTERACTION_CALLBACK_PATH,
     developerConsoleUrl: SLACK_DEVELOPER_CONSOLE_URL,
     checks: input.checks,
     commands: {

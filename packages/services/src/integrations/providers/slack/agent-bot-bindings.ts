@@ -10,6 +10,7 @@ import {
 import {
   SLACK_DEFAULT_SCOPES,
   SLACK_EVENT_CALLBACK_PATH,
+  SLACK_INTERACTION_CALLBACK_PATH,
   SLACK_PROVIDER_ID,
   SLACK_SOCKET_MODE_SCOPES,
 } from "./constants.ts";
@@ -84,6 +85,7 @@ export function createSlackAgentBotBindingSync(
       }),
       configJson: {
         eventCallbackPath: SLACK_EVENT_CALLBACK_PATH,
+        interactionCallbackPath: SLACK_INTERACTION_CALLBACK_PATH,
         agentBotBinding: true,
         capabilities: {
           messageTransport: true,

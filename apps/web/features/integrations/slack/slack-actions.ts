@@ -22,6 +22,7 @@ import {
   readSlackIntegrationCredentials,
   SLACK_DEFAULT_SCOPES,
   SLACK_EVENT_CALLBACK_PATH,
+  SLACK_INTERACTION_CALLBACK_PATH,
   SLACK_PROVIDER_ID,
   SLACK_SOCKET_MODE_SCOPES,
   tryRecordWorkspaceAuditEventSync,
@@ -93,6 +94,7 @@ export async function createSlackIntegrationAction(
       }),
       configJson: {
         eventCallbackPath: SLACK_EVENT_CALLBACK_PATH,
+        interactionCallbackPath: SLACK_INTERACTION_CALLBACK_PATH,
         capabilities: {
           messageTransport: true,
           socketMode: input.transportMode === "websocket_worker",

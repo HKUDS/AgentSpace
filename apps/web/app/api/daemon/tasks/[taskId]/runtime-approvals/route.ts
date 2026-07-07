@@ -2,8 +2,10 @@ import { createExternalMessageOutboxSync } from "@agent-space/db";
 import {
   buildFeishuIdentityBindingRequiredCard,
   buildFeishuInteractiveCardOutboundMessage,
+  buildSlackApprovalBlockAction,
   createRuntimeToolApprovalRequestSync,
   evaluateFeishuExternalGuestRuntimeToolIdentityRequirementFromTaskInput,
+  queueSlackAgentStatusCardOutboxSync,
   type FeishuRuntimeToolIdentityRequirement,
 } from "@agent-space/services";
 import type { CreateRuntimeApprovalRequest } from "@agent-space/domain";
@@ -64,6 +66,12 @@ export async function POST(
     runtimeId: body.runtimeId,
     sessionId: body.sessionId,
   }, auth.workspaceId);
+  const slackApprovalCardQueued = queueSlackRuntimeToolApprovalCardBestEffort({
+    workspaceId: auth.workspaceId,
+    taskInputJson: task.inputJson,
+    taskId: task.id,
+    approval,
+  });
 
   return Response.json({
     approval: {
@@ -71,6 +79,7 @@ export async function POST(
       status: approval.status,
       reviewerComment: approval.reviewerComment,
     },
+    slackApprovalCardQueued,
   });
 }
 
@@ -115,5 +124,41 @@ function queueFeishuRuntimeToolIdentityRequiredNoticeBestEffort(input: {
     return true;
   } catch {
     return false;
+  }
+}
+
+function queueSlackRuntimeToolApprovalCardBestEffort(input: {
+  workspaceId: string;
+  taskInputJson: string;
+  taskId: string;
+  approval: ReturnType<typeof createRuntimeToolApprovalRequestSync>;
+}): boolean {
+  try {
+    const taskInput = parseTaskInput(input.taskInputJson);
+    const queued = queueSlackAgentStatusCardOutboxSync({
+      workspaceId: input.workspaceId,
+      channelName: input.approval.channelName,
+      agentId: input.approval.agentId,
+      status: "approval_required",
+      agentNames: [input.approval.agentId],
+      message: input.approval.contentPreview,
+      taskId: input.taskId,
+      sourceAgentSpaceMessageId: readString(taskInput.sourceMessageId),
+      approvalAction: buildSlackApprovalBlockAction(input.approval),
+    });
+    return queued.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+function parseTaskInput(inputJson: string): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(inputJson) as unknown;
+    return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : {};
+  } catch {
+    return {};
   }
 }

@@ -339,6 +339,11 @@ function SlackCreateIntegrationPanel({
               <code>{creationGuide.callbackUrlTemplate}</code>
             </section>
             <section>
+              <strong>{tx("交互回调", "Interactivity Callback")}</strong>
+              <code>{creationGuide.interactionCallbackPath}</code>
+              <code>{creationGuide.interactionCallbackUrlTemplate}</code>
+            </section>
+            <section>
               <strong>{tx("事件", "Events")}</strong>
               <ul>
                 {creationGuide.requiredEvents.map((eventName) => (

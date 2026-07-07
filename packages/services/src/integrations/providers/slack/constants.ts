@@ -2,6 +2,7 @@ import type { IntegrationProviderDescriptor } from "../../core/index.ts";
 
 export const SLACK_PROVIDER_ID = "slack";
 export const SLACK_EVENT_CALLBACK_PATH = "/api/integrations/slack/events";
+export const SLACK_INTERACTION_CALLBACK_PATH = "/api/integrations/slack/interactions";
 
 export const SLACK_BOT_MESSAGE_SCOPES = [
   "app_mentions:read",

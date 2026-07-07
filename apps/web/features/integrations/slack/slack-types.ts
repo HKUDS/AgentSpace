@@ -100,6 +100,7 @@ export interface SlackIntegrationSetupGuide {
   requiredEvents: string[];
   requiredScopes: string[];
   eventCallbackPath: string;
+  interactionCallbackPath: string;
   developerConsoleUrl: string;
   checks: SlackIntegrationSetupCheck[];
   commands: {
@@ -144,9 +145,11 @@ export interface SlackIntegrationCreationGuide {
   socketModeCredentialFields: string[];
   socketModeScopes: string[];
   eventCallbackPath: string;
+  interactionCallbackPath: string;
   publicAppUrlStatus: "configured" | "missing";
   publicAppUrl?: string;
   callbackUrlTemplate: string;
+  interactionCallbackUrlTemplate: string;
   oauthStartUrl?: string;
   oauthCallbackUrlTemplate: string;
   developerConsoleUrl: string;

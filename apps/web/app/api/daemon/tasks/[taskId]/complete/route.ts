@@ -23,6 +23,8 @@ import {
   postMessageSync,
   queueFeishuAgentStatusCardOutboxSync,
   queueFeishuChannelReplyOutboxSync,
+  queueSlackAgentStatusCardOutboxSync,
+  queueSlackChannelReplyOutboxSync,
   readWorkspaceStateSync,
   replacePendingChannelMessageSync,
   resolveCompatibleDirectChannelRecord,
@@ -342,7 +344,7 @@ export async function POST(
           content: warning,
         });
       }
-      for (const statusMessage of enqueueFeishuReplyOutboxBestEffort({
+      for (const statusMessage of enqueueExternalReplyOutboxBestEffort({
         workspaceId: task.workspaceId,
         channelName: payload.channel,
         text: finalOutputText,
@@ -414,7 +416,7 @@ export async function POST(
           content: warning,
         });
       }
-      for (const statusMessage of enqueueFeishuReplyOutboxBestEffort({
+      for (const statusMessage of enqueueExternalReplyOutboxBestEffort({
         workspaceId: task.workspaceId,
         channelName: payload.channel,
         text: finalOutputText,
@@ -511,7 +513,7 @@ export async function POST(
         summary: failureSummary,
         status: "error",
       }, task.workspaceId);
-      for (const statusMessage of enqueueFeishuReplyOutboxBestEffort({
+      for (const statusMessage of enqueueExternalReplyOutboxBestEffort({
         workspaceId: task.workspaceId,
         channelName: payload.channel,
         text: failureSummary,
@@ -566,7 +568,7 @@ export async function POST(
         summary: failureSummary,
         status: "error",
       }, task.workspaceId);
-      for (const statusMessage of enqueueFeishuReplyOutboxBestEffort({
+      for (const statusMessage of enqueueExternalReplyOutboxBestEffort({
         workspaceId: task.workspaceId,
         channelName: payload.channel,
         text: failureSummary,
@@ -600,7 +602,7 @@ export async function POST(
   }
 }
 
-function enqueueFeishuReplyOutboxBestEffort(input: {
+function enqueueExternalReplyOutboxBestEffort(input: {
   workspaceId: string;
   channelName: string;
   text: string;
@@ -614,6 +616,7 @@ function enqueueFeishuReplyOutboxBestEffort(input: {
     taskId?: string;
   };
 }): string[] {
+  const messages: string[] = [];
   try {
     const statusCardItems = input.statusCard
       ? queueFeishuAgentStatusCardOutboxSync({
@@ -629,11 +632,36 @@ function enqueueFeishuReplyOutboxBestEffort(input: {
       : [];
     const replyOutboxItems = queueFeishuChannelReplyOutboxSync(input);
     const queuedCount = statusCardItems.length + replyOutboxItems.length;
-    return queuedCount > 0 ? [`Feishu outbound queued: ${queuedCount} message(s).`] : [];
+    if (queuedCount > 0) {
+      messages.push(`Feishu outbound queued: ${queuedCount} message(s).`);
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    return [`Feishu outbound enqueue failed: ${message}`];
+    messages.push(`Feishu outbound enqueue failed: ${message}`);
   }
+  try {
+    const statusCardItems = input.statusCard
+      ? queueSlackAgentStatusCardOutboxSync({
+          workspaceId: input.workspaceId,
+          channelName: input.channelName,
+          status: input.statusCard.status,
+          agentNames: input.statusCard.agentNames,
+          message: input.statusCard.message,
+          taskId: input.statusCard.taskId,
+          agentSpaceMessageId: input.agentSpaceMessageId,
+          sourceAgentSpaceMessageId: input.sourceAgentSpaceMessageId,
+        })
+      : [];
+    const replyOutboxItems = queueSlackChannelReplyOutboxSync(input);
+    const queuedCount = statusCardItems.length + replyOutboxItems.length;
+    if (queuedCount > 0) {
+      messages.push(`Slack outbound queued: ${queuedCount} message(s).`);
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    messages.push(`Slack outbound enqueue failed: ${message}`);
+  }
+  return messages;
 }
 
 function appendExternalSheetOperationStatus(

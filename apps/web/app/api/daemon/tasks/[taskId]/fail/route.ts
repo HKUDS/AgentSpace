@@ -8,6 +8,7 @@ import {
   formatTaskFailureSummary,
   postMessageSync,
   queueFeishuChannelReplyOutboxSync,
+  queueSlackChannelReplyOutboxSync,
   readWorkspaceStateSync,
   replacePendingChannelMessageSync,
   resolveCompatibleDirectChannelRecord,
@@ -92,7 +93,7 @@ export async function POST(
       summary: failureSummary,
       status: "error",
     }, task.workspaceId);
-    for (const statusMessage of enqueueFeishuReplyOutboxBestEffort({
+    for (const statusMessage of enqueueExternalReplyOutboxBestEffort({
       workspaceId: task.workspaceId,
       channelName: payload.channel,
       text: failureSummary,
@@ -153,7 +154,7 @@ export async function POST(
       summary: failureSummary,
       status: "error",
     }, task.workspaceId);
-    for (const statusMessage of enqueueFeishuReplyOutboxBestEffort({
+    for (const statusMessage of enqueueExternalReplyOutboxBestEffort({
       workspaceId: task.workspaceId,
       channelName: payload.channel,
       text: failureSummary,
@@ -190,20 +191,33 @@ export async function POST(
   });
 }
 
-function enqueueFeishuReplyOutboxBestEffort(input: {
+function enqueueExternalReplyOutboxBestEffort(input: {
   workspaceId: string;
   channelName: string;
   text: string;
   agentSpaceMessageId?: string;
   sourceAgentSpaceMessageId?: string;
 }): string[] {
+  const messages: string[] = [];
   try {
     const outboxItems = queueFeishuChannelReplyOutboxSync(input);
-    return outboxItems.length > 0 ? [`Feishu outbound queued: ${outboxItems.length} message(s).`] : [];
+    if (outboxItems.length > 0) {
+      messages.push(`Feishu outbound queued: ${outboxItems.length} message(s).`);
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    return [`Feishu outbound enqueue failed: ${message}`];
+    messages.push(`Feishu outbound enqueue failed: ${message}`);
   }
+  try {
+    const outboxItems = queueSlackChannelReplyOutboxSync(input);
+    if (outboxItems.length > 0) {
+      messages.push(`Slack outbound queued: ${outboxItems.length} message(s).`);
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    messages.push(`Slack outbound enqueue failed: ${message}`);
+  }
+  return messages;
 }
 
 function formatProviderDiagnosticMessage(body: Partial<FailTaskRequest>): string | undefined {

@@ -247,6 +247,7 @@ test("Slack agent bot CLI defaults to Socket Mode and redacts credentials", () =
   assert.equal(report.agentBotBinding, true);
   assert.equal(report.agentId, "Codex");
   assert.equal(report.transportMode, "websocket_worker");
+  assert.equal(report.interactionCallbackPath, "/api/integrations/slack/interactions");
   assert.equal(report.secretRedacted, true);
   assert.match(String((report.nextCommands as Record<string, string>).workerDryRun), /worker --workspace-id workspace-1 --integration slack-agent-bot-codex --dry-run --json/);
   assert.doesNotMatch(JSON.stringify(report), /xoxb-agent-bot-secret|signing-agent-bot-secret|xapp-agent-bot-secret/);

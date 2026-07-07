@@ -19,6 +19,7 @@ import {
   readSlackIntegrationCredentials,
   SLACK_DEFAULT_SCOPES,
   SLACK_EVENT_CALLBACK_PATH,
+  SLACK_INTERACTION_CALLBACK_PATH,
   SLACK_PROVIDER_ID,
   SLACK_SOCKET_MODE_SCOPES,
   startSlackSocketModeWorker,
@@ -176,6 +177,7 @@ export function createSlackIntegrationForCli(flags: Record<string, string | bool
     }),
     configJson: {
       eventCallbackPath: SLACK_EVENT_CALLBACK_PATH,
+      interactionCallbackPath: SLACK_INTERACTION_CALLBACK_PATH,
       capabilities: {
         messageTransport: true,
       },
@@ -437,6 +439,7 @@ function summarizeSlackIntegrationForCli(integration: ReturnType<typeof createEx
     appId: integration.appId,
     teamId: integration.tenantKey,
     eventCallbackPath: SLACK_EVENT_CALLBACK_PATH,
+    interactionCallbackPath: SLACK_INTERACTION_CALLBACK_PATH,
     credentialSummary,
   };
 }

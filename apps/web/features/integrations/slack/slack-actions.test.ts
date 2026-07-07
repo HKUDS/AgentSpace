@@ -82,6 +82,7 @@ vi.mock("@agent-space/services", () => ({
   readSlackIntegrationCredentials: mockReadSlackIntegrationCredentials,
   SLACK_DEFAULT_SCOPES: ["app_mentions:read", "chat:write"],
   SLACK_EVENT_CALLBACK_PATH: "/api/integrations/slack/events",
+  SLACK_INTERACTION_CALLBACK_PATH: "/api/integrations/slack/interactions",
   SLACK_PROVIDER_ID: "slack",
   SLACK_SOCKET_MODE_SCOPES: ["connections:write"],
   tryRecordWorkspaceAuditEventSync: mockTryRecordWorkspaceAuditEventSync,
@@ -189,6 +190,7 @@ describe("Slack actions", () => {
       },
       configJson: {
         eventCallbackPath: "/api/integrations/slack/events",
+        interactionCallbackPath: "/api/integrations/slack/interactions",
         capabilities: {
           messageTransport: true,
           socketMode: false,

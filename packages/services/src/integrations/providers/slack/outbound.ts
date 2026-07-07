@@ -2,15 +2,27 @@ import {
   completeExternalMessageOutboxSync,
   createExternalMessageMappingSync,
   failExternalMessageOutboxSync,
+  listExternalChannelBindingsSync,
+  listExternalIntegrationsSync,
   listPendingExternalMessageOutboxSync,
   markExternalMessageOutboxLockedSync,
+  readExternalChannelBindingSync,
   readExternalIntegrationSync,
+  readExternalMessageMappingByAgentSpaceMessageSync,
   type ExternalIntegrationRecord,
+  type ExternalMessageMappingRecord,
   type ExternalMessageOutboxRecord,
 } from "@agent-space/db";
-import type { ExternalOutboundMessagePayload } from "../../core/index.ts";
+import type { MessageAttachment } from "@agent-space/domain/workspace";
+import {
+  enqueueExternalOutboundMessageSync,
+  type AgentSpaceOutboundMessage,
+  type ExternalOutboundMessagePayload,
+  type IntegrationRuntimeContext,
+} from "../../core/index.ts";
 import { SLACK_OUTBOX_MAX_ATTEMPTS, SLACK_PROVIDER_ID, SLACK_TEXT_MESSAGE_MAX_CHARS } from "./constants.ts";
 import { readSlackIntegrationCredentials } from "./credentials.ts";
+import { buildSlackReference } from "./events.ts";
 
 export interface SlackOutboxProcessResult {
   outboxId: string;
@@ -53,6 +65,26 @@ export interface SlackTextOutboundPayload extends Record<string, unknown> {
   thread_ts?: string;
 }
 
+export interface SlackBlockKitOutboundPayload extends SlackTextOutboundPayload {
+  blocks: Record<string, unknown>[];
+  unfurl_links?: boolean;
+  unfurl_media?: boolean;
+}
+
+export type SlackChatPostMessagePayload = SlackTextOutboundPayload | SlackBlockKitOutboundPayload;
+
+export type SlackAgentStatusCardStatus =
+  | "thinking"
+  | "complete"
+  | "failed"
+  | "approval_required";
+
+export interface SlackApprovalBlockActionPayload {
+  approvalId: string;
+  payloadHash: string;
+  token: string;
+}
+
 export interface SlackApiPostMessageResult {
   ok: boolean;
   channel?: string;
@@ -78,6 +110,295 @@ export function buildSlackTextOutboundMessage(input: {
       ...(input.targetExternalThreadId ? { thread_ts: input.targetExternalThreadId } : {}),
     },
   };
+}
+
+export function buildSlackBlockKitOutboundMessage(input: {
+  targetExternalChatId: string;
+  text: string;
+  blocks: Record<string, unknown>[];
+  targetExternalThreadId?: string;
+}): ExternalOutboundMessagePayload {
+  const text = truncateSlackText(input.text);
+  return {
+    targetExternalChatId: input.targetExternalChatId,
+    targetExternalThreadId: input.targetExternalThreadId,
+    payload: {
+      channel: input.targetExternalChatId,
+      text,
+      blocks: input.blocks,
+      unfurl_links: false,
+      unfurl_media: false,
+      ...(input.targetExternalThreadId ? { thread_ts: input.targetExternalThreadId } : {}),
+    } satisfies SlackBlockKitOutboundPayload,
+  };
+}
+
+export function buildSlackAgentStatusBlocks(input: {
+  status: SlackAgentStatusCardStatus;
+  channelName: string;
+  agentNames: string[];
+  message?: string;
+  taskId?: string;
+  approvalAction?: SlackApprovalBlockActionPayload;
+  actionUrl?: string;
+}): Record<string, unknown>[] {
+  const statusView = resolveSlackAgentStatusCardView(input.status);
+  const agentLabel = uniqueNonEmpty(input.agentNames).join(", ") || "Agent";
+  const lines = [
+    `*${escapeSlackMrkdwn(agentLabel)}* · ${statusView.label}`,
+    `Channel: ${escapeSlackMrkdwn(input.channelName)}`,
+    input.taskId ? `Task: ${escapeSlackMrkdwn(input.taskId)}` : undefined,
+    input.message ? "" : undefined,
+    input.message ? truncateSlackBlockText(input.message) : undefined,
+  ].filter((line): line is string => line !== undefined);
+  const blocks: Record<string, unknown>[] = [
+    {
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: lines.join("\n"),
+      },
+    },
+    {
+      type: "context",
+      elements: [{
+        type: "mrkdwn",
+        text: `${statusView.context} · AgentSpace`,
+      }],
+    },
+  ];
+  const actionElements: Record<string, unknown>[] = [];
+  if (input.status === "approval_required" && input.approvalAction) {
+    actionElements.push({
+      type: "button",
+      text: {
+        type: "plain_text",
+        text: "Approve",
+        emoji: true,
+      },
+      style: "primary",
+      action_id: "agentspace_approval_approve",
+      value: buildSlackApprovalBlockActionValue(input.approvalAction, "approved"),
+    });
+    actionElements.push({
+      type: "button",
+      text: {
+        type: "plain_text",
+        text: "Reject",
+        emoji: true,
+      },
+      style: "danger",
+      action_id: "agentspace_approval_reject",
+      value: buildSlackApprovalBlockActionValue(input.approvalAction, "rejected"),
+    });
+  }
+  if (input.actionUrl) {
+    actionElements.push({
+      type: "button",
+      text: {
+        type: "plain_text",
+        text: "Open AgentSpace",
+        emoji: true,
+      },
+      action_id: "agentspace_open",
+      url: input.actionUrl,
+    });
+  }
+  if (actionElements.length > 0) {
+    blocks.push({
+      type: "actions",
+      block_id: "agentspace_actions",
+      elements: actionElements,
+    });
+  }
+  return blocks;
+}
+
+export function buildSlackAgentStatusCardOutboundMessage(input: {
+  targetExternalChatId: string;
+  targetExternalThreadId?: string;
+  status: SlackAgentStatusCardStatus;
+  channelName: string;
+  agentNames: string[];
+  message?: string;
+  taskId?: string;
+  approvalAction?: SlackApprovalBlockActionPayload;
+  actionUrl?: string | null;
+}): ExternalOutboundMessagePayload {
+  const agentLabel = uniqueNonEmpty(input.agentNames).join(", ") || "Agent";
+  const statusView = resolveSlackAgentStatusCardView(input.status);
+  return buildSlackBlockKitOutboundMessage({
+    targetExternalChatId: input.targetExternalChatId,
+    targetExternalThreadId: input.targetExternalThreadId,
+    text: `${agentLabel} · ${statusView.label}`,
+    blocks: buildSlackAgentStatusBlocks({
+      status: input.status,
+      channelName: input.channelName,
+      agentNames: input.agentNames,
+      message: input.message,
+      taskId: input.taskId,
+      approvalAction: input.approvalAction,
+      actionUrl: input.actionUrl === null ? undefined : input.actionUrl,
+    }),
+  });
+}
+
+export function queueSlackOutboundMessageSync(input: {
+  context: IntegrationRuntimeContext;
+  message: AgentSpaceOutboundMessage;
+}): ExternalMessageOutboxRecord {
+  const channelBinding = readExternalChannelBindingSync({
+    workspaceId: input.context.workspaceId,
+    integrationId: input.context.integrationId,
+    channelName: input.message.channelName,
+  });
+  if (!channelBinding || channelBinding.status !== "active") {
+    throw new Error("Active Slack channel binding is required before sending outbound messages.");
+  }
+  if (channelBinding.syncMode === "ingest_only") {
+    throw new Error("Slack channel binding is ingest-only and cannot send outbound messages.");
+  }
+
+  const integration = readExternalIntegrationSync({
+    workspaceId: input.context.workspaceId,
+    integrationId: input.context.integrationId,
+  });
+  const outbound = buildSlackTextOutboundMessage({
+    targetExternalChatId: channelBinding.externalChatId,
+    targetExternalThreadId: input.message.externalThreadId,
+    text: appendSlackAttachmentNotice(input.message.text, input.message.attachments),
+  });
+  return enqueueExternalOutboundMessageSync({
+    context: input.context,
+    channelBindingId: channelBinding.id,
+    agentSpaceMessageId: input.message.agentSpaceMessageId,
+    outbound,
+    metadataJson: buildSlackQueuedOutboxMetadata({
+      source: "direct_outbound_message",
+      outbound,
+      integration,
+      attachmentCount: countSendableSlackAttachments(input.message.attachments),
+    }),
+  });
+}
+
+export function queueSlackChannelReplyOutboxSync(input: {
+  workspaceId: string;
+  channelName: string;
+  agentId?: string;
+  text: string;
+  attachments?: MessageAttachment[];
+  agentSpaceMessageId?: string;
+  sourceAgentSpaceMessageId?: string;
+}): ExternalMessageOutboxRecord[] {
+  const candidates = listSlackOutboundIntegrationCandidatesSync({
+    workspaceId: input.workspaceId,
+    agentId: input.agentId,
+    sourceAgentSpaceMessageId: input.sourceAgentSpaceMessageId,
+  });
+  const outboxItems: ExternalMessageOutboxRecord[] = [];
+
+  for (const { integration, sourceMapping } of candidates) {
+    const channelBinding = selectSlackOutboundChannelBindingForReply({
+      channelBindings: listExternalChannelBindingsSync({
+        workspaceId: input.workspaceId,
+        integrationId: integration.id,
+        status: "active",
+      }),
+      channelName: input.channelName,
+      sourceMapping,
+    });
+    if (!channelBinding) {
+      continue;
+    }
+    const outbound = buildSlackTextOutboundMessage({
+      targetExternalChatId: channelBinding.externalChatId,
+      targetExternalThreadId: resolveSlackReplyTargetExternalMessageId(sourceMapping),
+      text: appendSlackAttachmentNotice(input.text, input.attachments),
+    });
+    outboxItems.push(enqueueExternalOutboundMessageSync({
+      context: {
+        workspaceId: input.workspaceId,
+        integrationId: integration.id,
+        provider: SLACK_PROVIDER_ID,
+      },
+      channelBindingId: channelBinding.id,
+      agentSpaceMessageId: input.agentSpaceMessageId,
+      outbound,
+      metadataJson: buildSlackQueuedOutboxMetadata({
+        source: "agent_reply",
+        outbound,
+        integration,
+        attachmentCount: countSendableSlackAttachments(input.attachments),
+      }),
+    }));
+  }
+
+  return outboxItems;
+}
+
+export function queueSlackAgentStatusCardOutboxSync(input: {
+  workspaceId: string;
+  channelName: string;
+  agentId?: string;
+  status: SlackAgentStatusCardStatus;
+  agentNames: string[];
+  message?: string;
+  taskId?: string;
+  agentSpaceMessageId?: string;
+  sourceAgentSpaceMessageId?: string;
+  approvalAction?: SlackApprovalBlockActionPayload;
+  actionUrl?: string | null;
+}): ExternalMessageOutboxRecord[] {
+  const candidates = listSlackOutboundIntegrationCandidatesSync({
+    workspaceId: input.workspaceId,
+    agentId: input.agentId ?? resolveSingleAgentName(input.agentNames),
+    sourceAgentSpaceMessageId: input.sourceAgentSpaceMessageId,
+  });
+  const outboxItems: ExternalMessageOutboxRecord[] = [];
+
+  for (const { integration, sourceMapping } of candidates) {
+    const channelBinding = selectSlackOutboundChannelBindingForReply({
+      channelBindings: listExternalChannelBindingsSync({
+        workspaceId: input.workspaceId,
+        integrationId: integration.id,
+        status: "active",
+      }),
+      channelName: input.channelName,
+      sourceMapping,
+    });
+    if (!channelBinding) {
+      continue;
+    }
+    const outbound = buildSlackAgentStatusCardOutboundMessage({
+      targetExternalChatId: channelBinding.externalChatId,
+      targetExternalThreadId: resolveSlackReplyTargetExternalMessageId(sourceMapping),
+      status: input.status,
+      channelName: input.channelName,
+      agentNames: input.agentNames,
+      message: input.message,
+      taskId: input.taskId,
+      approvalAction: input.approvalAction,
+      actionUrl: input.actionUrl,
+    });
+    outboxItems.push(enqueueExternalOutboundMessageSync({
+      context: {
+        workspaceId: input.workspaceId,
+        integrationId: integration.id,
+        provider: SLACK_PROVIDER_ID,
+      },
+      channelBindingId: channelBinding.id,
+      agentSpaceMessageId: input.agentSpaceMessageId,
+      outbound,
+      metadataJson: buildSlackQueuedOutboxMetadata({
+        source: "agent_status_card",
+        outbound,
+        integration,
+      }),
+    }));
+  }
+
+  return outboxItems;
 }
 
 export async function drainSlackOutboxMessages(input: {
@@ -182,7 +503,9 @@ export async function processSlackOutboxMessage(input: {
       agentSpaceMessageId: locked.agentSpaceMessageId,
       metadataJson: {
         provider: SLACK_PROVIDER_ID,
-        channel: response.channel ?? payload.channel,
+        externalChatReference: formatSlackOutboundReference(response.channel ?? payload.channel),
+        externalThreadReference: formatSlackOutboundReference(payload.thread_ts),
+        externalChatIdRedacted: true,
       },
     });
     return {
@@ -217,7 +540,7 @@ export async function processSlackOutboxMessage(input: {
 
 export async function sendSlackChatPostMessage(input: {
   botToken: string;
-  payload: SlackTextOutboundPayload;
+  payload: SlackChatPostMessagePayload;
   baseUrl?: string;
   fetchImpl?: typeof fetch;
 }): Promise<SlackApiPostMessageResult> {
@@ -276,25 +599,238 @@ export function computeSlackOutboxNextAttemptAt(retryAfterSeconds = 60): string 
   return new Date(Date.now() + Math.max(1, retryAfterSeconds) * 1000).toISOString();
 }
 
-function readSlackOutboundPayload(value: string): SlackTextOutboundPayload {
+function readSlackOutboundPayload(value: string): SlackChatPostMessagePayload {
   const parsed = JSON.parse(value) as Record<string, unknown>;
   const channel = typeof parsed.channel === "string" ? parsed.channel.trim() : "";
   const text = typeof parsed.text === "string" ? parsed.text : "";
   const threadTs = typeof parsed.thread_ts === "string" ? parsed.thread_ts.trim() : undefined;
+  const blocks = readSlackBlocks(parsed.blocks);
   if (!channel || !text.trim()) {
     throw new Error("slack.outbound_payload_invalid");
   }
   return {
     channel,
     text: truncateSlackText(text),
+    ...(blocks ? { blocks, unfurl_links: false, unfurl_media: false } : {}),
     ...(threadTs ? { thread_ts: threadTs } : {}),
   };
+}
+
+function buildSlackQueuedOutboxMetadata(input: {
+  source: "direct_outbound_message" | "agent_reply" | "agent_status_card";
+  outbound: Pick<ExternalOutboundMessagePayload, "targetExternalChatId" | "targetExternalThreadId">;
+  integration?: Pick<ExternalIntegrationRecord, "id" | "agentId"> | null;
+  attachmentCount?: number;
+}): Record<string, unknown> {
+  const agentId = readString(input.integration?.agentId);
+  return {
+    provider: SLACK_PROVIDER_ID,
+    outboxSource: input.source,
+    externalChatReference: formatSlackOutboundReference(input.outbound.targetExternalChatId),
+    externalThreadReference: formatSlackOutboundReference(input.outbound.targetExternalThreadId),
+    agentId,
+    botBindingId: agentId ? input.integration?.id : undefined,
+    attachmentsUploaded: false,
+    attachmentCount: input.attachmentCount && input.attachmentCount > 0 ? input.attachmentCount : undefined,
+  };
+}
+
+interface SlackOutboundIntegrationCandidate {
+  integration: ExternalIntegrationRecord;
+  sourceMapping?: ExternalMessageMappingRecord | null;
+}
+
+function listSlackOutboundIntegrationCandidatesSync(input: {
+  workspaceId: string;
+  agentId?: string;
+  sourceAgentSpaceMessageId?: string;
+}): SlackOutboundIntegrationCandidate[] {
+  const sourceAgentSpaceMessageId = input.sourceAgentSpaceMessageId?.trim();
+  if (sourceAgentSpaceMessageId) {
+    const sourceMapped = resolveSlackSourceMappedOutboundIntegrationSync({
+      workspaceId: input.workspaceId,
+      sourceAgentSpaceMessageId,
+    });
+    if (sourceMapped) {
+      return sourceMapped.integration.status === "active" ? [sourceMapped] : [];
+    }
+  }
+
+  return listActiveSlackOutboundIntegrationsSync({
+    workspaceId: input.workspaceId,
+    agentId: input.agentId,
+  }).map((integration) => ({
+    integration,
+    sourceMapping: sourceAgentSpaceMessageId
+      ? readExternalMessageMappingByAgentSpaceMessageSync({
+        workspaceId: input.workspaceId,
+        integrationId: integration.id,
+        agentSpaceMessageId: sourceAgentSpaceMessageId,
+        direction: "inbound",
+      })
+      : null,
+  }));
+}
+
+function resolveSlackSourceMappedOutboundIntegrationSync(input: {
+  workspaceId: string;
+  sourceAgentSpaceMessageId: string;
+}): SlackOutboundIntegrationCandidate | null {
+  for (const integration of listExternalIntegrationsSync({
+    workspaceId: input.workspaceId,
+    provider: SLACK_PROVIDER_ID,
+    includeDisabled: true,
+  })) {
+    const sourceMapping = readExternalMessageMappingByAgentSpaceMessageSync({
+      workspaceId: input.workspaceId,
+      integrationId: integration.id,
+      agentSpaceMessageId: input.sourceAgentSpaceMessageId,
+      direction: "inbound",
+    });
+    if (sourceMapping) {
+      return { integration, sourceMapping };
+    }
+  }
+  return null;
+}
+
+function listActiveSlackOutboundIntegrationsSync(input: {
+  workspaceId: string;
+  agentId?: string;
+}): ExternalIntegrationRecord[] {
+  const agentId = input.agentId?.trim();
+  if (agentId) {
+    const agentIntegrations = listExternalIntegrationsSync({
+      workspaceId: input.workspaceId,
+      provider: SLACK_PROVIDER_ID,
+      agentId,
+    }).filter((integration) => integration.status === "active");
+    if (agentIntegrations.length > 0) {
+      return agentIntegrations;
+    }
+  }
+
+  return listExternalIntegrationsSync({
+    workspaceId: input.workspaceId,
+    provider: SLACK_PROVIDER_ID,
+    scope: "workspace",
+  }).filter((integration) => integration.status === "active");
+}
+
+export function resolveSlackReplyTargetExternalMessageId(
+  sourceMapping: { externalThreadId?: string; externalMessageId?: string } | null | undefined,
+): string | undefined {
+  return sourceMapping?.externalThreadId?.trim()
+    || sourceMapping?.externalMessageId?.trim()
+    || undefined;
+}
+
+export function selectSlackOutboundChannelBindingForReply<T extends {
+  id: string;
+  channelName: string;
+  syncMode: string;
+}>(input: {
+  channelBindings: T[];
+  channelName: string;
+  sourceMapping?: { channelBindingId?: string } | null;
+}): T | null {
+  const sendableBindings = input.channelBindings.filter((binding) => binding.syncMode !== "ingest_only");
+  const sourceChannelBindingId = input.sourceMapping?.channelBindingId?.trim();
+  if (sourceChannelBindingId) {
+    return sendableBindings.find((binding) => binding.id === sourceChannelBindingId) ?? null;
+  }
+  const channelName = input.channelName.trim();
+  return sendableBindings.find((binding) => binding.channelName === channelName) ?? null;
+}
+
+function resolveSingleAgentName(agentNames: string[]): string | undefined {
+  const normalized = agentNames.map((name) => name.trim()).filter(Boolean);
+  return normalized.length === 1 ? normalized[0] : undefined;
+}
+
+function buildSlackApprovalBlockActionValue(
+  input: SlackApprovalBlockActionPayload,
+  decision: "approved" | "rejected",
+): string {
+  return JSON.stringify({
+    provider: SLACK_PROVIDER_ID,
+    kind: "runtime_tool_approval",
+    approvalId: input.approvalId,
+    decision,
+    payloadHash: input.payloadHash,
+    token: input.token,
+  });
+}
+
+function resolveSlackAgentStatusCardView(status: SlackAgentStatusCardStatus): {
+  label: string;
+  context: string;
+} {
+  switch (status) {
+    case "thinking":
+      return { label: "Working", context: "Task is running" };
+    case "complete":
+      return { label: "Complete", context: "Task finished" };
+    case "failed":
+      return { label: "Failed", context: "Task needs attention" };
+    case "approval_required":
+      return { label: "Approval required", context: "Review required" };
+  }
+}
+
+function appendSlackAttachmentNotice(text: string, attachments: MessageAttachment[] | undefined): string {
+  const count = countSendableSlackAttachments(attachments);
+  if (count <= 0) {
+    return text;
+  }
+  const suffix = count === 1
+    ? "[1 attachment is available in AgentSpace. Slack file upload is not enabled for this integration yet.]"
+    : `[${count} attachments are available in AgentSpace. Slack file upload is not enabled for this integration yet.]`;
+  return [text, suffix].filter((part) => part.trim()).join("\n\n");
+}
+
+function countSendableSlackAttachments(attachments: MessageAttachment[] | undefined): number {
+  return (attachments ?? []).filter((attachment) => !attachment.deletedAt).length;
+}
+
+function readSlackBlocks(value: unknown): Record<string, unknown>[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  const blocks = value.filter((item): item is Record<string, unknown> =>
+    typeof item === "object" && item !== null && !Array.isArray(item));
+  return blocks.length > 0 ? blocks : undefined;
 }
 
 function truncateSlackText(text: string): string {
   return text.length > SLACK_TEXT_MESSAGE_MAX_CHARS
     ? `${text.slice(0, SLACK_TEXT_MESSAGE_MAX_CHARS - 30)}\n\n[truncated by AgentSpace]`
     : text;
+}
+
+function truncateSlackBlockText(text: string): string {
+  return text.length > 2800
+    ? `${text.slice(0, 2769)}\n\n[truncated by AgentSpace]`
+    : text;
+}
+
+function escapeSlackMrkdwn(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function uniqueNonEmpty(values: string[]): string[] {
+  return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
+}
+
+function formatSlackOutboundReference(value: string | undefined): string | undefined {
+  return value ? buildSlackReference(value) : undefined;
+}
+
+function readString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
 function isSlackOutboundErrorRetryable(response: SlackApiPostMessageResult): boolean {

@@ -87,6 +87,7 @@ test("Slack agent bot binding defaults to Socket Mode with encrypted credentials
   });
   assert.deepEqual(JSON.parse(binding.configJson), {
     eventCallbackPath: "/api/integrations/slack/events",
+    interactionCallbackPath: "/api/integrations/slack/interactions",
     agentBotBinding: true,
     capabilities: {
       messageTransport: true,
