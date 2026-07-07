@@ -909,7 +909,7 @@ rawPayload = summarized payload or original safe subset
 
 - [x] 支持一个 AgentSpace agent 绑定一个 Slack app/bot。
 - [x] agent binding 写入 `external_integration.agentId`。
-- [ ] Slack `api_app_id` 路由到 agent binding。
+- [x] Slack `api_app_id` 路由到 agent binding。
 - [ ] 同一 Slack channel 可有多个 AgentSpace agent bot。
 - [x] 单个 agent-scoped integration 的 `app_mention` / `message.im` 可通过 `integration.agentId` 路由到该 agent。
 - [ ] 支持 Slack `agent_view` manifest。

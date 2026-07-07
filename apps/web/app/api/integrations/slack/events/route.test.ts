@@ -156,10 +156,78 @@ describe("Slack event route", () => {
     }));
     expect(mockDrainSlackOutboxMessages).toHaveBeenCalledTimes(1);
   });
+
+  it("resolves agent-scoped Slack bot integrations by api_app_id when no integration id is supplied", async () => {
+    const workspaceIntegration = {
+      id: "external-integration-slack-workspace",
+      workspaceId: "workspace-1",
+      provider: "slack",
+      displayName: "Slack Workspace",
+      status: "active",
+      transportMode: "http_webhook",
+      appId: "A_WORKSPACE",
+      tenantKey: "T123",
+      encryptedCredentialsJson: "{}",
+      configJson: "{}",
+      capabilitiesJson: "{}",
+      scopesJson: "[]",
+      createdAt: "2026-07-07T00:00:00.000Z",
+      updatedAt: "2026-07-07T00:00:00.000Z",
+    };
+    const atlasIntegration = {
+      ...workspaceIntegration,
+      id: "external-integration-slack-atlas",
+      displayName: "Slack Atlas Bot",
+      appId: "A_ATLAS",
+      agentId: "Atlas",
+    };
+    mockListExternalIntegrationsSync.mockReturnValue([workspaceIntegration, atlasIntegration]);
+
+    const response = await POST(buildRequest({
+      type: "event_callback",
+      api_app_id: "A_ATLAS",
+      team_id: "T123",
+      event_id: "EvAtlas",
+      event: {
+        type: "app_mention",
+        channel: "C123",
+        user: "U123",
+        text: "<@UATLAS> summarize",
+        ts: "1783400000.000200",
+      },
+    }, { integrationId: null }));
+
+    expect(response.status).toBe(200);
+    expect(mockReadExternalIntegrationSync).not.toHaveBeenCalled();
+    expect(mockReadSlackIntegrationCredentials).toHaveBeenCalledWith(expect.objectContaining({
+      id: "external-integration-slack-atlas",
+      agentId: "Atlas",
+    }));
+    expect(mockProcessSlackInboundEvent).toHaveBeenCalledWith(expect.objectContaining({
+      context: {
+        workspaceId: "workspace-1",
+        integrationId: "external-integration-slack-atlas",
+        provider: "slack",
+      },
+      integration: expect.objectContaining({
+        id: "external-integration-slack-atlas",
+        agentId: "Atlas",
+      }),
+    }));
+  });
 });
 
-function buildRequest(payload: Record<string, unknown>): NextRequest {
-  return new NextRequest("https://agent.test/api/integrations/slack/events?workspaceId=workspace-1&integrationId=external-integration-slack", {
+function buildRequest(
+  payload: Record<string, unknown>,
+  options: { integrationId?: string | null } = {},
+): NextRequest {
+  const integrationId = options.integrationId === undefined ? "external-integration-slack" : options.integrationId;
+  const url = new URL("https://agent.test/api/integrations/slack/events");
+  url.searchParams.set("workspaceId", "workspace-1");
+  if (integrationId) {
+    url.searchParams.set("integrationId", integrationId);
+  }
+  return new NextRequest(url, {
     method: "POST",
     headers: {
       "content-type": "application/json",
