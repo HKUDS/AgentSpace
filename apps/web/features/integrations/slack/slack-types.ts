@@ -147,6 +147,8 @@ export interface SlackIntegrationCreationGuide {
   publicAppUrlStatus: "configured" | "missing";
   publicAppUrl?: string;
   callbackUrlTemplate: string;
+  oauthStartUrl?: string;
+  oauthCallbackUrlTemplate: string;
   developerConsoleUrl: string;
   commands: {
     create: string;

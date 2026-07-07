@@ -311,6 +311,13 @@ function SlackCreateIntegrationPanel({
 
         {creationGuide ? (
           <div className="feishu-setup-summary" aria-label={tx("Slack App 配置", "Slack app configuration")}>
+            {creationGuide.oauthStartUrl ? (
+              <section>
+                <strong>{tx("OAuth 安装", "OAuth Install")}</strong>
+                <a className="secondary-button" href={creationGuide.oauthStartUrl}>{tx("Add to Slack", "Add to Slack")}</a>
+                <code>{creationGuide.oauthCallbackUrlTemplate}</code>
+              </section>
+            ) : null}
             <section>
               <strong>{tx("Slack App", "Slack App")}</strong>
               <a href={creationGuide.developerConsoleUrl} rel="noreferrer" target="_blank">{creationGuide.developerConsoleUrl}</a>

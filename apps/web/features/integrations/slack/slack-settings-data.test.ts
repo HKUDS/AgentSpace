@@ -191,6 +191,8 @@ describe("Slack settings data", () => {
       publicAppUrlStatus: "configured",
       publicAppUrl: "https://agent.test",
       callbackUrlTemplate: "https://agent.test/api/integrations/slack/events?workspaceId=workspace-1&integrationId=created-integration-id",
+      oauthStartUrl: "https://agent.test/api/integrations/slack/oauth/start",
+      oauthCallbackUrlTemplate: "https://agent.test/api/integrations/slack/oauth/callback",
       developerConsoleUrl: "https://api.slack.com/apps",
       commands: {
         create: "agent-space integrations slack create --workspace-id workspace-1 --app-id CHANGE_ME_SLACK_APP_ID --team-id CHANGE_ME_SLACK_TEAM_ID --env-file scripts/slack/.env --bot-token-env SLACK_BOT_TOKEN --signing-secret-env SLACK_SIGNING_SECRET --json",

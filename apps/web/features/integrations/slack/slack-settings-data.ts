@@ -38,6 +38,8 @@ import type {
 const SLACK_DEVELOPER_CONSOLE_URL = "https://api.slack.com/apps";
 const SLACK_CHANNEL_ID_PLACEHOLDER = "CHANGE_ME_SLACK_CHANNEL_ID";
 const SLACK_USER_ID_PLACEHOLDER = "CHANGE_ME_SLACK_USER_ID";
+const SLACK_OAUTH_START_PATH = "/api/integrations/slack/oauth/start";
+const SLACK_OAUTH_CALLBACK_PATH = "/api/integrations/slack/oauth/callback";
 
 export function listSlackIntegrationSettingsItems(input: {
   workspaceId: string;
@@ -211,11 +213,13 @@ export function buildSlackIntegrationCreationGuide(input: {
   workspaceId: string;
   appUrl?: string;
 }): SlackIntegrationCreationGuide {
+  const trimmedAppUrl = input.appUrl?.trim();
   const callbackUrlTemplate = buildSlackEventCallbackUrl({
     workspaceId: input.workspaceId,
     integrationId: "created-integration-id",
-    appUrl: input.appUrl,
+    appUrl: trimmedAppUrl,
   });
+  const oauthCallbackUrlTemplate = buildPublicAppUrl(SLACK_OAUTH_CALLBACK_PATH, trimmedAppUrl);
   return {
     requiredCredentialFields: [...SLACK_REQUIRED_CREDENTIAL_FIELDS],
     requiredEvents: [...SLACK_REQUIRED_EVENTS],
@@ -223,9 +227,11 @@ export function buildSlackIntegrationCreationGuide(input: {
     socketModeCredentialFields: [...SLACK_SOCKET_MODE_CREDENTIAL_FIELDS],
     socketModeScopes: [...SLACK_SOCKET_MODE_SCOPES],
     eventCallbackPath: SLACK_EVENT_CALLBACK_PATH,
-    publicAppUrlStatus: input.appUrl?.trim() ? "configured" : "missing",
-    ...(input.appUrl?.trim() ? { publicAppUrl: input.appUrl.trim() } : {}),
+    publicAppUrlStatus: trimmedAppUrl ? "configured" : "missing",
+    ...(trimmedAppUrl ? { publicAppUrl: trimmedAppUrl } : {}),
     callbackUrlTemplate,
+    ...(trimmedAppUrl ? { oauthStartUrl: buildPublicAppUrl(SLACK_OAUTH_START_PATH, trimmedAppUrl) } : {}),
+    oauthCallbackUrlTemplate,
     developerConsoleUrl: SLACK_DEVELOPER_CONSOLE_URL,
     commands: {
       create: `agent-space integrations slack create --workspace-id ${input.workspaceId} --app-id CHANGE_ME_SLACK_APP_ID --team-id CHANGE_ME_SLACK_TEAM_ID --env-file scripts/slack/.env --bot-token-env SLACK_BOT_TOKEN --signing-secret-env SLACK_SIGNING_SECRET --json`,
