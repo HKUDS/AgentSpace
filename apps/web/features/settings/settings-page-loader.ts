@@ -18,6 +18,13 @@ import {
   listFeishuIntegrationSettingsItems,
 } from "@/features/integrations/feishu/feishu-settings-data";
 import {
+  buildSlackIntegrationCreationGuide,
+  canManageSlackIntegrations,
+  listSlackAvailableChannels,
+  listSlackAvailableUsers,
+  listSlackIntegrationSettingsItems,
+} from "@/features/integrations/slack/slack-settings-data";
+import {
   canAccessSettingsSection,
   DEFAULT_SETTINGS_SECTION,
   isSettingsDetailSectionId,
@@ -34,6 +41,10 @@ import type {
   SettingsFeishuIntegrationItem,
   SettingsPermissionCenterData,
   SettingsSessionItem,
+  SettingsSlackAvailableChannelItem,
+  SettingsSlackAvailableUserItem,
+  SettingsSlackIntegrationCreationGuide,
+  SettingsSlackIntegrationItem,
   SettingsWorkspaceInvitationItem,
   SettingsWorkspaceMemberItem,
 } from "@/features/settings/settings-types";
@@ -57,6 +68,10 @@ export interface SettingsPageData {
   feishuAvailableUsers: SettingsFeishuAvailableUserItem[];
   feishuIntegrationCreationGuide?: SettingsFeishuIntegrationCreationGuide;
   feishuIntegrations: SettingsFeishuIntegrationItem[];
+  slackAvailableChannels?: SettingsSlackAvailableChannelItem[];
+  slackAvailableUsers?: SettingsSlackAvailableUserItem[];
+  slackIntegrationCreationGuide?: SettingsSlackIntegrationCreationGuide;
+  slackIntegrations?: SettingsSlackIntegrationItem[];
   members: SettingsWorkspaceMemberItem[];
   permissions?: SettingsPermissionCenterData;
   sessions: SettingsSessionItem[];
@@ -104,10 +119,15 @@ export function loadSettingsPageData(input: {
   const shouldLoadIntegrations = requestedSection === "integrations";
   const shouldLoadPermissions = requestedSection === "permissions";
   const shouldLoadSessions = requestedSection === "security";
-  const canManageIntegrations = canManageFeishuIntegrations(input.role);
+  const canManageFeishu = canManageFeishuIntegrations(input.role);
+  const canManageSlack = canManageSlackIntegrations(input.role);
   const feishuAvailableUsers = shouldLoadIntegrations
     ? listFeishuAvailableUsers({ workspaceId })
-      .filter((user) => canManageIntegrations || user.userId === input.currentUser.id)
+      .filter((user) => canManageFeishu || user.userId === input.currentUser.id)
+    : [];
+  const slackAvailableUsers = shouldLoadIntegrations
+    ? listSlackAvailableUsers({ workspaceId })
+      .filter((user) => canManageSlack || user.userId === input.currentUser.id)
     : [];
 
   return {
@@ -156,17 +176,17 @@ export function loadSettingsPageData(input: {
       })
       : [],
     feishuAvailableChannels: shouldLoadIntegrations
-      ? canManageIntegrations
+      ? canManageFeishu
         ? listFeishuAvailableChannels({ workspaceId })
         : []
       : [],
     feishuAvailableAgents: shouldLoadIntegrations
-      ? canManageIntegrations
+      ? canManageFeishu
         ? listFeishuAvailableAgents({ workspaceId })
         : []
       : [],
     feishuAvailableUsers,
-    feishuIntegrationCreationGuide: shouldLoadIntegrations && canManageIntegrations
+    feishuIntegrationCreationGuide: shouldLoadIntegrations && canManageFeishu
       ? buildFeishuIntegrationCreationGuide({
         workspaceId,
         appUrl: readPublicAppUrl(),
@@ -174,6 +194,28 @@ export function loadSettingsPageData(input: {
       : undefined,
     feishuIntegrations: shouldLoadIntegrations
       ? listFeishuIntegrationSettingsItems({
+        workspaceId,
+        appUrl: readPublicAppUrl(),
+        viewer: {
+          role: input.role,
+          userId: input.currentUser.id,
+        },
+      })
+      : [],
+    slackAvailableChannels: shouldLoadIntegrations
+      ? canManageSlack
+        ? listSlackAvailableChannels({ workspaceId })
+        : []
+      : [],
+    slackAvailableUsers,
+    slackIntegrationCreationGuide: shouldLoadIntegrations && canManageSlack
+      ? buildSlackIntegrationCreationGuide({
+        workspaceId,
+        appUrl: readPublicAppUrl(),
+      })
+      : undefined,
+    slackIntegrations: shouldLoadIntegrations
+      ? listSlackIntegrationSettingsItems({
         workspaceId,
         appUrl: readPublicAppUrl(),
         viewer: {

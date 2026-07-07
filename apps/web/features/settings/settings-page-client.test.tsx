@@ -27,17 +27,24 @@ const {
   mockRevokeWorkspaceInvitationAction,
   mockTransferWorkspaceOwnershipAction,
   mockUpdateCurrentUserProfileAction,
+  mockCheckSlackIntegrationHealthAction,
   mockCheckFeishuIntegrationHealthAction,
+  mockCreateSlackChannelBindingAction,
+  mockCreateSlackIntegrationAction,
+  mockCreateSlackUserBindingAction,
   mockCreateFeishuChannelBindingAction,
   mockCreateFeishuAgentBotBindingAction,
   mockCreateFeishuIntegrationAction,
   mockCreateFeishuResourceBindingAction,
   mockCreateFeishuUserBindingAction,
+  mockDeleteSlackIntegrationAction,
   mockDeleteFeishuIntegrationAction,
+  mockDisableSlackIntegrationAction,
   mockDisableFeishuIntegrationAction,
   mockDisableFeishuAgentBotBindingAction,
   mockPauseFeishuChannelBindingAction,
   mockPauseFeishuResourceBindingAction,
+  mockResumeSlackIntegrationAction,
   mockResumeFeishuIntegrationAction,
   mockResumeFeishuChannelBindingAction,
   mockResumeFeishuResourceBindingAction,
@@ -62,17 +69,24 @@ const {
   mockRevokeWorkspaceInvitationAction: vi.fn(),
   mockTransferWorkspaceOwnershipAction: vi.fn(),
   mockUpdateCurrentUserProfileAction: vi.fn(),
+  mockCheckSlackIntegrationHealthAction: vi.fn(),
   mockCheckFeishuIntegrationHealthAction: vi.fn(),
+  mockCreateSlackChannelBindingAction: vi.fn(),
+  mockCreateSlackIntegrationAction: vi.fn(),
+  mockCreateSlackUserBindingAction: vi.fn(),
   mockCreateFeishuChannelBindingAction: vi.fn(),
   mockCreateFeishuAgentBotBindingAction: vi.fn(),
   mockCreateFeishuIntegrationAction: vi.fn(),
   mockCreateFeishuResourceBindingAction: vi.fn(),
   mockCreateFeishuUserBindingAction: vi.fn(),
+  mockDeleteSlackIntegrationAction: vi.fn(),
   mockDeleteFeishuIntegrationAction: vi.fn(),
+  mockDisableSlackIntegrationAction: vi.fn(),
   mockDisableFeishuIntegrationAction: vi.fn(),
   mockDisableFeishuAgentBotBindingAction: vi.fn(),
   mockPauseFeishuChannelBindingAction: vi.fn(),
   mockPauseFeishuResourceBindingAction: vi.fn(),
+  mockResumeSlackIntegrationAction: vi.fn(),
   mockResumeFeishuIntegrationAction: vi.fn(),
   mockResumeFeishuChannelBindingAction: vi.fn(),
   mockResumeFeishuResourceBindingAction: vi.fn(),
@@ -126,6 +140,16 @@ vi.mock("@/features/integrations/feishu/feishu-actions", () => ({
   rotateFeishuIntegrationSecretAction: mockRotateFeishuIntegrationSecretAction,
   testFeishuIntegrationConnectionAction: mockTestFeishuIntegrationConnectionAction,
   updateFeishuAgentBotPolicyAction: mockUpdateFeishuAgentBotPolicyAction,
+}));
+
+vi.mock("@/features/integrations/slack/slack-actions", () => ({
+  checkSlackIntegrationHealthAction: mockCheckSlackIntegrationHealthAction,
+  createSlackChannelBindingAction: mockCreateSlackChannelBindingAction,
+  createSlackIntegrationAction: mockCreateSlackIntegrationAction,
+  createSlackUserBindingAction: mockCreateSlackUserBindingAction,
+  deleteSlackIntegrationAction: mockDeleteSlackIntegrationAction,
+  disableSlackIntegrationAction: mockDisableSlackIntegrationAction,
+  resumeSlackIntegrationAction: mockResumeSlackIntegrationAction,
 }));
 
 vi.mock("next/navigation", () => ({
@@ -189,17 +213,24 @@ describe("SettingsPageClient", () => {
     mockRevokeWorkspaceInvitationAction.mockReset();
     mockTransferWorkspaceOwnershipAction.mockReset();
     mockUpdateCurrentUserProfileAction.mockReset();
+    mockCheckSlackIntegrationHealthAction.mockReset();
     mockCheckFeishuIntegrationHealthAction.mockReset();
+    mockCreateSlackChannelBindingAction.mockReset();
+    mockCreateSlackIntegrationAction.mockReset();
+    mockCreateSlackUserBindingAction.mockReset();
     mockCreateFeishuAgentBotBindingAction.mockReset();
     mockCreateFeishuChannelBindingAction.mockReset();
     mockCreateFeishuIntegrationAction.mockReset();
     mockCreateFeishuResourceBindingAction.mockReset();
     mockCreateFeishuUserBindingAction.mockReset();
+    mockDeleteSlackIntegrationAction.mockReset();
     mockDeleteFeishuIntegrationAction.mockReset();
+    mockDisableSlackIntegrationAction.mockReset();
     mockDisableFeishuAgentBotBindingAction.mockReset();
     mockDisableFeishuIntegrationAction.mockReset();
     mockPauseFeishuChannelBindingAction.mockReset();
     mockPauseFeishuResourceBindingAction.mockReset();
+    mockResumeSlackIntegrationAction.mockReset();
     mockResumeFeishuIntegrationAction.mockReset();
     mockResumeFeishuChannelBindingAction.mockReset();
     mockResumeFeishuResourceBindingAction.mockReset();

@@ -5,6 +5,13 @@ import type { WorkspaceRole } from "@agent-space/db";
 import { SettingsSectionShell } from "@/features/settings/components/settings-chrome";
 import type { SettingsSectionMeta } from "@/features/settings/settings-meta";
 import type { SettingsTx } from "@/features/settings/settings-types";
+import { SlackIntegrationSettingsPanel } from "@/features/integrations/slack/slack-integration-settings-panel";
+import type {
+  SlackAvailableChannelItem,
+  SlackAvailableUserItem,
+  SlackIntegrationCreationGuide,
+  SlackIntegrationSettingsItem,
+} from "@/features/integrations/slack/slack-types";
 import { FeishuAgentBotsPanel } from "./feishu-agent-bots-panel";
 import { FeishuChannelBindingsPanel } from "./feishu-channel-bindings-panel";
 import { FeishuCreateIntegrationDialog } from "./feishu-create-integration-dialog";
@@ -31,6 +38,10 @@ export function SettingsIntegrationsSection({
   isPending,
   meta,
   refreshSettingsData,
+  slackAvailableChannels,
+  slackAvailableUsers,
+  slackIntegrationCreationGuide,
+  slackIntegrations,
   startTransition,
   tx,
 }: {
@@ -44,6 +55,10 @@ export function SettingsIntegrationsSection({
   isPending: boolean;
   meta: SettingsSectionMeta;
   refreshSettingsData: () => void;
+  slackAvailableChannels: SlackAvailableChannelItem[];
+  slackAvailableUsers: SlackAvailableUserItem[];
+  slackIntegrationCreationGuide?: SlackIntegrationCreationGuide;
+  slackIntegrations: SlackIntegrationSettingsItem[];
   startTransition: TransitionStartFunction;
   tx: SettingsTx;
 }) {
@@ -60,6 +75,10 @@ export function SettingsIntegrationsSection({
   const totalOperationRuns = integrations.reduce((sum, integration) => sum + integration.operationRunCount, 0);
   const totalOutboxFailures = integrations.reduce((sum, integration) => sum + integration.outboxFailureCount, 0);
   const canManageIntegrations = currentMembershipRole === "owner" || currentMembershipRole === "admin";
+  const shouldRenderSlackPanel = Boolean(slackIntegrationCreationGuide) ||
+    slackIntegrations.length > 0 ||
+    slackAvailableChannels.length > 0 ||
+    slackAvailableUsers.length > 0;
 
   function mergeIntegration(nextIntegration: FeishuIntegrationSettingsItem): void {
     setIntegrations((current) => [
@@ -76,6 +95,21 @@ export function SettingsIntegrationsSection({
 
   return (
     <SettingsSectionShell meta={meta}>
+      {shouldRenderSlackPanel ? (
+        <SlackIntegrationSettingsPanel
+          availableChannels={slackAvailableChannels}
+          availableUsers={slackAvailableUsers}
+          currentMembershipRole={currentMembershipRole}
+          currentUserId={currentUserId}
+          isPending={isPending}
+          refreshSettingsData={refreshSettingsData}
+          slackIntegrationCreationGuide={slackIntegrationCreationGuide}
+          slackIntegrations={slackIntegrations}
+          startTransition={startTransition}
+          tx={tx}
+        />
+      ) : null}
+
       <div className="feishu-mini-panel-grid">
         <section className="feishu-mini-panel">
           <strong>{canManageIntegrations ? tx("用户绑定", "User Bindings") : tx("我的飞书绑定", "My Feishu Binding")}</strong>

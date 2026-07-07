@@ -6,6 +6,12 @@ import type {
   FeishuIntegrationCreationGuide,
   FeishuIntegrationSettingsItem,
 } from "@/features/integrations/feishu/feishu-types";
+import type {
+  SlackAvailableChannelItem,
+  SlackAvailableUserItem,
+  SlackIntegrationCreationGuide,
+  SlackIntegrationSettingsItem,
+} from "@/features/integrations/slack/slack-types";
 import type { PermissionCenterData } from "@agent-space/services";
 
 export type SettingsTx = (zh: string, en: string) => string;
@@ -64,3 +70,7 @@ export type SettingsFeishuIntegrationCreationGuide = FeishuIntegrationCreationGu
 export type SettingsFeishuAvailableAgentItem = FeishuAvailableAgentItem;
 export type SettingsFeishuAvailableChannelItem = FeishuAvailableChannelItem;
 export type SettingsFeishuAvailableUserItem = FeishuAvailableUserItem;
+export type SettingsSlackIntegrationItem = SlackIntegrationSettingsItem;
+export type SettingsSlackIntegrationCreationGuide = SlackIntegrationCreationGuide;
+export type SettingsSlackAvailableChannelItem = SlackAvailableChannelItem;
+export type SettingsSlackAvailableUserItem = SlackAvailableUserItem;

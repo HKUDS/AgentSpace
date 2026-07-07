@@ -110,6 +110,74 @@ export function translateSettingsActionError(error: unknown, tx: SettingsTx): st
       return tx("该群邀请已经处理过。", "This channel invitation has already been handled.");
     case "channel.invitation.email_mismatch":
       return tx("当前账号邮箱与群邀请邮箱不一致。", "This account email does not match the channel invitation email.");
+    case "slack.integration.missing_app_id":
+      return tx("请填写 Slack App ID。", "Slack App ID is required.");
+    case "slack.integration.missing_bot_token":
+      return tx("请填写 Slack Bot Token。", "Slack Bot Token is required.");
+    case "slack.integration.missing_signing_secret":
+      return tx("请填写 Slack Signing Secret。", "Slack Signing Secret is required.");
+    case "slack.integration.missing_app_level_token":
+      return tx("Socket Mode 需要填写 Slack App-Level Token。", "Socket Mode requires a Slack App-Level Token.");
+    case "slack.integration.invalid_transport_mode":
+      return tx("请选择有效的 Slack 连接方式。", "Select a valid Slack transport.");
+    case "slack.integration.not_found":
+      return tx("未找到该 Slack 集成。", "Slack integration not found.");
+    case "slack.integration.disabled":
+      return tx("该 Slack 集成已停用。", "This Slack integration is disabled.");
+    case "slack.integration.duplicate_app_team":
+      return tx(
+        "该 Slack App ID 和 Team ID 已经连接到当前工作区。",
+        "This Slack App ID and Team ID are already connected to this workspace.",
+      );
+    case "slack.integration.credential_encryption_key_missing":
+      return tx(
+        "AgentSpace 未配置 Slack 凭据加密密钥。请设置 AGENT_SPACE_SLACK_CREDENTIAL_ENCRYPTION_KEY。",
+        "AgentSpace is missing the Slack credential encryption key. Set AGENT_SPACE_SLACK_CREDENTIAL_ENCRYPTION_KEY.",
+      );
+    case "slack.integration.credential_encryption_key_invalid":
+      return tx(
+        "AgentSpace Slack 凭据加密密钥无效。请使用 base64 编码的 32 字节密钥。",
+        "AgentSpace Slack credential encryption key is invalid. Use a base64-encoded 32-byte key.",
+      );
+    case "slack.integration.placeholder_value":
+      return tx(
+        "请将 Slack 配置里的模板占位值替换为 Slack App 中的真实值。",
+        "Replace Slack setup placeholders with real values from the Slack app.",
+      );
+    case "slack.channel_binding.missing_channel":
+      return tx("请选择 AgentSpace 频道。", "Select an AgentSpace channel.");
+    case "slack.channel_binding.missing_external_channel_id":
+      return tx("请填写 Slack Conversation ID。", "Slack Conversation ID is required.");
+    case "slack.channel_binding.placeholder_value":
+      return tx(
+        "请将 Slack 频道绑定里的模板占位值替换为真实 Conversation ID。",
+        "Replace Slack channel binding placeholders with a real Conversation ID.",
+      );
+    case "slack.channel_binding.channel_not_found":
+      return tx("未找到该 AgentSpace 频道。", "AgentSpace channel not found.");
+    case "slack.channel_binding.external_channel_taken":
+      return tx(
+        "这个 Slack 会话已映射到其他 AgentSpace 频道，请先让管理员检查现有映射。",
+        "This Slack conversation is already mapped to another AgentSpace channel. Ask an admin to review the existing mapping first.",
+      );
+    case "slack.user_binding.missing_user":
+      return tx("请选择 AgentSpace 用户。", "Select an AgentSpace user.");
+    case "slack.user_binding.missing_external_user_id":
+      return tx("请填写 Slack User ID。", "Slack User ID is required.");
+    case "slack.user_binding.placeholder_value":
+      return tx(
+        "请将 Slack 用户绑定里的模板占位值替换为真实 Slack User ID。",
+        "Replace Slack user binding placeholders with a real Slack User ID.",
+      );
+    case "slack.user_binding.user_not_found":
+      return tx("未找到该工作区成员。", "Workspace member not found.");
+    case "slack.user_binding.external_user_taken":
+      return tx(
+        "这个 Slack User ID 已绑定到其他 AgentSpace 用户，请联系管理员处理。",
+        "This Slack User ID is already bound to another AgentSpace user. Ask an admin to review it.",
+      );
+    case "slack.user_binding.forbidden":
+      return tx("成员只能绑定自己的 Slack 用户。", "Members can only bind their own Slack user.");
     case "feishu.integration.missing_app_id":
       return tx("请填写飞书 App ID。", "Feishu App ID is required.");
     case "feishu.integration.missing_app_secret":

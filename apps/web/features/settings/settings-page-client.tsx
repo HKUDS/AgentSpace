@@ -39,6 +39,10 @@ import type {
   SettingsFeishuAvailableUserItem,
   SettingsFeishuIntegrationCreationGuide,
   SettingsFeishuIntegrationItem,
+  SettingsSlackAvailableChannelItem,
+  SettingsSlackAvailableUserItem,
+  SettingsSlackIntegrationCreationGuide,
+  SettingsSlackIntegrationItem,
   SettingsWorkspaceInvitationItem,
   SettingsWorkspaceMemberItem,
 } from "@/features/settings/settings-types";
@@ -52,6 +56,10 @@ export type {
   SettingsFeishuAvailableUserItem,
   SettingsFeishuIntegrationCreationGuide,
   SettingsFeishuIntegrationItem,
+  SettingsSlackAvailableChannelItem,
+  SettingsSlackAvailableUserItem,
+  SettingsSlackIntegrationCreationGuide,
+  SettingsSlackIntegrationItem,
   SettingsWorkspaceInvitationItem,
   SettingsWorkspaceMemberItem,
 } from "@/features/settings/settings-types";
@@ -76,6 +84,10 @@ export function SettingsPageClient({
   feishuAvailableUsers = [],
   feishuIntegrationCreationGuide,
   feishuIntegrations = [],
+  slackAvailableChannels = [],
+  slackAvailableUsers = [],
+  slackIntegrationCreationGuide,
+  slackIntegrations = [],
   members = [],
   permissions,
   sessions = [],
@@ -100,6 +112,10 @@ export function SettingsPageClient({
   feishuAvailableUsers?: SettingsFeishuAvailableUserItem[];
   feishuIntegrationCreationGuide?: SettingsFeishuIntegrationCreationGuide;
   feishuIntegrations?: SettingsFeishuIntegrationItem[];
+  slackAvailableChannels?: SettingsSlackAvailableChannelItem[];
+  slackAvailableUsers?: SettingsSlackAvailableUserItem[];
+  slackIntegrationCreationGuide?: SettingsSlackIntegrationCreationGuide;
+  slackIntegrations?: SettingsSlackIntegrationItem[];
   members?: SettingsWorkspaceMemberItem[];
   permissions?: SettingsPermissionCenterData;
   sessions?: SettingsSessionItem[];
@@ -250,6 +266,10 @@ export function SettingsPageClient({
               isPending={isPending}
               meta={currentSectionMeta}
               refreshSettingsData={refreshSettingsData}
+              slackAvailableChannels={slackAvailableChannels}
+              slackAvailableUsers={slackAvailableUsers}
+              slackIntegrationCreationGuide={slackIntegrationCreationGuide}
+              slackIntegrations={slackIntegrations}
               startTransition={startTransition}
               tx={tx}
             />
