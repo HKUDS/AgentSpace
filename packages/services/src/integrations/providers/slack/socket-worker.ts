@@ -13,6 +13,12 @@ import {
   validateSlackCallbackContext,
 } from "./events.ts";
 import {
+  isSlackBlockActionsPayload,
+  isSlackInteractionPayload,
+  processSlackBlockActionCallback,
+  type SlackBlockActionCallbackResult,
+} from "./interactions.ts";
+import {
   processSlackInboundEvent,
   type SlackInboundProcessResult,
 } from "./inbound.ts";
@@ -115,6 +121,7 @@ export interface SlackSocketModeWorkerDependencies {
 export interface SlackSocketModeEventProcessorDependencies {
   drainOutboxMessages?: typeof drainSlackOutboxMessages;
   processInboundEvent?: typeof processSlackInboundEvent;
+  processBlockActionCallback?: typeof processSlackBlockActionCallback;
 }
 
 export async function startSlackSocketModeWorker(input: {
@@ -123,6 +130,7 @@ export async function startSlackSocketModeWorker(input: {
   lockedBy: string;
   dryRun?: boolean;
   baseUrl?: string;
+  feishuBaseUrl?: string;
   drainOutboxLimit?: number;
   includeWebhookIntegrations?: boolean;
   eventProcessorDependencies?: SlackSocketModeEventProcessorDependencies;
@@ -242,6 +250,7 @@ export async function startSlackSocketModeWorker(input: {
             metrics,
             lockedBy: input.lockedBy,
             baseUrl: input.baseUrl,
+            feishuBaseUrl: input.feishuBaseUrl,
             drainOutboxLimit: input.drainOutboxLimit,
             dependencies: input.eventProcessorDependencies,
           });
@@ -311,6 +320,7 @@ export async function processSlackSocketModeEnvelope(input: {
   metrics: SlackSocketModeWorkerMetrics;
   lockedBy: string;
   baseUrl?: string;
+  feishuBaseUrl?: string;
   drainOutboxLimit?: number;
   dependencies?: SlackSocketModeEventProcessorDependencies;
 }): Promise<void> {
@@ -350,6 +360,23 @@ export async function processSlackSocketModeEnvelope(input: {
       return;
     }
 
+    if (isSlackBlockActionsPayload(payload)) {
+      const processBlockActionCallback = input.dependencies?.processBlockActionCallback
+        ?? processSlackBlockActionCallback;
+      const result = await processBlockActionCallback({
+        context: input.context,
+        payload,
+        feishuBaseUrl: input.feishuBaseUrl,
+      });
+      recordSlackSocketWorkerInteractionMetrics(input.metrics, result);
+      await drainSlackSocketWorkerOutbox(input);
+      return;
+    }
+    if (input.envelope.type === "interactive" || isSlackInteractionPayload(payload)) {
+      input.metrics.ignoredCount += 1;
+      return;
+    }
+
     const processInboundEvent = input.dependencies?.processInboundEvent ?? processSlackInboundEvent;
     const result = await processInboundEvent({
       context: input.context,
@@ -357,16 +384,7 @@ export async function processSlackSocketModeEnvelope(input: {
       integration: input.integration,
     });
     recordSlackSocketWorkerInboundMetrics(input.metrics, result);
-
-    const drainOutboxMessages = input.dependencies?.drainOutboxMessages ?? drainSlackOutboxMessages;
-    const outboxDrain = await drainOutboxMessages({
-      workspaceId: input.context.workspaceId,
-      integrationId: input.integration.id,
-      lockedBy: input.lockedBy,
-      limit: input.drainOutboxLimit ?? 5,
-      baseUrl: input.baseUrl,
-    });
-    recordSlackSocketWorkerOutboxMetrics(input.metrics, outboxDrain);
+    await drainSlackSocketWorkerOutbox(input);
   } catch (error) {
     input.metrics.failedCount += 1;
     input.metrics.errors.push(normalizeSlackSocketWorkerError(input.integration.id, error));
@@ -502,6 +520,41 @@ function recordSlackSocketWorkerInboundMetrics(
     return;
   }
   metrics.failedCount += 1;
+}
+
+function recordSlackSocketWorkerInteractionMetrics(
+  metrics: SlackSocketModeWorkerMetrics,
+  result: SlackBlockActionCallbackResult,
+): void {
+  if (result.eventStatus === "processed") {
+    metrics.processedCount += 1;
+    return;
+  }
+  if (result.eventStatus === "ignored") {
+    metrics.ignoredCount += 1;
+    return;
+  }
+  metrics.failedCount += 1;
+}
+
+async function drainSlackSocketWorkerOutbox(input: {
+  context: IntegrationRuntimeContext;
+  integration: ExternalIntegrationRecord;
+  lockedBy: string;
+  baseUrl?: string;
+  drainOutboxLimit?: number;
+  dependencies?: SlackSocketModeEventProcessorDependencies;
+  metrics: SlackSocketModeWorkerMetrics;
+}): Promise<void> {
+  const drainOutboxMessages = input.dependencies?.drainOutboxMessages ?? drainSlackOutboxMessages;
+  const outboxDrain = await drainOutboxMessages({
+    workspaceId: input.context.workspaceId,
+    integrationId: input.integration.id,
+    lockedBy: input.lockedBy,
+    limit: input.drainOutboxLimit ?? 5,
+    baseUrl: input.baseUrl,
+  });
+  recordSlackSocketWorkerOutboxMetrics(input.metrics, outboxDrain);
 }
 
 function recordSlackSocketWorkerOutboxMetrics(

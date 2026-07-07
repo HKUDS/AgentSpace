@@ -33,7 +33,7 @@ Enable Interactivity in the Slack app when testing Block Kit approvals:
 https://agentspace.example.com/api/integrations/slack/interactions?workspaceId=default&integrationId=CHANGE_ME_SLACK_INTEGRATION_ID
 ```
 
-Slack Block Kit buttons currently handle AgentSpace `runtime_tool` approvals only. External data-operation approvals stay disabled until their provider-specific approved-write execution is wired through Slack callbacks.
+Slack Block Kit buttons handle AgentSpace `runtime_tool` approvals and Feishu `external_data_operation` approvals. HTTP Interactivity and Socket Mode `interactive` envelopes both reuse the same callback processor; when testing Feishu approved writes through Slack, set `AGENT_SPACE_FEISHU_API_BASE_URL` or pass `--feishu-base-url` to the Slack worker if you need a non-default Feishu OpenAPI endpoint.
 
 Send one disposable live Slack message after readiness passes:
 

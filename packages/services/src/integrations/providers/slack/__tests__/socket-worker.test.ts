@@ -189,6 +189,150 @@ test("processSlackSocketModeEnvelope acks before inbound dispatch and drains out
   assert.equal(metrics.outboxSentCount, 2);
 });
 
+test("processSlackSocketModeEnvelope routes Block Kit interactions through the callback processor", async () => {
+  const metrics = createMetrics();
+  const order: string[] = [];
+  let callbackPayload: Record<string, unknown> | undefined;
+  let drainInput: Record<string, unknown> | undefined;
+
+  await processSlackSocketModeEnvelope({
+    context: {
+      workspaceId: "workspace-1",
+      integrationId: "slack-1",
+      provider: SLACK_PROVIDER_ID,
+    },
+    integration: makeIntegration({
+      id: "slack-1",
+      appId: "A111",
+      tenantKey: "T111",
+    }),
+    envelope: {
+      envelope_id: "env-interactive-1",
+      type: "interactive",
+      accepts_response_payload: true,
+      payload: {
+        type: "block_actions",
+        api_app_id: "A111",
+        team: {
+          id: "T111",
+        },
+        user: {
+          id: "U111",
+        },
+        trigger_id: "trigger-1",
+        actions: [{
+          action_id: "agentspace_approval_approve",
+          value: JSON.stringify({
+            approvalId: "approval-1",
+            decision: "approved",
+            payloadHash: "payload-hash-1",
+          }),
+        }],
+      },
+    },
+    async ack() {
+      order.push("ack");
+    },
+    metrics,
+    lockedBy: "worker-1",
+    baseUrl: "https://slack.test/api",
+    feishuBaseUrl: "https://feishu.test",
+    drainOutboxLimit: 3,
+    dependencies: {
+      async processBlockActionCallback(input) {
+        order.push("block-action");
+        callbackPayload = input.payload;
+        assert.equal(input.context.workspaceId, "workspace-1");
+        assert.equal(input.context.integrationId, "slack-1");
+        assert.equal(input.feishuBaseUrl, "https://feishu.test");
+        return {
+          eventId: "slack-interaction-1",
+          eventStatus: "processed",
+          handled: true,
+          approvalId: "approval-1",
+          decision: "approved",
+          reviewerUserId: "user-1",
+        };
+      },
+      async processInboundEvent() {
+        throw new Error("inbound should not run for Block Kit interactions");
+      },
+      async drainOutboxMessages(input) {
+        order.push("outbox");
+        drainInput = input as Record<string, unknown>;
+        return {
+          processedCount: 1,
+          sentCount: 1,
+          failedCount: 0,
+          errors: [],
+        };
+      },
+    },
+  });
+
+  assert.deepEqual(order, ["ack", "block-action", "outbox"]);
+  assert.equal(callbackPayload?.type, "block_actions");
+  assert.deepEqual(drainInput, {
+    workspaceId: "workspace-1",
+    integrationId: "slack-1",
+    lockedBy: "worker-1",
+    limit: 3,
+    baseUrl: "https://slack.test/api",
+  });
+  assert.equal(metrics.receivedCount, 1);
+  assert.equal(metrics.ackCount, 1);
+  assert.equal(metrics.processedCount, 1);
+  assert.equal(metrics.outboxProcessedCount, 1);
+  assert.equal(metrics.outboxSentCount, 1);
+});
+
+test("processSlackSocketModeEnvelope ignores unsupported interactive payloads without inbound dispatch", async () => {
+  const metrics = createMetrics();
+  let inboundProcessed = false;
+
+  await processSlackSocketModeEnvelope({
+    context: {
+      workspaceId: "workspace-1",
+      integrationId: "slack-1",
+      provider: SLACK_PROVIDER_ID,
+    },
+    integration: makeIntegration({
+      id: "slack-1",
+      appId: "A111",
+      tenantKey: "T111",
+    }),
+    envelope: {
+      envelope_id: "env-interactive-view-1",
+      type: "interactive",
+      payload: {
+        type: "view_submission",
+        api_app_id: "A111",
+        team: {
+          id: "T111",
+        },
+      },
+    },
+    async ack() {},
+    metrics,
+    lockedBy: "worker-1",
+    dependencies: {
+      async processInboundEvent() {
+        inboundProcessed = true;
+        throw new Error("inbound should not run for unsupported interactions");
+      },
+      async processBlockActionCallback() {
+        throw new Error("block action processor should not run for view submissions");
+      },
+    },
+  });
+
+  assert.equal(inboundProcessed, false);
+  assert.equal(metrics.ackCount, 1);
+  assert.equal(metrics.ignoredCount, 1);
+  assert.equal(metrics.processedCount, 0);
+  assert.equal(metrics.failedCount, 0);
+});
+
 test("processSlackSocketModeEnvelope records app/team mismatch without inbound dispatch", async () => {
   const metrics = createMetrics();
   let inboundProcessed = false;

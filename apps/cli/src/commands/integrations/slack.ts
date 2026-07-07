@@ -383,6 +383,8 @@ export async function runSlackWorkerForCli(
     ?? "agent-space-slack-worker";
   const baseUrl = getStringFlag(flags, "base-url")
     ?? process.env.AGENT_SPACE_SLACK_API_BASE_URL?.trim();
+  const feishuBaseUrl = getStringFlag(flags, "feishu-base-url")
+    ?? process.env.AGENT_SPACE_FEISHU_API_BASE_URL?.trim();
   const dryRun = flags["dry-run"] === true;
   const includeWebhookIntegrations = flags["include-webhook"] === true;
   const drainOutboxOnly = flags["drain-outbox"] === true || flags.once === true;
@@ -404,6 +406,7 @@ export async function runSlackWorkerForCli(
     integrationId,
     lockedBy,
     baseUrl,
+    feishuBaseUrl,
     dryRun,
     drainOutboxLimit: limit,
     includeWebhookIntegrations,
@@ -615,7 +618,7 @@ function printSlackHelp(): void {
   agent-space integrations slack disable-agent-bot --workspace-id <id> (--agent <agent-id-or-name>|--integration <id>) [--json]
   agent-space integrations slack bind-channel --workspace-id <id> --integration <id> --channel <agent-space-channel> --slack-channel <C...|G...|D...> [--type channel|group|im|mpim] [--json]
   agent-space integrations slack bind-user --workspace-id <id> --integration <id> --user-id <agent-space-user-id> --slack-user <U...> [--json]
-  agent-space integrations slack worker [--workspace-id <id>] [--integration <id>] [--limit <n>] [--base-url <url>] [--locked-by <id>] [--dry-run] [--include-webhook] [--drain-outbox|--once] [--json]
+  agent-space integrations slack worker [--workspace-id <id>] [--integration <id>] [--limit <n>] [--base-url <url>] [--feishu-base-url <url>] [--locked-by <id>] [--dry-run] [--include-webhook] [--drain-outbox|--once] [--json]
   agent-space integrations slack health-check --workspace-id <id> --integration <id> [--base-url <url>] [--json]
   agent-space integrations slack readiness [--workspace-id <id>] [--integration <id>] [--strict] [--require message|worker|all] [--json]
   agent-space integrations slack smoke-plan [--workspace-id <id>] [--integration <id>] [--app-url <url>] [--strict] [--require message|worker|all] [--json]
@@ -631,6 +634,7 @@ Options:
   --signing-secret-env <name>  Env var containing Slack signing secret; defaults to SLACK_SIGNING_SECRET
   --app-level-token-env <name> Env var containing xapp app-level token for Socket Mode
   --app-url <url>              Public AgentSpace URL used to build Slack callback smoke env
+  --feishu-base-url <url>      Feishu OpenAPI base URL for Slack approval execution; defaults to AGENT_SPACE_FEISHU_API_BASE_URL
   --require message|worker|all Readiness/smoke gate to enforce; defaults to message
   --strict                     Exit non-zero unless the requested readiness gate is satisfied
   --dry-run                    Validate Socket Mode worker config without opening live connections
