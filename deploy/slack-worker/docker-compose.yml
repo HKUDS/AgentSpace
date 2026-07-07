@@ -1,0 +1,10 @@
+services:
+  slack-worker:
+    image: node:24-bookworm-slim
+    restart: unless-stopped
+    working_dir: /srv/AgentSpace
+    command: ["npm", "run", "cli", "--", "integrations", "slack", "worker"]
+    env_file:
+      - ./slack-worker.env
+    volumes:
+      - ../..:/srv/AgentSpace

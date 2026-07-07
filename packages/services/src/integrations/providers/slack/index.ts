@@ -75,6 +75,15 @@ export {
   checkSlackIntegrationHealth,
   type SlackHealthCheckResult,
 } from "./health.ts";
+export {
+  openSlackSocketModeConnection,
+  processSlackSocketModeEnvelope,
+  startSlackSocketModeWorker,
+  type SlackSocketModeEnvelope,
+  type SlackSocketModeWorkerHandle,
+  type SlackSocketModeWorkerMetrics,
+  type SlackSocketModeWorkerSummary,
+} from "./socket-worker.ts";
 
 export function registerSlackIntegrationProvider(): IntegrationProviderAdapter {
   registerIntegrationProviderAdapter(slackIntegrationProviderAdapter);

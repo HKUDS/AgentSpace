@@ -152,6 +152,7 @@ test("integrations help documents Slack message transport commands", async () =>
   assert.match(output, /integrations slack create/);
   assert.match(output, /integrations slack bind-channel/);
   assert.match(output, /integrations slack bind-user/);
+  assert.match(output, /integrations slack worker/);
   assert.match(output, /integrations slack health-check/);
   assert.match(output, /integrations slack outbox drain/);
   assert.match(output, /--bot-token-env SLACK_BOT_TOKEN/);
@@ -168,8 +169,10 @@ test("slack --help prints usage without touching external services", async () =>
   assert.match(output, /agent-space integrations slack create/);
   assert.match(output, /agent-space integrations slack bind-channel/);
   assert.match(output, /agent-space integrations slack bind-user/);
+  assert.match(output, /agent-space integrations slack worker/);
   assert.match(output, /agent-space integrations slack health-check/);
   assert.match(output, /agent-space integrations slack outbox drain/);
+  assert.match(output, /--dry-run/);
 });
 
 test("feishu worker --help prints usage without starting the worker", async () => {

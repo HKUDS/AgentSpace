@@ -15,7 +15,9 @@ import {
   SLACK_DEFAULT_SCOPES,
   SLACK_EVENT_CALLBACK_PATH,
   SLACK_PROVIDER_ID,
+  startSlackSocketModeWorker,
   summarizeSlackStoredCredentials,
+  type SlackSocketModeWorkerMetrics,
 } from "@agent-space/services";
 import { getNumberFlag, getStringFlag, parseArgs } from "../../lib/args.ts";
 import { writeData, type OutputFormat } from "../../lib/format.ts";
@@ -54,6 +56,10 @@ export async function runSlackIntegrationCommand(args: string[], format: OutputF
     const result = await runSlackHealthCheckForCli(parsed.flags);
     writeData(format, result);
     return result.health.status === "healthy" ? 0 : 1;
+  }
+  if (subcommand === "worker") {
+    const result = await runSlackWorkerForCli(parsed.flags, format);
+    return result;
   }
   if (subcommand === "outbox") {
     const [outboxSubcommand] = parsed.positionals;
@@ -227,6 +233,65 @@ async function drainSlackOutboxForCli(flags: Record<string, string | boolean>) {
   });
 }
 
+export async function runSlackWorkerForCli(
+  flags: Record<string, string | boolean>,
+  format: OutputFormat,
+): Promise<number> {
+  const workspaceId = getStringFlag(flags, "workspace-id")
+    ?? process.env.AGENT_SPACE_WORKSPACE_ID?.trim()
+    ?? "default";
+  const integrationId = getStringFlag(flags, "integration")
+    ?? getStringFlag(flags, "integration-id")
+    ?? process.env.AGENT_SPACE_SLACK_INTEGRATION_ID?.trim();
+  const limit = getNumberFlag(flags, "limit", 50);
+  const lockedBy = getStringFlag(flags, "locked-by")
+    ?? process.env.AGENT_SPACE_SLACK_WORKER_ID?.trim()
+    ?? "agent-space-slack-worker";
+  const baseUrl = getStringFlag(flags, "base-url")
+    ?? process.env.AGENT_SPACE_SLACK_API_BASE_URL?.trim();
+  const dryRun = flags["dry-run"] === true;
+  const includeWebhookIntegrations = flags["include-webhook"] === true;
+  const drainOutboxOnly = flags["drain-outbox"] === true || flags.once === true;
+
+  if (drainOutboxOnly) {
+    const result = await drainSlackOutboxMessages({
+      workspaceId,
+      integrationId,
+      limit,
+      lockedBy,
+      baseUrl,
+    });
+    writeData(format, result);
+    return result.errors.length > 0 && result.processedCount === 0 ? 1 : 0;
+  }
+
+  const worker = await startSlackSocketModeWorker({
+    workspaceId,
+    integrationId,
+    lockedBy,
+    baseUrl,
+    dryRun,
+    drainOutboxLimit: limit,
+    includeWebhookIntegrations,
+  });
+  writeData(format, worker.summary);
+  if (dryRun) {
+    return worker.summary.errors.length > 0 ? 1 : 0;
+  }
+  if (worker.summary.startedCount === 0) {
+    worker.close();
+    return worker.summary.errors.length > 0 ? 1 : 0;
+  }
+  await waitForShutdownSignal();
+  worker.close();
+  writeData(format, {
+    ...worker.summary,
+    metrics: worker.metrics,
+    connectionStatuses: worker.getConnectionStatuses(),
+  });
+  return getSlackWorkerExitCode(worker.metrics);
+}
+
 function summarizeSlackIntegrationForCli(integration: ReturnType<typeof createExternalIntegrationSync>): Record<string, unknown> {
   const credentialSummary = summarizeSlackStoredCredentials(integration);
   return {
@@ -339,11 +404,37 @@ function hasHelpFlag(flags: Record<string, string | boolean>): boolean {
   return flags.help === true || flags.h === true;
 }
 
+function getSlackWorkerExitCode(metrics: SlackSocketModeWorkerMetrics): number {
+  if (metrics.connectionErrorCount > 0 && metrics.processedCount === 0) {
+    return 1;
+  }
+  if (metrics.failedCount > 0 && metrics.processedCount === 0 && metrics.ignoredCount === 0 && metrics.duplicateCount === 0) {
+    return 1;
+  }
+  return 0;
+}
+
+async function waitForShutdownSignal(): Promise<void> {
+  await new Promise<void>((resolve) => {
+    const cleanup = () => {
+      process.off("SIGINT", onSignal);
+      process.off("SIGTERM", onSignal);
+    };
+    const onSignal = () => {
+      cleanup();
+      resolve();
+    };
+    process.once("SIGINT", onSignal);
+    process.once("SIGTERM", onSignal);
+  });
+}
+
 function printSlackHelp(): void {
   console.log(`Usage:
   agent-space integrations slack create --workspace-id <id> --app-id <A...> [--team-id <T...>] [--env-file scripts/slack/.env] [--bot-token-env SLACK_BOT_TOKEN] [--signing-secret-env SLACK_SIGNING_SECRET] [--app-level-token-env SLACK_APP_TOKEN] [--transport http_webhook|websocket_worker] [--json]
   agent-space integrations slack bind-channel --workspace-id <id> --integration <id> --channel <agent-space-channel> --slack-channel <C...|G...|D...> [--type channel|group|im|mpim] [--json]
   agent-space integrations slack bind-user --workspace-id <id> --integration <id> --user-id <agent-space-user-id> --slack-user <U...> [--json]
+  agent-space integrations slack worker [--workspace-id <id>] [--integration <id>] [--limit <n>] [--base-url <url>] [--locked-by <id>] [--dry-run] [--include-webhook] [--drain-outbox|--once] [--json]
   agent-space integrations slack health-check --workspace-id <id> --integration <id> [--base-url <url>] [--json]
   agent-space integrations slack outbox drain [--workspace-id <id>] [--integration <id>] [--limit <n>] [--base-url <url>] [--locked-by <id>] [--json]
 
@@ -354,5 +445,7 @@ Options:
   --bot-token-env <name>       Env var containing xoxb bot token; defaults to SLACK_BOT_TOKEN
   --signing-secret-env <name>  Env var containing Slack signing secret; defaults to SLACK_SIGNING_SECRET
   --app-level-token-env <name> Env var containing xapp app-level token for Socket Mode
+  --dry-run                    Validate Socket Mode worker config without opening live connections
+  --include-webhook            Include HTTP webhook integrations in worker diagnostics
   --json                       Print machine-readable output`);
 }
