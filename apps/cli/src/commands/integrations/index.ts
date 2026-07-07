@@ -1,6 +1,7 @@
 import { type OutputFormat } from "../../lib/format.ts";
 import { runFeishuIntegrationCommand } from "./feishu.ts";
 import { runIntegrationsOutboxCommand } from "./outbox.ts";
+import { runSlackIntegrationCommand } from "./slack.ts";
 
 export async function runIntegrationsCommand(
   subcommand: string | undefined,
@@ -20,6 +21,10 @@ export async function runIntegrationsCommand(
     return runFeishuIntegrationCommand(args, format);
   }
 
+  if (subcommand === "slack") {
+    return runSlackIntegrationCommand(args, format);
+  }
+
   printIntegrationsHelp();
   return 1;
 }
@@ -27,6 +32,11 @@ export async function runIntegrationsCommand(
 function printIntegrationsHelp(): void {
   console.log(`Usage:
   agent-space integrations outbox drain [--workspace-id <id>] [--integration <id>] [--limit <n>] [--base-url <url>] [--locked-by <id>] [--json]
+  agent-space integrations slack create --workspace-id <id> --app-id <A...> [--team-id <T...>] [--env-file scripts/slack/.env] [--bot-token-env SLACK_BOT_TOKEN] [--signing-secret-env SLACK_SIGNING_SECRET] [--json]
+  agent-space integrations slack bind-channel --workspace-id <id> --integration <id> --channel <name> --slack-channel <C...|G...|D...> [--json]
+  agent-space integrations slack bind-user --workspace-id <id> --integration <id> --user-id <agent-space-user-id> --slack-user <U...> [--json]
+  agent-space integrations slack health-check --workspace-id <id> --integration <id> [--base-url <url>] [--json]
+  agent-space integrations slack outbox drain [--workspace-id <id>] [--integration <id>] [--limit <n>] [--base-url <url>] [--locked-by <id>] [--json]
   agent-space integrations feishu create --workspace-id <id> [--env-file scripts/feishu/.env] --app-id-env FEISHU_APP_ID --app-secret-env FEISHU_APP_SECRET --verification-token-env FEISHU_VERIFICATION_TOKEN [--encrypt-key-env FEISHU_ENCRYPT_KEY] [--json]
   agent-space integrations feishu bind-agent-bot --workspace-id <id> --agent <agent-id-or-name> [--env-file scripts/feishu/.env] --app-id-env FEISHU_APP_ID --app-secret-env FEISHU_APP_SECRET [--json]
   agent-space integrations feishu rotate-agent-bot-secret --workspace-id <id> (--agent <agent-id-or-name>|--integration <id>) --app-secret-env FEISHU_APP_SECRET [--json]

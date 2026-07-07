@@ -40,6 +40,7 @@ import {
 } from "./integrations/feishu.ts";
 import { runIntegrationsCommand } from "./integrations/index.ts";
 import { runIntegrationsOutboxCommand } from "./integrations/outbox.ts";
+import { runSlackIntegrationCommand } from "./integrations/slack.ts";
 import { printCommandHelp } from "../lib/help.ts";
 
 const FEISHU_TEST_SCOPES = [
@@ -139,6 +140,36 @@ test("global integrations help documents both Feishu final evidence artifacts", 
     output,
     /evidence --workspace-id default --openapi-evidence runtime-output\/feishu-smoke\/live\.json --bot-added-payload-evidence runtime-output\/feishu-smoke\/bot-added-payload-evidence\.json --strict --require all --json/,
   );
+});
+
+test("integrations help documents Slack message transport commands", async () => {
+  const logs = await captureConsoleLog(async () => {
+    const exitCode = await runIntegrationsCommand("help", [], "text");
+    assert.equal(exitCode, 0);
+  });
+  const output = logs.join("\n");
+
+  assert.match(output, /integrations slack create/);
+  assert.match(output, /integrations slack bind-channel/);
+  assert.match(output, /integrations slack bind-user/);
+  assert.match(output, /integrations slack health-check/);
+  assert.match(output, /integrations slack outbox drain/);
+  assert.match(output, /--bot-token-env SLACK_BOT_TOKEN/);
+  assert.match(output, /--signing-secret-env SLACK_SIGNING_SECRET/);
+});
+
+test("slack --help prints usage without touching external services", async () => {
+  const logs = await captureConsoleLog(async () => {
+    const exitCode = await runSlackIntegrationCommand(["--help"], "text");
+    assert.equal(exitCode, 0);
+  });
+  const output = logs.join("\n");
+
+  assert.match(output, /agent-space integrations slack create/);
+  assert.match(output, /agent-space integrations slack bind-channel/);
+  assert.match(output, /agent-space integrations slack bind-user/);
+  assert.match(output, /agent-space integrations slack health-check/);
+  assert.match(output, /agent-space integrations slack outbox drain/);
 });
 
 test("feishu worker --help prints usage without starting the worker", async () => {

@@ -1,7 +1,7 @@
 # 121. Slack Message Transport + Agent Experience
 
 > 更新时间：2026-07-04
-> 状态：规划中，承接 Feishu provider 合并后扩展第二个外部 IM provider
+> 状态：实现中，分支 `codex/slack-integration` 已开始落地 MVP provider / Events API / CLI 管理入口
 > 关联：`TODO/84-integration-adapter-contract.md`、`TODO/85-agent-action-permission-policy.md`、`TODO/119-feishu-message-transport-adapter.md`、`TODO/120-feishu-agent-bot-native-experience.md`、`TODO/80-unified-permission-management.md`
 > 适用范围：Slack app / bot 接入、Events API、Socket Mode、OAuth v2、message transport adapter、外部身份/频道/线程映射、outbox 回写、Agent 调度、权限治理、审计、健康检查、smoke/evidence
 
@@ -49,6 +49,29 @@ Feishu 功能已经完整合并到 `main`，当前仓库已有：
 - `apps/cli/src/commands/integrations/feishu.ts` CLI 管理和 smoke/evidence。
 
 Slack 接入不应重新造一套并行系统，而应作为第二个 provider 验证 TODO84 的 adapter contract 是否足够通用。
+
+## 当前落地进度
+
+2026-07-07 在 `codex/slack-integration` 上已开始实现：
+
+- Slack provider descriptor / registry 导出。
+- Slack credentials 加密读写。
+- Slack Events API URL verification、request signature、callback app/team 校验。
+- `app_mention` / `message.im` 归一化。
+- 绑定 channel/user 后的基础 inbound dispatch。
+- `chat.postMessage` outbox payload、发送、rate limit retry 处理。
+- Web route：`/api/integrations/slack/events`。
+- CLI：`integrations slack create|bind-channel|bind-user|health-check|outbox drain`。
+- 单元测试覆盖签名、challenge、归一化、outbound、route 和 CLI help。
+
+尚未完成：
+
+- Settings UI。
+- Socket Mode worker。
+- OAuth hosted install。
+- Block Kit approval callbacks。
+- agent-scoped Slack bot / `agent_view` native experience。
+- Slack files / attachment data plane。
 
 ## 官方能力调研
 
