@@ -96,7 +96,7 @@ test("builds Slack Block Kit approval status cards with safe action values", () 
   assert.equal(actions[1]?.style, "danger");
   assert.deepEqual(JSON.parse(actions[0]?.value ?? "{}"), {
     provider: "slack",
-    kind: "runtime_tool_approval",
+    kind: "approval_review",
     approvalId: "approval-1",
     decision: "approved",
     payloadHash: "payload-hash-1",
@@ -104,7 +104,7 @@ test("builds Slack Block Kit approval status cards with safe action values", () 
   });
   assert.deepEqual(JSON.parse(actions[1]?.value ?? "{}"), {
     provider: "slack",
-    kind: "runtime_tool_approval",
+    kind: "approval_review",
     approvalId: "approval-1",
     decision: "rejected",
     payloadHash: "payload-hash-1",

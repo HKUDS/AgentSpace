@@ -83,6 +83,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       provider: SLACK_PROVIDER_ID,
     },
     payload: requestPayload.payload,
+    feishuBaseUrl: process.env.AGENT_SPACE_FEISHU_API_BASE_URL,
   });
 
   return NextResponse.json({

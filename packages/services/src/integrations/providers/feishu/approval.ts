@@ -58,6 +58,8 @@ import {
   summarizeFeishuStoredDataOperationRequest,
 } from "./operation-plan.ts";
 import { queueFeishuAgentStatusCardOutboxSync } from "./outbound.ts";
+import { buildSlackApprovalBlockAction } from "../slack/approval-actions.ts";
+import { queueSlackAgentStatusCardOutboxSync } from "../slack/outbound.ts";
 
 export interface FeishuDataOperationApprovalContext {
   agentId: string;
@@ -267,6 +269,14 @@ export function createFeishuDataOperationApprovalRequestSync(input: {
     sourceAgentSpaceMessageId: input.approval.sourceAgentSpaceMessageId,
     taskId: input.approval.taskId,
   });
+  queueSlackDataOperationApprovalCardBestEffort({
+    workspaceId: input.context.workspaceId,
+    channelName: input.approval.channelName,
+    agentId: input.approval.agentId,
+    approval: created,
+    sourceAgentSpaceMessageId: input.approval.sourceAgentSpaceMessageId,
+    taskId: input.approval.taskId,
+  });
   return created;
 }
 
@@ -291,6 +301,32 @@ function queueFeishuDataOperationApprovalCardBestEffort(input: {
     });
   } catch {
     // Feishu cards are external notifications; approval creation and audit remain the source of truth.
+  }
+}
+
+function queueSlackDataOperationApprovalCardBestEffort(input: {
+  workspaceId: string;
+  channelName: string;
+  agentId: string;
+  approval: ApprovalRequest;
+  sourceAgentSpaceMessageId?: string;
+  taskId?: string;
+}): void {
+  try {
+    queueSlackAgentStatusCardOutboxSync({
+      workspaceId: input.workspaceId,
+      channelName: input.channelName,
+      agentId: input.agentId,
+      status: "approval_required",
+      agentNames: [input.agentId],
+      message: input.approval.contentPreview,
+      taskId: input.taskId,
+      sourceAgentSpaceMessageId: input.sourceAgentSpaceMessageId,
+      approvalAction: buildSlackApprovalBlockAction(input.approval),
+      requireSourceMapping: true,
+    });
+  } catch {
+    // Slack cards are external notifications; approval creation and audit remain the source of truth.
   }
 }
 

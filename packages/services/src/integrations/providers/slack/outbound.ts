@@ -349,11 +349,13 @@ export function queueSlackAgentStatusCardOutboxSync(input: {
   sourceAgentSpaceMessageId?: string;
   approvalAction?: SlackApprovalBlockActionPayload;
   actionUrl?: string | null;
+  requireSourceMapping?: boolean;
 }): ExternalMessageOutboxRecord[] {
   const candidates = listSlackOutboundIntegrationCandidatesSync({
     workspaceId: input.workspaceId,
     agentId: input.agentId ?? resolveSingleAgentName(input.agentNames),
     sourceAgentSpaceMessageId: input.sourceAgentSpaceMessageId,
+    requireSourceMapping: input.requireSourceMapping,
   });
   const outboxItems: ExternalMessageOutboxRecord[] = [];
 
@@ -644,6 +646,7 @@ function listSlackOutboundIntegrationCandidatesSync(input: {
   workspaceId: string;
   agentId?: string;
   sourceAgentSpaceMessageId?: string;
+  requireSourceMapping?: boolean;
 }): SlackOutboundIntegrationCandidate[] {
   const sourceAgentSpaceMessageId = input.sourceAgentSpaceMessageId?.trim();
   if (sourceAgentSpaceMessageId) {
@@ -654,6 +657,11 @@ function listSlackOutboundIntegrationCandidatesSync(input: {
     if (sourceMapped) {
       return sourceMapped.integration.status === "active" ? [sourceMapped] : [];
     }
+    if (input.requireSourceMapping) {
+      return [];
+    }
+  } else if (input.requireSourceMapping) {
+    return [];
   }
 
   return listActiveSlackOutboundIntegrationsSync({
@@ -754,7 +762,7 @@ function buildSlackApprovalBlockActionValue(
 ): string {
   return JSON.stringify({
     provider: SLACK_PROVIDER_ID,
-    kind: "runtime_tool_approval",
+    kind: "approval_review",
     approvalId: input.approvalId,
     decision,
     payloadHash: input.payloadHash,

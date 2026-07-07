@@ -74,11 +74,14 @@ export {
 export {
   buildSlackApprovalBlockAction,
   buildSlackApprovalPayloadHash,
+} from "./approval-actions.ts";
+export {
   isSlackBlockActionsPayload,
   isSlackInteractionPayload,
   parseSlackApprovalBlockActionPayload,
   processSlackBlockActionCallback,
   type SlackApprovalBlockAction,
+  type SlackBlockActionCallbackDependencies,
   type SlackBlockActionCallbackResult,
 } from "./interactions.ts";
 export {

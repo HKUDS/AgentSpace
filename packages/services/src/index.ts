@@ -760,6 +760,7 @@ export {
   type SlackAgentBotBinding,
   type SlackAgentStatusCardStatus,
   type SlackApprovalBlockAction,
+  type SlackBlockActionCallbackDependencies,
   type SlackHealthCheckResult,
   type SlackHealthCheckItem,
   type SlackInboundProcessResult,

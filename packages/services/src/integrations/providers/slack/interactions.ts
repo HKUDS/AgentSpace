@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import {
   listApprovalsSync,
   reviewApprovalSync,
@@ -11,7 +10,9 @@ import {
   recordExternalIntegrationEventSync,
   updateExternalIntegrationEventStatusSync,
 } from "@agent-space/db";
-import type { IntegrationRuntimeContext } from "../../core/index.ts";
+import type { ExternalDataOperationResult, IntegrationRuntimeContext } from "../../core/index.ts";
+import { FEISHU_PROVIDER_ID } from "../feishu/constants.ts";
+import { reviewFeishuDataOperationApproval } from "../feishu/approval.ts";
 import { SLACK_PROVIDER_ID } from "./constants.ts";
 import {
   asRecord,
@@ -20,7 +21,20 @@ import {
   resolveSlackCallbackAppId,
   resolveSlackCallbackTeamId,
 } from "./events.ts";
-import type { SlackApprovalBlockActionPayload } from "./outbound.ts";
+import {
+  buildSlackApprovalBlockAction,
+  buildSlackApprovalPayloadHash,
+} from "./approval-actions.ts";
+import {
+  queueSlackAgentStatusCardOutboxSync,
+  type SlackApprovalBlockActionPayload,
+  type SlackAgentStatusCardStatus,
+} from "./outbound.ts";
+
+export {
+  buildSlackApprovalBlockAction,
+  buildSlackApprovalPayloadHash,
+} from "./approval-actions.ts";
 
 export interface SlackBlockActionCallbackResult {
   eventId: string;
@@ -30,10 +44,25 @@ export interface SlackBlockActionCallbackResult {
   approvalId?: string;
   decision?: "approved" | "rejected";
   reviewerUserId?: string;
+  execution?: {
+    runId: string;
+    result: ExternalDataOperationResult;
+  };
 }
 
 export interface SlackApprovalBlockAction extends SlackApprovalBlockActionPayload {
   decision: "approved" | "rejected";
+}
+
+export interface SlackBlockActionCallbackDependencies {
+  recordEvent?: typeof recordExternalIntegrationEventSync;
+  updateEventStatus?: typeof updateExternalIntegrationEventStatusSync;
+  readUserBinding?: typeof readExternalUserBindingByExternalUserSync;
+  readMembership?: typeof readWorkspaceMembershipSync;
+  listApprovals?: typeof listApprovalsSync;
+  reviewRuntimeApproval?: typeof reviewApprovalSync;
+  reviewFeishuDataOperation?: typeof reviewFeishuDataOperationApproval;
+  recordAudit?: typeof tryRecordWorkspaceAuditEventSync;
 }
 
 export function isSlackInteractionPayload(value: Record<string, unknown>): boolean {
@@ -48,35 +77,17 @@ export function isSlackBlockActionsPayload(value: Record<string, unknown>): bool
   return value.type === "block_actions" && Array.isArray(value.actions);
 }
 
-export function buildSlackApprovalBlockAction(approval: ApprovalRequest): SlackApprovalBlockActionPayload {
-  return {
-    approvalId: approval.id,
-    payloadHash: buildSlackApprovalPayloadHash(approval),
-    token: "",
-  };
-}
-
-export function buildSlackApprovalPayloadHash(approval: ApprovalRequest): string {
-  return createHash("sha256")
-    .update(JSON.stringify({
-      id: approval.id,
-      type: approval.type,
-      sourceId: approval.sourceId,
-      agentId: approval.agentId,
-      channelName: approval.channelName,
-      contentPreview: approval.contentPreview,
-      metadata: approval.metadata ?? {},
-    }), "utf8")
-    .digest("hex");
-}
-
 export async function processSlackBlockActionCallback(input: {
   context: IntegrationRuntimeContext;
   payload: Record<string, unknown>;
+  feishuBaseUrl?: string;
+  fetchImpl?: typeof fetch;
+  dependencies?: SlackBlockActionCallbackDependencies;
 }): Promise<SlackBlockActionCallbackResult> {
+  const dependencies = resolveSlackBlockActionCallbackDependencies(input.dependencies);
   const action = parseSlackApprovalBlockActionPayload(input.payload);
   const externalEventId = resolveSlackInteractionEventId(input.payload, action);
-  recordExternalIntegrationEventSync({
+  dependencies.recordEvent({
     workspaceId: input.context.workspaceId,
     integrationId: input.context.integrationId,
     provider: SLACK_PROVIDER_ID,
@@ -87,6 +98,7 @@ export async function processSlackBlockActionCallback(input: {
 
   if (!action) {
     return finishSlackBlockActionCallback({
+      dependencies,
       workspaceId: input.context.workspaceId,
       externalEventId,
       status: "ignored",
@@ -98,6 +110,7 @@ export async function processSlackBlockActionCallback(input: {
   const operatorUserId = resolveSlackInteractionUserId(input.payload);
   if (!operatorUserId) {
     return finishSlackBlockActionCallback({
+      dependencies,
       workspaceId: input.context.workspaceId,
       externalEventId,
       status: "ignored",
@@ -108,13 +121,14 @@ export async function processSlackBlockActionCallback(input: {
     });
   }
 
-  const userBinding = readExternalUserBindingByExternalUserSync({
+  const userBinding = dependencies.readUserBinding({
     workspaceId: input.context.workspaceId,
     integrationId: input.context.integrationId,
     externalUserId: operatorUserId,
   });
   if (!userBinding || userBinding.status !== "active") {
     return finishSlackBlockActionCallback({
+      dependencies,
       workspaceId: input.context.workspaceId,
       externalEventId,
       status: "ignored",
@@ -124,9 +138,10 @@ export async function processSlackBlockActionCallback(input: {
       decision: action.decision,
     });
   }
-  const membership = readWorkspaceMembershipSync(input.context.workspaceId, userBinding.userId);
+  const membership = dependencies.readMembership(input.context.workspaceId, userBinding.userId);
   if (!membership || (membership.role !== "owner" && membership.role !== "admin")) {
     return finishSlackBlockActionCallback({
+      dependencies,
       workspaceId: input.context.workspaceId,
       externalEventId,
       status: "ignored",
@@ -138,9 +153,10 @@ export async function processSlackBlockActionCallback(input: {
     });
   }
 
-  const approval = listApprovalsSync(input.context.workspaceId).find((item) => item.id === action.approvalId);
+  const approval = dependencies.listApprovals(input.context.workspaceId).find((item) => item.id === action.approvalId);
   if (!approval || approval.status !== "pending") {
     return finishSlackBlockActionCallback({
+      dependencies,
       workspaceId: input.context.workspaceId,
       externalEventId,
       status: "failed",
@@ -151,20 +167,9 @@ export async function processSlackBlockActionCallback(input: {
       reviewerUserId: userBinding.userId,
     });
   }
-  if (approval.type !== "runtime_tool") {
-    return finishSlackBlockActionCallback({
-      workspaceId: input.context.workspaceId,
-      externalEventId,
-      status: "failed",
-      reasonCode: "slack_block_action_approval_type_unsupported",
-      handled: false,
-      approvalId: approval.id,
-      decision: action.decision,
-      reviewerUserId: userBinding.userId,
-    });
-  }
   if (buildSlackApprovalPayloadHash(approval) !== action.payloadHash) {
     return finishSlackBlockActionCallback({
+      dependencies,
       workspaceId: input.context.workspaceId,
       externalEventId,
       status: "failed",
@@ -176,7 +181,7 @@ export async function processSlackBlockActionCallback(input: {
     });
   }
 
-  tryRecordWorkspaceAuditEventSync({
+  dependencies.recordAudit({
     workspaceId: input.context.workspaceId,
     title: "Slack approval callback",
     note: `Slack user binding ${userBinding.id} reviewed approval ${approval.id}.`,
@@ -190,13 +195,18 @@ export async function processSlackBlockActionCallback(input: {
   });
 
   try {
-    reviewApprovalSync(
-      approval.id,
-      action.decision,
-      `Reviewed from Slack Block Kit by ${formatSlackApprovalReviewerReference(userBinding)}.`,
-      input.context.workspaceId,
-    );
+    const reviewerComment = `Reviewed from Slack Block Kit by ${formatSlackApprovalReviewerReference(userBinding)}.`;
+    const execution = await reviewSlackApprovalFromBlockAction({
+      workspaceId: input.context.workspaceId,
+      approval,
+      decision: action.decision,
+      reviewerComment,
+      feishuBaseUrl: input.feishuBaseUrl,
+      fetchImpl: input.fetchImpl,
+      dependencies,
+    });
     return finishSlackBlockActionCallback({
+      dependencies,
       workspaceId: input.context.workspaceId,
       externalEventId,
       status: "processed",
@@ -204,19 +214,66 @@ export async function processSlackBlockActionCallback(input: {
       approvalId: approval.id,
       decision: action.decision,
       reviewerUserId: userBinding.userId,
+      execution,
     });
-  } catch {
+  } catch (error) {
     return finishSlackBlockActionCallback({
+      dependencies,
       workspaceId: input.context.workspaceId,
       externalEventId,
       status: "failed",
-      reasonCode: "slack_block_action_review_failed",
+      reasonCode: resolveSlackBlockActionReviewErrorCode(error),
       handled: false,
       approvalId: approval.id,
       decision: action.decision,
       reviewerUserId: userBinding.userId,
     });
   }
+}
+
+async function reviewSlackApprovalFromBlockAction(input: {
+  workspaceId: string;
+  approval: ApprovalRequest;
+  decision: "approved" | "rejected";
+  reviewerComment: string;
+  feishuBaseUrl?: string;
+  fetchImpl?: typeof fetch;
+  dependencies: Required<SlackBlockActionCallbackDependencies>;
+}): Promise<SlackBlockActionCallbackResult["execution"]> {
+  if (input.approval.type === "runtime_tool") {
+    input.dependencies.reviewRuntimeApproval(
+      input.approval.id,
+      input.decision,
+      input.reviewerComment,
+      input.workspaceId,
+    );
+    return undefined;
+  }
+  if (
+    input.approval.type === "external_data_operation" &&
+    readMetadataString(input.approval.metadata, "provider") === FEISHU_PROVIDER_ID
+  ) {
+    const reviewed = await input.dependencies.reviewFeishuDataOperation({
+      workspaceId: input.workspaceId,
+      approvalId: input.approval.id,
+      decision: input.decision,
+      reviewerComment: input.reviewerComment,
+      baseUrl: input.feishuBaseUrl,
+      fetchImpl: input.fetchImpl,
+    });
+    queueSlackApprovalReviewStatusCardBestEffort({
+      workspaceId: input.workspaceId,
+      approval: reviewed.approval,
+      status: resolveSlackApprovalReviewStatus(input.decision, reviewed.execution),
+      message: buildSlackExternalDataOperationReviewStatusMessage({
+        decision: input.decision,
+        approval: input.approval,
+        execution: reviewed.execution,
+      }),
+    });
+    return reviewed.execution;
+  }
+  throw new Error("slack_block_action_approval_type_unsupported");
 }
 
 export function parseSlackApprovalBlockActionPayload(
@@ -269,7 +326,7 @@ function summarizeSlackInteractionPayload(
     approvalBlockAction: action
       ? {
           provider: SLACK_PROVIDER_ID,
-          kind: "runtime_tool_approval",
+          kind: "approval_review",
           approvalId: action.approvalId,
           decision: action.decision,
           payloadHash: action.payloadHash,
@@ -280,7 +337,57 @@ function summarizeSlackInteractionPayload(
   };
 }
 
+function queueSlackApprovalReviewStatusCardBestEffort(input: {
+  workspaceId: string;
+  approval: ApprovalRequest;
+  status: SlackAgentStatusCardStatus;
+  message: string;
+}): void {
+  try {
+    queueSlackAgentStatusCardOutboxSync({
+      workspaceId: input.workspaceId,
+      channelName: input.approval.channelName,
+      agentId: input.approval.agentId,
+      status: input.status,
+      agentNames: [input.approval.agentId],
+      message: input.message,
+      taskId: readMetadataString(input.approval.metadata, "taskId"),
+      sourceAgentSpaceMessageId: readMetadataString(input.approval.metadata, "sourceAgentSpaceMessageId"),
+      requireSourceMapping: true,
+    });
+  } catch {
+    // Slack review receipts are external notifications; approval/run state remains authoritative.
+  }
+}
+
+function resolveSlackApprovalReviewStatus(
+  decision: "approved" | "rejected",
+  execution: SlackBlockActionCallbackResult["execution"],
+): SlackAgentStatusCardStatus {
+  if (decision === "rejected") {
+    return "failed";
+  }
+  return execution?.result.ok ? "complete" : "failed";
+}
+
+function buildSlackExternalDataOperationReviewStatusMessage(input: {
+  decision: "approved" | "rejected";
+  approval: ApprovalRequest;
+  execution?: SlackBlockActionCallbackResult["execution"];
+}): string {
+  const operationType = readMetadataString(input.approval.metadata, "operationType") ?? "external data operation";
+  const runId = input.execution?.runId ?? readMetadataString(input.approval.metadata, "operationRunId") ?? "unknown";
+  if (input.decision === "rejected") {
+    return `Rejected ${operationType}. No provider write was executed.`;
+  }
+  if (input.execution?.result.ok) {
+    return `Approved ${operationType} completed. Operation run ${runId}.`;
+  }
+  return `Approved ${operationType} failed. Operation run ${runId}.`;
+}
+
 function finishSlackBlockActionCallback(input: {
+  dependencies: Required<SlackBlockActionCallbackDependencies>;
   workspaceId: string;
   externalEventId: string;
   status: "processed" | "ignored" | "failed";
@@ -289,8 +396,12 @@ function finishSlackBlockActionCallback(input: {
   approvalId?: string;
   decision?: "approved" | "rejected";
   reviewerUserId?: string;
+  execution?: {
+    runId: string;
+    result: ExternalDataOperationResult;
+  };
 }): SlackBlockActionCallbackResult {
-  updateExternalIntegrationEventStatusSync({
+  input.dependencies.updateEventStatus({
     workspaceId: input.workspaceId,
     provider: SLACK_PROVIDER_ID,
     externalEventId: input.externalEventId,
@@ -305,7 +416,30 @@ function finishSlackBlockActionCallback(input: {
     approvalId: input.approvalId,
     decision: input.decision,
     reviewerUserId: input.reviewerUserId,
+    execution: input.execution,
   };
+}
+
+function resolveSlackBlockActionCallbackDependencies(
+  dependencies: SlackBlockActionCallbackDependencies | undefined,
+): Required<SlackBlockActionCallbackDependencies> {
+  return {
+    recordEvent: dependencies?.recordEvent ?? recordExternalIntegrationEventSync,
+    updateEventStatus: dependencies?.updateEventStatus ?? updateExternalIntegrationEventStatusSync,
+    readUserBinding: dependencies?.readUserBinding ?? readExternalUserBindingByExternalUserSync,
+    readMembership: dependencies?.readMembership ?? readWorkspaceMembershipSync,
+    listApprovals: dependencies?.listApprovals ?? listApprovalsSync,
+    reviewRuntimeApproval: dependencies?.reviewRuntimeApproval ?? reviewApprovalSync,
+    reviewFeishuDataOperation: dependencies?.reviewFeishuDataOperation ?? reviewFeishuDataOperationApproval,
+    recordAudit: dependencies?.recordAudit ?? tryRecordWorkspaceAuditEventSync,
+  };
+}
+
+function resolveSlackBlockActionReviewErrorCode(error: unknown): string {
+  if (error instanceof Error && error.message.startsWith("slack_block_action_")) {
+    return error.message;
+  }
+  return "slack_block_action_review_failed";
 }
 
 function resolveSlackInteractionEventId(
@@ -369,4 +503,9 @@ function parseJsonRecord(value: string): Record<string, unknown> | undefined {
   } catch {
     return undefined;
   }
+}
+
+function readMetadataString(metadata: Record<string, unknown> | undefined, key: string): string | undefined {
+  const value = metadata?.[key];
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
