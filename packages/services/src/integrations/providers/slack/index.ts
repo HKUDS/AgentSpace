@@ -71,9 +71,19 @@ export {
   type SlackTextOutboundPayload,
 } from "./outbound.ts";
 export {
+  buildSlackReadinessReport,
   buildSlackHealthSnapshotConfigJson,
+  buildSlackSmokeEnvTemplateReport,
+  buildSlackSmokePlanReport,
   checkSlackIntegrationHealth,
   type SlackHealthCheckResult,
+  type SlackHealthCheckItem,
+  type SlackReadinessIntegrationItem,
+  type SlackReadinessReport,
+  type SlackReadinessRequirement,
+  type SlackSmokeEnvTemplateReport,
+  type SlackSmokePlanReport,
+  type SlackSocketModeHealthResult,
 } from "./health.ts";
 export {
   openSlackSocketModeConnection,

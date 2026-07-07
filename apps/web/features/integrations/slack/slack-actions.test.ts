@@ -83,6 +83,7 @@ vi.mock("@agent-space/services", () => ({
   SLACK_DEFAULT_SCOPES: ["app_mentions:read", "chat:write"],
   SLACK_EVENT_CALLBACK_PATH: "/api/integrations/slack/events",
   SLACK_PROVIDER_ID: "slack",
+  SLACK_SOCKET_MODE_SCOPES: ["connections:write"],
   tryRecordWorkspaceAuditEventSync: mockTryRecordWorkspaceAuditEventSync,
 }));
 
@@ -267,6 +268,10 @@ describe("Slack actions", () => {
 
     expect(mockCheckSlackIntegrationHealth).toHaveBeenCalledWith({
       botToken: "xoxb-real",
+      appLevelToken: undefined,
+      transportMode: "http_webhook",
+      expectedAppId: "A111",
+      expectedTeamId: "T111",
     });
     expect(mockUpdateExternalIntegrationHealthSync).toHaveBeenCalledWith({
       workspaceId: "workspace-1",

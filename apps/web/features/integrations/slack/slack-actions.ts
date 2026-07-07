@@ -23,6 +23,7 @@ import {
   SLACK_DEFAULT_SCOPES,
   SLACK_EVENT_CALLBACK_PATH,
   SLACK_PROVIDER_ID,
+  SLACK_SOCKET_MODE_SCOPES,
   tryRecordWorkspaceAuditEventSync,
 } from "@agent-space/services";
 import { readPublicAppUrl } from "@/features/auth/public-app-url";
@@ -100,7 +101,10 @@ export async function createSlackIntegrationAction(
       capabilitiesJson: {
         messageTransport: true,
       },
-      scopesJson: [...SLACK_DEFAULT_SCOPES],
+      scopesJson: [
+        ...SLACK_DEFAULT_SCOPES,
+        ...(input.transportMode === "websocket_worker" || appLevelToken ? SLACK_SOCKET_MODE_SCOPES : []),
+      ],
       createdByUserId: workspaceContext.currentUser.id,
     });
   } catch (error) {
@@ -271,6 +275,10 @@ export async function checkSlackIntegrationHealthAction(
   }
   const health = await checkSlackIntegrationHealth({
     botToken: credentials.botToken,
+    appLevelToken: credentials.appLevelToken,
+    transportMode: integration.transportMode,
+    expectedAppId: integration.appId,
+    expectedTeamId: integration.tenantKey,
   });
   updateExternalIntegrationHealthSync({
     workspaceId: workspaceContext.currentWorkspace.id,

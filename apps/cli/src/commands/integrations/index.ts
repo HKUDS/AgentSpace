@@ -32,11 +32,14 @@ export async function runIntegrationsCommand(
 function printIntegrationsHelp(): void {
   console.log(`Usage:
   agent-space integrations outbox drain [--workspace-id <id>] [--integration <id>] [--limit <n>] [--base-url <url>] [--locked-by <id>] [--json]
-  agent-space integrations slack create --workspace-id <id> --app-id <A...> [--team-id <T...>] [--env-file scripts/slack/.env] [--bot-token-env SLACK_BOT_TOKEN] [--signing-secret-env SLACK_SIGNING_SECRET] [--json]
+  agent-space integrations slack create --workspace-id <id> --app-id <A...> [--team-id <T...>] [--env-file scripts/slack/.env] [--bot-token-env SLACK_BOT_TOKEN] [--signing-secret-env SLACK_SIGNING_SECRET] [--app-level-token-env SLACK_APP_TOKEN] [--transport http_webhook|websocket_worker] [--json]
   agent-space integrations slack bind-channel --workspace-id <id> --integration <id> --channel <name> --slack-channel <C...|G...|D...> [--json]
   agent-space integrations slack bind-user --workspace-id <id> --integration <id> --user-id <agent-space-user-id> --slack-user <U...> [--json]
   agent-space integrations slack worker [--workspace-id <id>] [--integration <id>] [--limit <n>] [--base-url <url>] [--locked-by <id>] [--dry-run] [--include-webhook] [--drain-outbox|--once] [--json]
   agent-space integrations slack health-check --workspace-id <id> --integration <id> [--base-url <url>] [--json]
+  agent-space integrations slack readiness [--workspace-id <id>] [--integration <id>] [--strict] [--require message|worker|all] [--json]
+  agent-space integrations slack smoke-plan [--workspace-id <id>] [--integration <id>] [--app-url <url>] [--strict] [--require message|worker|all] [--json]
+  agent-space integrations slack smoke-env [--workspace-id <id>] [--integration <id>] [--app-url <url>] [--json]
   agent-space integrations slack outbox drain [--workspace-id <id>] [--integration <id>] [--limit <n>] [--base-url <url>] [--locked-by <id>] [--json]
   agent-space integrations feishu create --workspace-id <id> [--env-file scripts/feishu/.env] --app-id-env FEISHU_APP_ID --app-secret-env FEISHU_APP_SECRET --verification-token-env FEISHU_VERIFICATION_TOKEN [--encrypt-key-env FEISHU_ENCRYPT_KEY] [--json]
   agent-space integrations feishu bind-agent-bot --workspace-id <id> --agent <agent-id-or-name> [--env-file scripts/feishu/.env] --app-id-env FEISHU_APP_ID --app-secret-env FEISHU_APP_SECRET [--json]

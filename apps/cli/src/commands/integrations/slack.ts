@@ -9,14 +9,19 @@ import {
 import {
   buildEncryptedSlackCredentials,
   buildSlackHealthSnapshotConfigJson,
+  buildSlackReadinessReport,
+  buildSlackSmokeEnvTemplateReport,
+  buildSlackSmokePlanReport,
   checkSlackIntegrationHealth,
   drainSlackOutboxMessages,
   readSlackIntegrationCredentials,
   SLACK_DEFAULT_SCOPES,
   SLACK_EVENT_CALLBACK_PATH,
   SLACK_PROVIDER_ID,
+  SLACK_SOCKET_MODE_SCOPES,
   startSlackSocketModeWorker,
   summarizeSlackStoredCredentials,
+  type SlackReadinessRequirement,
   type SlackSocketModeWorkerMetrics,
 } from "@agent-space/services";
 import { getNumberFlag, getStringFlag, parseArgs } from "../../lib/args.ts";
@@ -57,6 +62,46 @@ export async function runSlackIntegrationCommand(args: string[], format: OutputF
     writeData(format, result);
     return result.health.status === "healthy" ? 0 : 1;
   }
+  if (subcommand === "readiness") {
+    const result = buildSlackReadinessReport({
+      workspaceId: getStringFlag(parsed.flags, "workspace-id") ?? "default",
+      integrationId: getStringFlag(parsed.flags, "integration") ?? getStringFlag(parsed.flags, "integration-id"),
+      strict: parsed.flags.strict === true,
+      required: readSlackReadinessRequirement(parsed.flags),
+    });
+    writeData(format, result);
+    return result.strict && !result.strictSatisfied ? 1 : 0;
+  }
+  if (subcommand === "smoke-plan") {
+    const result = buildSlackSmokePlanReport({
+      workspaceId: getStringFlag(parsed.flags, "workspace-id") ?? "default",
+      integrationId: getStringFlag(parsed.flags, "integration") ?? getStringFlag(parsed.flags, "integration-id"),
+      appUrl: getStringFlag(parsed.flags, "app-url") ?? process.env.AGENT_SPACE_APP_URL ?? process.env.NEXT_PUBLIC_AGENT_SPACE_APP_URL ?? process.env.NEXT_PUBLIC_APP_URL,
+      strict: parsed.flags.strict === true,
+      required: readSlackReadinessRequirement(parsed.flags),
+    });
+    writeData(format, result);
+    return result.strict && !result.readiness.strictSatisfied ? 1 : 0;
+  }
+  if (subcommand === "smoke-env") {
+    const result = buildSlackSmokeEnvTemplateReport({
+      workspaceId: getStringFlag(parsed.flags, "workspace-id") ?? "default",
+      integrationId: getStringFlag(parsed.flags, "integration") ?? getStringFlag(parsed.flags, "integration-id"),
+      appUrl: getStringFlag(parsed.flags, "app-url") ?? process.env.AGENT_SPACE_APP_URL ?? process.env.NEXT_PUBLIC_AGENT_SPACE_APP_URL ?? process.env.NEXT_PUBLIC_APP_URL,
+    });
+    if (format === "json") {
+      writeData(format, result);
+    } else if (result.ready) {
+      console.log(result.template);
+    } else {
+      writeData(format, {
+        ok: false,
+        missing: result.missing.join(","),
+        nextCommands: result.nextCommands.join(" ; "),
+      });
+    }
+    return result.ready ? 0 : 1;
+  }
   if (subcommand === "worker") {
     const result = await runSlackWorkerForCli(parsed.flags, format);
     return result;
@@ -86,12 +131,19 @@ export function createSlackIntegrationForCli(flags: Record<string, string | bool
   const clientSecretEnv = getStringFlag(flags, "client-secret-env");
   const botToken = readRequiredEnv(env, botTokenEnv, "slack.create.missing_bot_token");
   const signingSecret = readRequiredEnv(env, signingSecretEnv, "slack.create.missing_signing_secret");
+  const appLevelToken = appLevelTokenEnv ? readOptionalEnv(env, appLevelTokenEnv) : undefined;
+  const clientId = clientIdEnv ? readOptionalEnv(env, clientIdEnv) : undefined;
+  const clientSecret = clientSecretEnv ? readOptionalEnv(env, clientSecretEnv) : undefined;
   const appId = requireText(getStringFlag(flags, "app-id"), "slack.create.missing_app_id");
   const teamId = getStringFlag(flags, "team-id") ?? getStringFlag(flags, "tenant-key");
   const transportMode = normalizeTransportMode(getStringFlag(flags, "transport") ?? "http_webhook");
+  if (transportMode === "websocket_worker" && !appLevelToken) {
+    throw new Error("slack.create.missing_app_level_token");
+  }
 
   assertNoPlaceholder(botToken, botTokenEnv);
   assertNoPlaceholder(signingSecret, signingSecretEnv);
+  assertNoPlaceholder(appLevelToken, appLevelTokenEnv ?? "app-level-token");
   assertNoPlaceholder(appId, "app-id");
   assertNoPlaceholder(teamId, "team-id");
 
@@ -105,9 +157,9 @@ export function createSlackIntegrationForCli(flags: Record<string, string | bool
     encryptedCredentialsJson: buildEncryptedSlackCredentials({
       botToken,
       signingSecret,
-      appLevelToken: appLevelTokenEnv ? readOptionalEnv(env, appLevelTokenEnv) : undefined,
-      clientId: clientIdEnv ? readOptionalEnv(env, clientIdEnv) : undefined,
-      clientSecret: clientSecretEnv ? readOptionalEnv(env, clientSecretEnv) : undefined,
+      appLevelToken,
+      clientId,
+      clientSecret,
     }),
     configJson: {
       eventCallbackPath: SLACK_EVENT_CALLBACK_PATH,
@@ -115,10 +167,13 @@ export function createSlackIntegrationForCli(flags: Record<string, string | bool
         messageTransport: true,
       },
     },
-    capabilitiesJson: {
-      messageTransport: true,
-    },
-    scopesJson: [...SLACK_DEFAULT_SCOPES],
+      capabilitiesJson: {
+        messageTransport: true,
+      },
+    scopesJson: [
+      ...SLACK_DEFAULT_SCOPES,
+      ...(transportMode === "websocket_worker" || appLevelToken ? SLACK_SOCKET_MODE_SCOPES : []),
+    ],
     createdByUserId: getStringFlag(flags, "created-by-user-id"),
   });
 
@@ -204,6 +259,10 @@ export async function runSlackHealthCheckForCli(flags: Record<string, string | b
   const credentials = readSlackIntegrationCredentials(integration);
   const health = await checkSlackIntegrationHealth({
     botToken: credentials.botToken,
+    appLevelToken: credentials.appLevelToken,
+    transportMode: integration.transportMode,
+    expectedAppId: integration.appId,
+    expectedTeamId: integration.tenantKey,
     baseUrl: getStringFlag(flags, "base-url"),
   });
   const updated = updateExternalIntegrationHealthSync({
@@ -414,6 +473,14 @@ function getSlackWorkerExitCode(metrics: SlackSocketModeWorkerMetrics): number {
   return 0;
 }
 
+function readSlackReadinessRequirement(flags: Record<string, string | boolean>): SlackReadinessRequirement {
+  const value = getStringFlag(flags, "require") ?? "message";
+  if (value === "message" || value === "worker" || value === "all") {
+    return value;
+  }
+  throw new Error("slack.readiness.invalid_requirement");
+}
+
 async function waitForShutdownSignal(): Promise<void> {
   await new Promise<void>((resolve) => {
     const cleanup = () => {
@@ -436,6 +503,9 @@ function printSlackHelp(): void {
   agent-space integrations slack bind-user --workspace-id <id> --integration <id> --user-id <agent-space-user-id> --slack-user <U...> [--json]
   agent-space integrations slack worker [--workspace-id <id>] [--integration <id>] [--limit <n>] [--base-url <url>] [--locked-by <id>] [--dry-run] [--include-webhook] [--drain-outbox|--once] [--json]
   agent-space integrations slack health-check --workspace-id <id> --integration <id> [--base-url <url>] [--json]
+  agent-space integrations slack readiness [--workspace-id <id>] [--integration <id>] [--strict] [--require message|worker|all] [--json]
+  agent-space integrations slack smoke-plan [--workspace-id <id>] [--integration <id>] [--app-url <url>] [--strict] [--require message|worker|all] [--json]
+  agent-space integrations slack smoke-env [--workspace-id <id>] [--integration <id>] [--app-url <url>] [--json]
   agent-space integrations slack outbox drain [--workspace-id <id>] [--integration <id>] [--limit <n>] [--base-url <url>] [--locked-by <id>] [--json]
 
 Options:
@@ -445,6 +515,9 @@ Options:
   --bot-token-env <name>       Env var containing xoxb bot token; defaults to SLACK_BOT_TOKEN
   --signing-secret-env <name>  Env var containing Slack signing secret; defaults to SLACK_SIGNING_SECRET
   --app-level-token-env <name> Env var containing xapp app-level token for Socket Mode
+  --app-url <url>              Public AgentSpace URL used to build Slack callback smoke env
+  --require message|worker|all Readiness/smoke gate to enforce; defaults to message
+  --strict                     Exit non-zero unless the requested readiness gate is satisfied
   --dry-run                    Validate Socket Mode worker config without opening live connections
   --include-webhook            Include HTTP webhook integrations in worker diagnostics
   --json                       Print machine-readable output`);
