@@ -13,6 +13,8 @@ import {
   buildSlackSmokeEnvTemplateReport,
   buildSlackSmokePlanReport,
   checkSlackIntegrationHealth,
+  createSlackAgentBotBindingSync,
+  disableSlackAgentBotBindingSync,
   drainSlackOutboxMessages,
   readSlackIntegrationCredentials,
   SLACK_DEFAULT_SCOPES,
@@ -21,6 +23,7 @@ import {
   SLACK_SOCKET_MODE_SCOPES,
   startSlackSocketModeWorker,
   summarizeSlackStoredCredentials,
+  type SlackAgentBotBinding,
   type SlackReadinessRequirement,
   type SlackSocketModeWorkerMetrics,
 } from "@agent-space/services";
@@ -54,6 +57,16 @@ export async function runSlackIntegrationCommand(args: string[], format: OutputF
   }
   if (subcommand === "bind-user") {
     const result = createSlackUserBindingForCli(parsed.flags);
+    writeData(format, result);
+    return 0;
+  }
+  if (subcommand === "bind-agent-bot") {
+    const result = createSlackAgentBotBindingForCli(parsed.flags);
+    writeData(format, result);
+    return 0;
+  }
+  if (subcommand === "disable-agent-bot") {
+    const result = disableSlackAgentBotForCli(parsed.flags);
     writeData(format, result);
     return 0;
   }
@@ -247,6 +260,66 @@ export function createSlackUserBindingForCli(flags: Record<string, string | bool
   };
 }
 
+export function createSlackAgentBotBindingForCli(
+  flags: Record<string, string | boolean>,
+  deps: {
+    createBinding?: typeof createSlackAgentBotBindingSync;
+  } = {},
+): Record<string, unknown> {
+  const createBinding = deps.createBinding ?? createSlackAgentBotBindingSync;
+  const workspaceId = getStringFlag(flags, "workspace-id") ?? "default";
+  const env = readSlackCliEnv(getStringFlag(flags, "env-file"));
+  const botTokenEnv = getStringFlag(flags, "bot-token-env") ?? "SLACK_BOT_TOKEN";
+  const signingSecretEnv = getStringFlag(flags, "signing-secret-env") ?? "SLACK_SIGNING_SECRET";
+  const appLevelTokenEnv = getStringFlag(flags, "app-level-token-env") ?? "SLACK_APP_TOKEN";
+  const clientIdEnv = getStringFlag(flags, "client-id-env");
+  const clientSecretEnv = getStringFlag(flags, "client-secret-env");
+  const transportMode = normalizeTransportMode(getStringFlag(flags, "transport") ?? "websocket_worker");
+  const appLevelToken = readOptionalEnv(env, appLevelTokenEnv);
+  const binding = createBinding({
+    workspaceId,
+    agentId: requireText(
+      getStringFlag(flags, "agent") ?? getStringFlag(flags, "agent-id") ?? getStringFlag(flags, "agent-name"),
+      "slack.agent_bot_binding.missing_agent_id",
+    ),
+    displayName: getStringFlag(flags, "name"),
+    transportMode,
+    appId: readFlagOrEnv({
+      flags,
+      env,
+      flagName: "app-id",
+      envFlagName: "app-id-env",
+      defaultEnvName: "SLACK_APP_ID",
+      errorCode: "slack.agent_bot_binding.missing_app_id",
+    }),
+    teamId: getStringFlag(flags, "team-id") ?? getStringFlag(flags, "tenant-key"),
+    botToken: readRequiredEnv(env, botTokenEnv, "slack.agent_bot_binding.missing_bot_token"),
+    signingSecret: readRequiredEnv(env, signingSecretEnv, "slack.agent_bot_binding.missing_signing_secret"),
+    appLevelToken,
+    clientId: clientIdEnv ? readOptionalEnv(env, clientIdEnv) : undefined,
+    clientSecret: clientSecretEnv ? readOptionalEnv(env, clientSecretEnv) : undefined,
+    createdByUserId: getStringFlag(flags, "created-by-user-id"),
+  });
+  return summarizeSlackAgentBotBindingForCli("created", binding);
+}
+
+export function disableSlackAgentBotForCli(
+  flags: Record<string, string | boolean>,
+  deps: {
+    disableBinding?: typeof disableSlackAgentBotBindingSync;
+  } = {},
+): Record<string, unknown> {
+  const disableBinding = deps.disableBinding ?? disableSlackAgentBotBindingSync;
+  const workspaceId = getStringFlag(flags, "workspace-id") ?? "default";
+  const binding = disableBinding({
+    workspaceId,
+    integrationId: getStringFlag(flags, "integration") ?? getStringFlag(flags, "integration-id"),
+    agentId: getStringFlag(flags, "agent") ?? getStringFlag(flags, "agent-id") ?? getStringFlag(flags, "agent-name"),
+    updatedByUserId: getStringFlag(flags, "updated-by-user-id") ?? getStringFlag(flags, "created-by-user-id"),
+  });
+  return summarizeSlackAgentBotBindingForCli("disabled", binding);
+}
+
 export async function runSlackHealthCheckForCli(flags: Record<string, string | boolean>): Promise<Record<string, unknown> & {
   health: Awaited<ReturnType<typeof checkSlackIntegrationHealth>>;
 }> {
@@ -360,10 +433,29 @@ function summarizeSlackIntegrationForCli(integration: ReturnType<typeof createEx
     provider: integration.provider,
     displayName: integration.displayName,
     transportMode: integration.transportMode,
+    agentId: integration.agentId,
     appId: integration.appId,
     teamId: integration.tenantKey,
     eventCallbackPath: SLACK_EVENT_CALLBACK_PATH,
     credentialSummary,
+  };
+}
+
+function summarizeSlackAgentBotBindingForCli(action: "created" | "disabled", integration: SlackAgentBotBinding): Record<string, unknown> {
+  const flags = `--workspace-id ${integration.workspaceId} --integration ${integration.id}`;
+  return {
+    ...summarizeSlackIntegrationForCli(integration),
+    action,
+    agentId: integration.agentId,
+    agentBotBinding: true,
+    secretRedacted: true,
+    nextCommands: {
+      healthCheck: `agent-space integrations slack health-check ${flags} --json`,
+      workerDryRun: `agent-space integrations slack worker --workspace-id ${integration.workspaceId} --integration ${integration.id} --dry-run --json`,
+      bindChannel: `agent-space integrations slack bind-channel ${flags} --channel CHANGE_ME_AGENTSPACE_CHANNEL --slack-channel CHANGE_ME_SLACK_CHANNEL_ID --json`,
+      bindUser: `agent-space integrations slack bind-user ${flags} --user-id CHANGE_ME_AGENTSPACE_USER_ID --slack-user CHANGE_ME_SLACK_USER_ID --json`,
+      smokePlan: `agent-space integrations slack smoke-plan ${flags} --app-url https://agentspace.example.com`,
+    },
   };
 }
 
@@ -407,6 +499,23 @@ function readRequiredEnv(env: EnvMap, name: string, errorCode: string): string {
   }
   assertNoPlaceholder(value, name);
   return value;
+}
+
+function readFlagOrEnv(input: {
+  flags: Record<string, string | boolean>;
+  env: EnvMap;
+  flagName: string;
+  envFlagName: string;
+  defaultEnvName: string;
+  errorCode: string;
+}): string {
+  const flaggedValue = getStringFlag(input.flags, input.flagName)?.trim();
+  if (flaggedValue) {
+    assertNoPlaceholder(flaggedValue, input.flagName);
+    return flaggedValue;
+  }
+  const envName = getStringFlag(input.flags, input.envFlagName) ?? input.defaultEnvName;
+  return readRequiredEnv(input.env, envName, input.errorCode);
 }
 
 function readOptionalEnv(env: EnvMap, name: string): string | undefined {
@@ -499,6 +608,8 @@ async function waitForShutdownSignal(): Promise<void> {
 function printSlackHelp(): void {
   console.log(`Usage:
   agent-space integrations slack create --workspace-id <id> --app-id <A...> [--team-id <T...>] [--env-file scripts/slack/.env] [--bot-token-env SLACK_BOT_TOKEN] [--signing-secret-env SLACK_SIGNING_SECRET] [--app-level-token-env SLACK_APP_TOKEN] [--transport http_webhook|websocket_worker] [--json]
+  agent-space integrations slack bind-agent-bot --workspace-id <id> --agent <agent-id-or-name> [--app-id <A...>|--app-id-env SLACK_APP_ID] [--team-id <T...>] [--env-file scripts/slack/.env] [--bot-token-env SLACK_BOT_TOKEN] [--signing-secret-env SLACK_SIGNING_SECRET] [--app-level-token-env SLACK_APP_TOKEN] [--transport websocket_worker|http_webhook] [--json]
+  agent-space integrations slack disable-agent-bot --workspace-id <id> (--agent <agent-id-or-name>|--integration <id>) [--json]
   agent-space integrations slack bind-channel --workspace-id <id> --integration <id> --channel <agent-space-channel> --slack-channel <C...|G...|D...> [--type channel|group|im|mpim] [--json]
   agent-space integrations slack bind-user --workspace-id <id> --integration <id> --user-id <agent-space-user-id> --slack-user <U...> [--json]
   agent-space integrations slack worker [--workspace-id <id>] [--integration <id>] [--limit <n>] [--base-url <url>] [--locked-by <id>] [--dry-run] [--include-webhook] [--drain-outbox|--once] [--json]
@@ -512,6 +623,7 @@ Options:
   --workspace-id <id>          AgentSpace workspace id; defaults to default
   --app-id <A...>              Slack app id
   --team-id <T...>             Slack team id stored as tenant key
+  --agent <agent-id-or-name>   AgentSpace agent id/name for an agent-scoped Slack bot
   --bot-token-env <name>       Env var containing xoxb bot token; defaults to SLACK_BOT_TOKEN
   --signing-secret-env <name>  Env var containing Slack signing secret; defaults to SLACK_SIGNING_SECRET
   --app-level-token-env <name> Env var containing xapp app-level token for Socket Mode

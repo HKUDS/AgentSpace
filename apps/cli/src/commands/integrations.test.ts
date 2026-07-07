@@ -40,7 +40,11 @@ import {
 } from "./integrations/feishu.ts";
 import { runIntegrationsCommand } from "./integrations/index.ts";
 import { runIntegrationsOutboxCommand } from "./integrations/outbox.ts";
-import { runSlackIntegrationCommand } from "./integrations/slack.ts";
+import {
+  createSlackAgentBotBindingForCli,
+  disableSlackAgentBotForCli,
+  runSlackIntegrationCommand,
+} from "./integrations/slack.ts";
 import { printCommandHelp } from "../lib/help.ts";
 
 const FEISHU_TEST_SCOPES = [
@@ -150,6 +154,8 @@ test("integrations help documents Slack message transport commands", async () =>
   const output = logs.join("\n");
 
   assert.match(output, /integrations slack create/);
+  assert.match(output, /integrations slack bind-agent-bot/);
+  assert.match(output, /integrations slack disable-agent-bot/);
   assert.match(output, /integrations slack bind-channel/);
   assert.match(output, /integrations slack bind-user/);
   assert.match(output, /integrations slack worker/);
@@ -171,6 +177,8 @@ test("slack --help prints usage without touching external services", async () =>
   const output = logs.join("\n");
 
   assert.match(output, /agent-space integrations slack create/);
+  assert.match(output, /agent-space integrations slack bind-agent-bot/);
+  assert.match(output, /agent-space integrations slack disable-agent-bot/);
   assert.match(output, /agent-space integrations slack bind-channel/);
   assert.match(output, /agent-space integrations slack bind-user/);
   assert.match(output, /agent-space integrations slack worker/);
@@ -181,6 +189,109 @@ test("slack --help prints usage without touching external services", async () =>
   assert.match(output, /agent-space integrations slack outbox drain/);
   assert.match(output, /--dry-run/);
   assert.match(output, /--strict/);
+});
+
+test("Slack agent bot CLI defaults to Socket Mode and redacts credentials", () => {
+  const envDir = mkdtempSync(join(tmpdir(), "agent-space-slack-agent-bot-cli-"));
+  const envFile = join(envDir, ".env");
+  writeFileSync(envFile, [
+    "SLACK_BOT_TOKEN=xoxb-agent-bot-secret",
+    "SLACK_SIGNING_SECRET=signing-agent-bot-secret",
+    "SLACK_APP_TOKEN=xapp-agent-bot-secret",
+  ].join("\n"));
+  const createInputs: unknown[] = [];
+
+  const report = createSlackAgentBotBindingForCli({
+    "workspace-id": "workspace-1",
+    agent: "Codex",
+    "app-id": "A-agent",
+    "team-id": "T-agent",
+    "env-file": envFile,
+  }, {
+    createBinding: (input) => {
+      createInputs.push(input);
+      return buildIntegrationRecord({
+        id: "slack-agent-bot-codex",
+        provider: "slack",
+        displayName: "Codex Slack Bot",
+        transportMode: input.transportMode,
+        agentId: input.agentId,
+        appId: input.appId,
+        tenantKey: input.teamId,
+        encryptedCredentialsJson: JSON.stringify({
+          botToken: "encrypted-bot-token",
+          signingSecret: "encrypted-signing-secret",
+          appLevelToken: "encrypted-app-token",
+        }),
+        scopesJson: JSON.stringify(["app_mentions:read", "chat:write", "connections:write"]),
+      }) as never;
+    },
+  });
+
+  assert.deepEqual(createInputs, [{
+    workspaceId: "workspace-1",
+    agentId: "Codex",
+    displayName: undefined,
+    transportMode: "websocket_worker",
+    appId: "A-agent",
+    teamId: "T-agent",
+    botToken: "xoxb-agent-bot-secret",
+    signingSecret: "signing-agent-bot-secret",
+    appLevelToken: "xapp-agent-bot-secret",
+    clientId: undefined,
+    clientSecret: undefined,
+    createdByUserId: undefined,
+  }]);
+  assert.equal(report.ok, true);
+  assert.equal(report.action, "created");
+  assert.equal(report.agentBotBinding, true);
+  assert.equal(report.agentId, "Codex");
+  assert.equal(report.transportMode, "websocket_worker");
+  assert.equal(report.secretRedacted, true);
+  assert.match(String((report.nextCommands as Record<string, string>).workerDryRun), /worker --workspace-id workspace-1 --integration slack-agent-bot-codex --dry-run --json/);
+  assert.doesNotMatch(JSON.stringify(report), /xoxb-agent-bot-secret|signing-agent-bot-secret|xapp-agent-bot-secret/);
+
+  rmSync(envDir, { recursive: true, force: true });
+});
+
+test("Slack agent bot CLI can disable by agent without exposing external ids", () => {
+  const disableInputs: unknown[] = [];
+  const report = disableSlackAgentBotForCli({
+    "workspace-id": "workspace-1",
+    agent: "Codex",
+    "updated-by-user-id": "admin-1",
+  }, {
+    disableBinding: (input) => {
+      disableInputs.push(input);
+      return buildIntegrationRecord({
+        id: "slack-agent-bot-codex",
+        provider: "slack",
+        displayName: "Codex Slack Bot",
+        status: "disabled",
+        transportMode: "websocket_worker",
+        agentId: "Codex",
+        appId: "A-agent",
+        tenantKey: "T-agent",
+        encryptedCredentialsJson: JSON.stringify({
+          botToken: "encrypted-bot-token",
+          signingSecret: "encrypted-signing-secret",
+          appLevelToken: "encrypted-app-token",
+        }),
+      }) as never;
+    },
+  });
+
+  assert.deepEqual(disableInputs, [{
+    workspaceId: "workspace-1",
+    integrationId: undefined,
+    agentId: "Codex",
+    updatedByUserId: "admin-1",
+  }]);
+  assert.equal(report.action, "disabled");
+  assert.equal(report.agentId, "Codex");
+  assert.equal(report.agentBotBinding, true);
+  assert.equal(report.secretRedacted, true);
+  assert.doesNotMatch(JSON.stringify(report), /xoxb-agent-bot-secret|xapp-agent-bot-secret|signing-agent-bot-secret/);
 });
 
 test("feishu worker --help prints usage without starting the worker", async () => {

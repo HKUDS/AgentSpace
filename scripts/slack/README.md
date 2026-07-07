@@ -21,6 +21,12 @@ npm run cli -- integrations slack health-check --workspace-id default --integrat
 npm run cli -- integrations slack readiness --workspace-id default --integration CHANGE_ME_SLACK_INTEGRATION_ID --strict --json
 ```
 
+Bind a Slack app to one AgentSpace agent when testing agent-scoped routing:
+
+```bash
+npm run cli -- integrations slack bind-agent-bot --workspace-id default --agent CHANGE_ME_AGENTSPACE_AGENT_NAME --app-id CHANGE_ME_SLACK_APP_ID --team-id CHANGE_ME_SLACK_TEAM_ID --env-file scripts/slack/.env --bot-token-env SLACK_BOT_TOKEN --signing-secret-env SLACK_SIGNING_SECRET --app-level-token-env SLACK_APP_TOKEN --json
+```
+
 Send one disposable live Slack message after readiness passes:
 
 ```bash

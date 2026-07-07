@@ -50,6 +50,7 @@ export function SlackIntegrationSettingsPanel({
   const totalChannelBindings = integrations.reduce((sum, integration) => sum + integration.channelBindingCount, 0);
   const totalUserBindings = integrations.reduce((sum, integration) => sum + integration.userBindingCount, 0);
   const totalOutboxFailures = integrations.reduce((sum, integration) => sum + integration.outboxFailureCount, 0);
+  const totalAgentBots = integrations.filter((integration) => integration.status !== "disabled" && Boolean(integration.agentId)).length;
 
   useEffect(() => {
     setIntegrations(slackIntegrations);
@@ -93,6 +94,10 @@ export function SlackIntegrationSettingsPanel({
             <section className="feishu-mini-panel">
               <strong>{tx("Slack 集成", "Slack Integrations")}</strong>
               <span>{integrations.filter((integration) => integration.status !== "disabled").length}</span>
+            </section>
+            <section className="feishu-mini-panel">
+              <strong>{tx("Agent Bots", "Agent Bots")}</strong>
+              <span>{totalAgentBots}</span>
             </section>
             <section className="feishu-mini-panel">
               <strong>{tx("出站失败", "Outbound Failures")}</strong>
@@ -400,6 +405,7 @@ function SlackHealthPanel({
 
             <div className="feishu-integration-card__meta">
               <span>{tx("连接方式", "Transport")}: {translateTransportMode(integration.transportMode, tx)}</span>
+              {integration.agentId ? <span>{tx("Agent", "Agent")}: {integration.agentId}</span> : null}
               <span>{tx("频道绑定", "Channels")}: {integration.channelBindingCount}</span>
               <span>{tx("用户绑定", "Users")}: {integration.userBindingCount}</span>
               <span>{tx("Team", "Team")}: {integration.teamId ?? tx("未锁定", "Not locked")}</span>
@@ -1120,6 +1126,8 @@ function translateCommandKey(key: string, tx: SettingsTx): string {
   switch (key) {
     case "create":
       return tx("创建", "Create");
+    case "bindAgentBot":
+      return tx("绑定 Agent Bot", "Bind Agent Bot");
     case "healthCheck":
       return tx("健康检查", "Health Check");
     case "bindChannel":

@@ -33,6 +33,8 @@ function printIntegrationsHelp(): void {
   console.log(`Usage:
   agent-space integrations outbox drain [--workspace-id <id>] [--integration <id>] [--limit <n>] [--base-url <url>] [--locked-by <id>] [--json]
   agent-space integrations slack create --workspace-id <id> --app-id <A...> [--team-id <T...>] [--env-file scripts/slack/.env] [--bot-token-env SLACK_BOT_TOKEN] [--signing-secret-env SLACK_SIGNING_SECRET] [--app-level-token-env SLACK_APP_TOKEN] [--transport http_webhook|websocket_worker] [--json]
+  agent-space integrations slack bind-agent-bot --workspace-id <id> --agent <agent-id-or-name> [--app-id <A...>|--app-id-env SLACK_APP_ID] [--env-file scripts/slack/.env] [--bot-token-env SLACK_BOT_TOKEN] [--signing-secret-env SLACK_SIGNING_SECRET] [--app-level-token-env SLACK_APP_TOKEN] [--json]
+  agent-space integrations slack disable-agent-bot --workspace-id <id> (--agent <agent-id-or-name>|--integration <id>) [--json]
   agent-space integrations slack bind-channel --workspace-id <id> --integration <id> --channel <name> --slack-channel <C...|G...|D...> [--json]
   agent-space integrations slack bind-user --workspace-id <id> --integration <id> --user-id <agent-space-user-id> --slack-user <U...> [--json]
   agent-space integrations slack worker [--workspace-id <id>] [--integration <id>] [--limit <n>] [--base-url <url>] [--locked-by <id>] [--dry-run] [--include-webhook] [--drain-outbox|--once] [--json]

@@ -152,6 +152,7 @@ export interface SlackIntegrationCreationGuide {
   developerConsoleUrl: string;
   commands: {
     create: string;
+    bindAgentBot: string;
     healthCheck: string;
     bindChannel: string;
     bindUser: string;

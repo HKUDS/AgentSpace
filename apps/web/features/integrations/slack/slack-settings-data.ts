@@ -235,6 +235,7 @@ export function buildSlackIntegrationCreationGuide(input: {
     developerConsoleUrl: SLACK_DEVELOPER_CONSOLE_URL,
     commands: {
       create: `agent-space integrations slack create --workspace-id ${input.workspaceId} --app-id CHANGE_ME_SLACK_APP_ID --team-id CHANGE_ME_SLACK_TEAM_ID --env-file scripts/slack/.env --bot-token-env SLACK_BOT_TOKEN --signing-secret-env SLACK_SIGNING_SECRET --json`,
+      bindAgentBot: `agent-space integrations slack bind-agent-bot --workspace-id ${input.workspaceId} --agent CHANGE_ME_AGENTSPACE_AGENT_NAME --app-id CHANGE_ME_SLACK_APP_ID --team-id CHANGE_ME_SLACK_TEAM_ID --env-file scripts/slack/.env --bot-token-env SLACK_BOT_TOKEN --signing-secret-env SLACK_SIGNING_SECRET --app-level-token-env SLACK_APP_TOKEN --json`,
       healthCheck: `agent-space integrations slack health-check --workspace-id ${input.workspaceId} --integration created-integration-id --json`,
       bindChannel: `agent-space integrations slack bind-channel --workspace-id ${input.workspaceId} --integration created-integration-id --channel general --slack-channel ${SLACK_CHANNEL_ID_PLACEHOLDER} --json`,
       bindUser: `agent-space integrations slack bind-user --workspace-id ${input.workspaceId} --integration created-integration-id --user-id CHANGE_ME_AGENTSPACE_USER_ID --slack-user ${SLACK_USER_ID_PLACEHOLDER} --json`,

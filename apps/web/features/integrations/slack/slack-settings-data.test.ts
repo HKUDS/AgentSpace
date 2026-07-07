@@ -196,6 +196,7 @@ describe("Slack settings data", () => {
       developerConsoleUrl: "https://api.slack.com/apps",
       commands: {
         create: "agent-space integrations slack create --workspace-id workspace-1 --app-id CHANGE_ME_SLACK_APP_ID --team-id CHANGE_ME_SLACK_TEAM_ID --env-file scripts/slack/.env --bot-token-env SLACK_BOT_TOKEN --signing-secret-env SLACK_SIGNING_SECRET --json",
+        bindAgentBot: "agent-space integrations slack bind-agent-bot --workspace-id workspace-1 --agent CHANGE_ME_AGENTSPACE_AGENT_NAME --app-id CHANGE_ME_SLACK_APP_ID --team-id CHANGE_ME_SLACK_TEAM_ID --env-file scripts/slack/.env --bot-token-env SLACK_BOT_TOKEN --signing-secret-env SLACK_SIGNING_SECRET --app-level-token-env SLACK_APP_TOKEN --json",
         healthCheck: "agent-space integrations slack health-check --workspace-id workspace-1 --integration created-integration-id --json",
         bindChannel: "agent-space integrations slack bind-channel --workspace-id workspace-1 --integration created-integration-id --channel general --slack-channel CHANGE_ME_SLACK_CHANNEL_ID --json",
         bindUser: "agent-space integrations slack bind-user --workspace-id workspace-1 --integration created-integration-id --user-id CHANGE_ME_AGENTSPACE_USER_ID --slack-user CHANGE_ME_SLACK_USER_ID --json",

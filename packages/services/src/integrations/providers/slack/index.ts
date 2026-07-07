@@ -30,6 +30,17 @@ export {
   type SlackPlainCredentials,
 } from "./credentials.ts";
 export {
+  createSlackAgentBotBindingSync,
+  disableSlackAgentBotBindingSync,
+  isSlackAgentBotBinding,
+  listSlackAgentBotBindingsSync,
+  readSlackAgentBotBindingByAgentSync,
+  resolveSlackAgentBotBindingSync,
+  type CreateSlackAgentBotBindingInput,
+  type DisableSlackAgentBotBindingInput,
+  type SlackAgentBotBinding,
+} from "./agent-bot-bindings.ts";
+export {
   asRecord,
   asString,
   buildSlackReference,
