@@ -52,6 +52,7 @@ export interface SlackLiveSmokeEvidenceVerification {
     postMessageLiveOk: boolean;
     appMentionLiveOk: boolean;
     fileUploadLiveOk: boolean;
+    contextMatched: boolean;
     unsafeRawValueCount: number;
   };
 }
@@ -165,6 +166,8 @@ export function buildSlackEvidenceReport(input: {
       evidencePath: input.liveSmokeEvidencePath,
       evidence: input.liveSmokeEvidence,
       requireFileUploadEvidence: required === "files" || required === "all",
+      expectedWorkspaceId: input.workspaceId,
+      expectedIntegrationIds: integrations.map((integration) => integration.id),
     })
     : undefined;
   const strictSatisfied = items.some((item) => item.requiredSatisfied) &&
@@ -196,6 +199,8 @@ export function verifySlackLiveSmokeEvidence(input: {
   evidencePath?: string;
   evidence?: unknown;
   requireFileUploadEvidence?: boolean;
+  expectedWorkspaceId?: string;
+  expectedIntegrationIds?: string[];
 }): SlackLiveSmokeEvidenceVerification {
   const artifact = parseJsonRecord(input.evidence);
   if (!artifact) {
@@ -210,34 +215,48 @@ export function verifySlackLiveSmokeEvidence(input: {
   const generatedAt = readJsonStringFieldFromRecord(artifact, "generatedAt");
   const generatedAtFresh = generatedAt ? isFreshIsoTimestamp(generatedAt, 24 * 60 * 60 * 1000) : false;
   const runs = readSlackLiveSmokeEvidenceRuns(artifact);
+  const expectedContext = {
+    workspaceId: input.expectedWorkspaceId,
+    integrationIds: input.expectedIntegrationIds ?? [],
+  };
   const postMessageLiveOk = runs.some((run) => {
     const liveResult = parseJsonRecord(run.liveResult);
-    return readJsonStringFieldFromRecord(run, "mode") === "live" &&
-      run.ready === true &&
-      liveResult?.ok === true &&
-      readJsonStringFieldFromRecord(liveResult, "mode") === "post_message";
+    return isSlackLiveSmokeRunOk(run, liveResult, "post_message") &&
+      slackLiveSmokeContextMatches(run, artifact, expectedContext);
   });
   const appMentionLiveOk = runs.some((run) => {
     const liveResult = parseJsonRecord(run.liveResult);
-    return readJsonStringFieldFromRecord(run, "mode") === "live" &&
-      run.ready === true &&
-      liveResult?.ok === true &&
+    if (!liveResult) {
+      return false;
+    }
+    return isSlackLiveSmokeRunOk(run, liveResult, "app_mention") &&
       liveResult.appMentionText === true &&
-      readJsonStringFieldFromRecord(liveResult, "mode") === "app_mention";
+      slackLiveSmokeContextMatches(run, artifact, expectedContext);
   });
   const fileUploadLiveOk = runs.some((run) => {
     const liveResult = parseJsonRecord(run.liveResult);
-    return readJsonStringFieldFromRecord(run, "mode") === "live" &&
-      run.ready === true &&
-      liveResult?.ok === true &&
+    if (!liveResult) {
+      return false;
+    }
+    return isSlackLiveSmokeRunOk(run, liveResult, "file_upload") &&
       liveResult.fileUpload === true &&
       liveResult.uploadCompleted === true &&
-      readJsonStringFieldFromRecord(liveResult, "mode") === "file_upload";
+      slackLiveSmokeContextMatches(run, artifact, expectedContext);
   });
+  const relevantLiveRuns = runs.filter((run) => {
+    const liveResult = parseJsonRecord(run.liveResult);
+    const mode = readJsonStringFieldFromRecord(liveResult ?? {}, "mode");
+    return mode === "post_message" ||
+      mode === "app_mention" ||
+      mode === "file_upload";
+  });
+  const contextMatched = relevantLiveRuns.length > 0 &&
+    relevantLiveRuns.every((run) => slackLiveSmokeContextMatches(run, artifact, expectedContext));
   const unsafeRawValueCount = countUnsafeSlackLiveSmokeEvidenceValues(artifact);
   const issues = [
     ...(generatedAt ? [] : ["slack_live_smoke_generated_at_missing"]),
     ...(generatedAtFresh ? [] : ["slack_live_smoke_evidence_stale"]),
+    ...(contextMatched ? [] : ["slack_live_smoke_context_mismatch"]),
     ...(postMessageLiveOk ? [] : ["slack_live_post_message_evidence_missing"]),
     ...(appMentionLiveOk ? [] : ["slack_live_app_mention_evidence_missing"]),
     ...(!input.requireFileUploadEvidence || fileUploadLiveOk ? [] : ["slack_live_file_upload_evidence_missing"]),
@@ -256,6 +275,7 @@ export function verifySlackLiveSmokeEvidence(input: {
       postMessageLiveOk,
       appMentionLiveOk,
       fileUploadLiveOk,
+      contextMatched,
       unsafeRawValueCount,
     },
   };
@@ -752,6 +772,43 @@ function readSlackLiveSmokeEvidenceRuns(artifact: Record<string, unknown>): Reco
     return runs;
   }
   return artifact.mode === "live" || artifact.liveResult ? [artifact] : [];
+}
+
+function isSlackLiveSmokeRunOk(
+  run: Record<string, unknown>,
+  liveResult: Record<string, unknown> | undefined,
+  mode: "post_message" | "app_mention" | "file_upload",
+): boolean {
+  return readJsonStringFieldFromRecord(run, "mode") === "live" &&
+    run.ready === true &&
+    liveResult?.ok === true &&
+    readJsonStringFieldFromRecord(liveResult, "mode") === mode;
+}
+
+function slackLiveSmokeContextMatches(
+  run: Record<string, unknown>,
+  artifact: Record<string, unknown>,
+  expected: {
+    workspaceId?: string;
+    integrationIds: string[];
+  },
+): boolean {
+  if (!expected.workspaceId && expected.integrationIds.length === 0) {
+    return true;
+  }
+  const context = parseJsonRecord(run.context) ?? parseJsonRecord(artifact.context);
+  if (!context) {
+    return false;
+  }
+  const workspaceId = readJsonStringFieldFromRecord(context, "workspaceId");
+  const integrationId = readJsonStringFieldFromRecord(context, "integrationId");
+  if (expected.workspaceId && workspaceId !== expected.workspaceId) {
+    return false;
+  }
+  if (expected.integrationIds.length > 0 && (!integrationId || !expected.integrationIds.includes(integrationId))) {
+    return false;
+  }
+  return true;
 }
 
 function isFreshSlackEvidenceEvent(event: ExternalIntegrationEventRecord): boolean {

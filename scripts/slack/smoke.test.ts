@@ -442,6 +442,8 @@ test("Slack smoke live evidence artifact accumulates redacted post, app mention,
       "SLACK_SMOKE_CALLBACK_URL=https://agentspace.test/api/integrations/slack/events",
       "SLACK_SMOKE_CHANNEL_ID=CEVIDENCE",
       "SLACK_SMOKE_USER_ID=UEVIDENCE",
+      "SLACK_SMOKE_APP_ID=AEVIDENCE123",
+      "SLACK_SMOKE_TEAM_ID=TEVIDENCE123",
       "SLACK_SMOKE_MESSAGE_TEXT=AgentSpace Slack smoke",
       "SLACK_SMOKE_BOT_USER_ID=UBOTEVIDENCE",
       "SLACK_BOT_TOKEN=xoxb-bot-secret",
@@ -484,17 +486,34 @@ test("Slack smoke live evidence artifact accumulates redacted post, app mention,
     const artifactText = readFileSync(evidencePath, "utf8");
     const artifact = JSON.parse(artifactText) as {
       provider?: string;
+      context?: {
+        workspaceId?: string;
+        integrationId?: string;
+        appReference?: string;
+        teamReference?: string;
+      };
       runs?: Array<{
         mode?: string;
+        context?: {
+          workspaceId?: string;
+          integrationId?: string;
+        };
         liveResult?: { mode?: string; appMentionText?: boolean; fileUpload?: boolean; uploadCompleted?: boolean };
       }>;
     };
     assert.equal(artifact.provider, "slack");
+    assert.deepEqual(artifact.context, {
+      workspaceId: "default",
+      integrationId: "slack-1",
+      appReference: "app AEVI...E123",
+      teamReference: "team TEVI...E123",
+    });
+    assert.deepEqual(artifact.runs?.map((run) => run.context?.integrationId), ["slack-1", "slack-1", "slack-1"]);
     assert.deepEqual(artifact.runs?.map((run) => run.liveResult?.mode), ["post_message", "app_mention", "file_upload"]);
     assert.equal(artifact.runs?.[1]?.liveResult?.appMentionText, true);
     assert.equal(artifact.runs?.[2]?.liveResult?.fileUpload, true);
     assert.equal(artifact.runs?.[2]?.liveResult?.uploadCompleted, true);
-    assert.doesNotMatch(artifactText, /xoxb-bot-secret|xoxp-user-secret|CEVIDENCE|UEVIDENCE|UBOTEVIDENCE|FEVIDENCEFILE|1783400001\.000100/);
+    assert.doesNotMatch(artifactText, /xoxb-bot-secret|xoxp-user-secret|CEVIDENCE|UEVIDENCE|UBOTEVIDENCE|AEVIDENCE123|TEVIDENCE123|FEVIDENCEFILE|1783400001\.000100/);
   } finally {
     rmSync(directory, { recursive: true, force: true });
     await new Promise<void>((resolve) => {

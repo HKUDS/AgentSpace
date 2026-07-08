@@ -447,6 +447,7 @@ test("Slack evidence can gate strict all on redacted live smoke evidence", () =>
   assert.equal(report.liveSmokeEvidence?.summary?.postMessageLiveOk, true);
   assert.equal(report.liveSmokeEvidence?.summary?.appMentionLiveOk, true);
   assert.equal(report.liveSmokeEvidence?.summary?.fileUploadLiveOk, true);
+  assert.equal(report.liveSmokeEvidence?.summary?.contextMatched, true);
   assert.equal(report.liveSmokeEvidence?.summary?.unsafeRawValueCount, 0);
   assert.doesNotMatch(JSON.stringify(report), /xoxb|xoxp|C123LIVE|UBOTLIVE|FSMOKEFILE123|1783400001\.000200/);
 
@@ -475,6 +476,20 @@ test("Slack evidence can gate strict all on redacted live smoke evidence", () =>
   assert.equal(missingFileUpload.strictSatisfied, false);
   assert.equal(missingFileUpload.liveSmokeEvidence?.valid, false);
   assert.ok(missingFileUpload.liveSmokeEvidence?.issues.includes("slack_live_file_upload_evidence_missing"));
+
+  const wrongContext = buildSlackEvidenceReport({
+    workspaceId: "workspace-1",
+    strict: true,
+    required: "all",
+    requireLiveSmokeEvidence: true,
+    liveSmokeEvidence: makeLiveSmokeEvidence({ integrationId: "slack-other" }),
+    dependencies: makeCompleteSlackEvidenceDependencies(),
+  });
+
+  assert.equal(wrongContext.strictSatisfied, false);
+  assert.equal(wrongContext.liveSmokeEvidence?.valid, false);
+  assert.equal(wrongContext.liveSmokeEvidence?.summary?.contextMatched, false);
+  assert.ok(wrongContext.liveSmokeEvidence?.issues.includes("slack_live_smoke_context_mismatch"));
 });
 
 test("Slack evidence strict all rejects stale local evidence rows", () => {
@@ -685,19 +700,27 @@ function makeCompleteSlackEvidenceDependencies(input: {
 function makeLiveSmokeEvidence(input: {
   includeAppMention?: boolean;
   includeFileUpload?: boolean;
+  workspaceId?: string;
+  integrationId?: string;
 } = {}): Record<string, unknown> {
   const includeAppMention = input.includeAppMention !== false;
   const includeFileUpload = input.includeFileUpload !== false;
+  const context = {
+    workspaceId: input.workspaceId ?? "workspace-1",
+    integrationId: input.integrationId ?? "slack-1",
+  };
   return {
     schemaVersion: 1,
     provider: "slack",
     generatedAt: new Date().toISOString(),
+    context,
     runs: [
       {
         generatedAt: new Date().toISOString(),
         mode: "live",
         live: true,
         ready: true,
+        context,
         liveResult: {
           attempted: true,
           ok: true,
@@ -711,6 +734,7 @@ function makeLiveSmokeEvidence(input: {
         mode: "live",
         live: true,
         ready: true,
+        context,
         liveResult: {
           attempted: true,
           ok: true,
@@ -726,6 +750,7 @@ function makeLiveSmokeEvidence(input: {
         mode: "live",
         live: true,
         ready: true,
+        context,
         liveResult: {
           attempted: true,
           ok: true,

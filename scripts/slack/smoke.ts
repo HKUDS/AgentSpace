@@ -17,6 +17,7 @@ interface SlackSmokeOutput {
   mode: "dry-run" | "live" | "webhook-replay";
   live: boolean;
   ready: boolean;
+  context?: SlackSmokeContext;
   liveResult?: SlackSmokeLiveResult;
   webhookReplay?: SlackSmokeWebhookReplayResult;
   summary: {
@@ -27,6 +28,13 @@ interface SlackSmokeOutput {
   missingRequired: string[];
   items: SlackSmokeEnvItem[];
   nextCommands: string[];
+}
+
+interface SlackSmokeContext {
+  workspaceId?: string;
+  integrationId?: string;
+  appReference?: string;
+  teamReference?: string;
 }
 
 interface SlackSmokeLiveResult {
@@ -118,6 +126,7 @@ export function buildSlackSmokeDryRunOutput(env: Record<string, string | undefin
     mode: "dry-run",
     live: false,
     ready: missingRequired.length === 0,
+    context: buildSlackSmokeContext(env),
     summary: {
       required: items.length,
       passed: items.filter((item) => item.status === "pass").length,
@@ -866,6 +875,7 @@ function writeSlackSmokeEvidenceArtifact(path: string, output: SlackSmokeOutput)
       mode: output.mode,
       live: output.live,
       ready: output.ready,
+      ...(output.context ? { context: output.context } : {}),
       summary: output.summary,
       ...(output.liveResult ? { liveResult: output.liveResult } : {}),
       ...(output.webhookReplay ? { webhookReplay: output.webhookReplay } : {}),
@@ -875,6 +885,7 @@ function writeSlackSmokeEvidenceArtifact(path: string, output: SlackSmokeOutput)
     schemaVersion: 1,
     provider: "slack",
     generatedAt: new Date().toISOString(),
+    ...(output.context ? { context: output.context } : {}),
     runs,
   };
   mkdirSync(dirname(path), { recursive: true });
@@ -991,6 +1002,20 @@ function resolveReplayTargetUrl(callbackUrl: string, targetBaseUrl: string | und
   resolved.username = "";
   resolved.password = "";
   return resolved.toString();
+}
+
+function buildSlackSmokeContext(env: Record<string, string | undefined>): SlackSmokeContext | undefined {
+  const workspaceId = env.AGENT_SPACE_WORKSPACE_ID?.trim();
+  const integrationId = env.AGENT_SPACE_SLACK_INTEGRATION_ID?.trim();
+  const appId = env.SLACK_SMOKE_APP_ID?.trim();
+  const teamId = env.SLACK_SMOKE_TEAM_ID?.trim();
+  const context: SlackSmokeContext = {
+    ...(workspaceId && !isPlaceholderValue(workspaceId) ? { workspaceId } : {}),
+    ...(integrationId && !isPlaceholderValue(integrationId) ? { integrationId } : {}),
+    ...(appId && !isPlaceholderValue(appId) ? { appReference: buildSafeReference("app", appId) } : {}),
+    ...(teamId && !isPlaceholderValue(teamId) ? { teamReference: buildSafeReference("team", teamId) } : {}),
+  };
+  return Object.keys(context).length > 0 ? context : undefined;
 }
 
 function readChallengeValue(body: string): string | undefined {
