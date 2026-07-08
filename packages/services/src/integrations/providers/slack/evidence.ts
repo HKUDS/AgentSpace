@@ -986,8 +986,28 @@ function hasSlackLiveSmokeResultReferences(
   requiredKeys: string[],
 ): boolean {
   return liveResult
-    ? requiredKeys.every((key) => Boolean(readJsonStringFieldFromRecord(liveResult, key)))
+    ? requiredKeys.every((key) =>
+      isSafeSlackLiveSmokeResultReference(key, readJsonStringFieldFromRecord(liveResult, key))
+    )
     : false;
+}
+
+function isSafeSlackLiveSmokeResultReference(key: string, value: string | undefined): boolean {
+  if (!value) {
+    return false;
+  }
+  const hashPattern = "ref_[a-f0-9]{8}";
+  const referenceKinds: Record<string, string> = {
+    channelReference: "channel",
+    messageReference: "message",
+    botUserReference: "user",
+    fileReference: "file",
+  };
+  const kind = referenceKinds[key];
+  if (kind) {
+    return new RegExp(`^${kind} ${hashPattern}$`).test(value);
+  }
+  return new RegExp(`^${hashPattern}$`).test(value);
 }
 
 function buildSlackLiveSmokeSatisfiedIntegrationIds(input: {

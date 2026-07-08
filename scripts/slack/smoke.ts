@@ -1238,27 +1238,49 @@ function slackSmokeEvidenceRunSatisfiesMode(
   if (liveResult.attempted !== true || liveResult.ok !== true) {
     return false;
   }
-  if (!readString(liveResult.channelReference)) {
+  if (!hasSafeSlackSmokeEvidenceResultReference(liveResult, "channelReference", "channel", issues, `live_mode_${requiredMode}_channel_reference`)) {
     issues.push(`live_mode_${requiredMode}_channel_reference_missing`);
     return false;
   }
   if (requiredMode === "post_message") {
-    return Boolean(readString(liveResult.messageReference));
+    return hasSafeSlackSmokeEvidenceResultReference(liveResult, "messageReference", "message", issues, "live_mode_post_message_message_reference");
   }
   if (requiredMode === "app_mention") {
-    if (!readString(liveResult.messageRef)) {
+    if (!hasSafeSlackSmokeEvidenceResultReference(liveResult, "messageRef", undefined, issues, "live_mode_app_mention_message_ref")) {
       issues.push("live_mode_app_mention_message_ref_missing");
       return false;
     }
-    if (!readString(liveResult.messageReference)) {
+    if (!hasSafeSlackSmokeEvidenceResultReference(liveResult, "messageReference", "message", issues, "live_mode_app_mention_message_reference")) {
       issues.push("live_mode_app_mention_message_reference_missing");
       return false;
     }
-    return liveResult.appMentionText === true && Boolean(readString(liveResult.botUserReference));
+    return liveResult.appMentionText === true &&
+      hasSafeSlackSmokeEvidenceResultReference(liveResult, "botUserReference", "user", issues, "live_mode_app_mention_bot_user_reference");
   }
   return liveResult.fileUpload === true &&
     liveResult.uploadCompleted === true &&
-    Boolean(readString(liveResult.fileReference));
+    hasSafeSlackSmokeEvidenceResultReference(liveResult, "fileReference", "file", issues, "live_mode_file_upload_file_reference");
+}
+
+function hasSafeSlackSmokeEvidenceResultReference(
+  record: Record<string, unknown>,
+  key: string,
+  kind: string | undefined,
+  issues: string[],
+  issuePrefix: string,
+): boolean {
+  const value = readString(record[key]);
+  if (!value) {
+    return false;
+  }
+  const hashPattern = "ref_[a-f0-9]{8}";
+  const safe = kind
+    ? new RegExp(`^${kind} ${hashPattern}$`).test(value)
+    : new RegExp(`^${hashPattern}$`).test(value);
+  if (!safe) {
+    issues.push(`${issuePrefix}_unsafe`);
+  }
+  return safe;
 }
 
 function readSlackSmokeEvidenceRecordContext(record: Record<string, unknown> | undefined): SlackSmokeContext | undefined {
