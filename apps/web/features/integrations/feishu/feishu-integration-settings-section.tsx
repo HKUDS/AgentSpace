@@ -3,6 +3,7 @@
 import { type TransitionStartFunction, useEffect, useState } from "react";
 import type { WorkspaceRole } from "@agent-space/db";
 import { SettingsSectionShell } from "@/features/settings/components/settings-chrome";
+import { IntegrationMetricGrid } from "@/features/integrations/integration-settings-cards";
 import type { SettingsSectionMeta } from "@/features/settings/settings-meta";
 import type { SettingsTx } from "@/features/settings/settings-types";
 import { SlackIntegrationSettingsPanel } from "@/features/integrations/slack/slack-integration-settings-panel";
@@ -110,37 +111,39 @@ export function SettingsIntegrationsSection({
         />
       ) : null}
 
-      <div className="feishu-mini-panel-grid">
-        <section className="feishu-mini-panel">
-          <strong>{canManageIntegrations ? tx("用户绑定", "User Bindings") : tx("我的飞书绑定", "My Feishu Binding")}</strong>
-          <span>{totalUserBindings}</span>
-        </section>
-        {canManageIntegrations ? (
-          <>
-            <section className="feishu-mini-panel">
-              <strong>{tx("会话映射", "Chat Mappings")}</strong>
-              <span>{totalChannelBindings}</span>
-            </section>
-            <section className="feishu-mini-panel">
-              <strong>{tx("Docs / Sheets / Base", "Docs / Sheets / Base")}</strong>
-              <span>{totalResourceBindings}</span>
-            </section>
-            <section className="feishu-mini-panel">
-              <strong>{tx("数据操作", "Data Operations")}</strong>
-              <span>{totalOperationRuns}</span>
-            </section>
-            <section className="feishu-mini-panel">
-              <strong>{tx("出站失败", "Outbound Failures")}</strong>
-              <span>{totalOutboxFailures}</span>
-            </section>
-          </>
-        ) : (
-          <section className="feishu-mini-panel">
-            <strong>{tx("可用集成", "Available Integrations")}</strong>
-            <span>{integrations.filter((integration) => integration.status !== "disabled").length}</span>
-          </section>
-        )}
-      </div>
+      <IntegrationMetricGrid
+        items={[
+          {
+            label: canManageIntegrations ? tx("用户绑定", "User Bindings") : tx("我的飞书绑定", "My Feishu Binding"),
+            value: totalUserBindings,
+          },
+          ...(canManageIntegrations
+            ? [
+              {
+                label: tx("会话映射", "Chat Mappings"),
+                value: totalChannelBindings,
+              },
+              {
+                label: tx("Docs / Sheets / Base", "Docs / Sheets / Base"),
+                value: totalResourceBindings,
+              },
+              {
+                label: tx("数据操作", "Data Operations"),
+                value: totalOperationRuns,
+              },
+              {
+                label: tx("出站失败", "Outbound Failures"),
+                value: totalOutboxFailures,
+              },
+            ]
+            : [
+              {
+                label: tx("可用集成", "Available Integrations"),
+                value: integrations.filter((integration) => integration.status !== "disabled").length,
+              },
+            ]),
+        ]}
+      />
 
       {canManageIntegrations ? (
         <>

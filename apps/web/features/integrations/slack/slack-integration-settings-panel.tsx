@@ -6,6 +6,7 @@ import {
   IntegrationInboundEventList,
   IntegrationOutboxFailureList,
 } from "@/features/integrations/integration-health-outbox-panel";
+import { IntegrationMetricGrid } from "@/features/integrations/integration-settings-cards";
 import type { SettingsTx } from "@/features/settings/settings-types";
 import { translateSettingsActionError } from "@/features/settings/settings-utils";
 import {
@@ -84,37 +85,39 @@ export function SlackIntegrationSettingsPanel({
         </div>
       </div>
 
-      <div className="feishu-mini-panel-grid">
-        <section className="feishu-mini-panel">
-          <strong>{canManageIntegrations ? tx("Slack 用户绑定", "Slack User Bindings") : tx("我的 Slack 绑定", "My Slack Binding")}</strong>
-          <span>{totalUserBindings}</span>
-        </section>
-        {canManageIntegrations ? (
-          <>
-            <section className="feishu-mini-panel">
-              <strong>{tx("Slack 频道映射", "Slack Channel Mappings")}</strong>
-              <span>{totalChannelBindings}</span>
-            </section>
-            <section className="feishu-mini-panel">
-              <strong>{tx("Slack 集成", "Slack Integrations")}</strong>
-              <span>{integrations.filter((integration) => integration.status !== "disabled").length}</span>
-            </section>
-            <section className="feishu-mini-panel">
-              <strong>{tx("Agent Bots", "Agent Bots")}</strong>
-              <span>{totalAgentBots}</span>
-            </section>
-            <section className="feishu-mini-panel">
-              <strong>{tx("出站失败", "Outbound Failures")}</strong>
-              <span>{totalOutboxFailures}</span>
-            </section>
-          </>
-        ) : (
-          <section className="feishu-mini-panel">
-            <strong>{tx("可用集成", "Available Integrations")}</strong>
-            <span>{integrations.filter((integration) => integration.status !== "disabled").length}</span>
-          </section>
-        )}
-      </div>
+      <IntegrationMetricGrid
+        items={[
+          {
+            label: canManageIntegrations ? tx("Slack 用户绑定", "Slack User Bindings") : tx("我的 Slack 绑定", "My Slack Binding"),
+            value: totalUserBindings,
+          },
+          ...(canManageIntegrations
+            ? [
+              {
+                label: tx("Slack 频道映射", "Slack Channel Mappings"),
+                value: totalChannelBindings,
+              },
+              {
+                label: tx("Slack 集成", "Slack Integrations"),
+                value: integrations.filter((integration) => integration.status !== "disabled").length,
+              },
+              {
+                label: tx("Agent Bots", "Agent Bots"),
+                value: totalAgentBots,
+              },
+              {
+                label: tx("出站失败", "Outbound Failures"),
+                value: totalOutboxFailures,
+              },
+            ]
+            : [
+              {
+                label: tx("可用集成", "Available Integrations"),
+                value: integrations.filter((integration) => integration.status !== "disabled").length,
+              },
+            ]),
+        ]}
+      />
 
       {feedback ? <p aria-live="polite" className="settings-feedback" role="status">{feedback}</p> : null}
 
