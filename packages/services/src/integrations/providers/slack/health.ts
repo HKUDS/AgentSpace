@@ -618,6 +618,7 @@ export function buildSlackSmokeEnvTemplateReport(input: {
     "npm run smoke:slack -- --env-file scripts/slack/.env --replay-webhook --json",
     `npm run smoke:slack -- --env-file scripts/slack/.env --live --evidence ${liveSmokeEvidencePath} --json`,
     `SLACK_SMOKE_LIVE_MODE=app_mention npm run smoke:slack -- --env-file scripts/slack/.env --live --evidence ${liveSmokeEvidencePath} --json`,
+    `agent-space integrations slack outbox drain --workspace-id ${input.workspaceId} --integration ${integrationId} --json`,
     `SLACK_SMOKE_LIVE_MODE=file_upload npm run smoke:slack -- --env-file scripts/slack/.env --live --evidence ${liveSmokeEvidencePath} --json`,
     "npm run smoke:slack:verify -- --env-file scripts/slack/.env --json",
     `agent-space integrations slack evidence --workspace-id ${input.workspaceId} --integration ${integrationId} --live-smoke-evidence ${liveSmokeEvidencePath} --strict --require all --json`,

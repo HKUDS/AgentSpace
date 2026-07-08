@@ -162,9 +162,27 @@ test("Slack smoke dry-run accepts filled non-secret env", () => {
     };
     assert.equal(output.ready, true);
     assert.equal(output.summary.failed, 0);
-    assert.ok(output.nextCommands.includes(
-      "agent-space integrations slack evidence --workspace-id $AGENT_SPACE_WORKSPACE_ID --integration $AGENT_SPACE_SLACK_INTEGRATION_ID --live-smoke-evidence runtime-output/slack-smoke/live.json --strict --require all --json",
-    ));
+    const livePostMessageCommand =
+      "npm run smoke:slack -- --env-file scripts/slack/.env --live --evidence runtime-output/slack-smoke/live.json --json";
+    const liveAppMentionCommand =
+      "SLACK_SMOKE_LIVE_MODE=app_mention npm run smoke:slack -- --env-file scripts/slack/.env --live --evidence runtime-output/slack-smoke/live.json --json";
+    const drainOutboxCommand =
+      "agent-space integrations slack outbox drain --workspace-id $AGENT_SPACE_WORKSPACE_ID --integration $AGENT_SPACE_SLACK_INTEGRATION_ID --json";
+    const liveFileUploadCommand =
+      "SLACK_SMOKE_LIVE_MODE=file_upload npm run smoke:slack -- --env-file scripts/slack/.env --live --evidence runtime-output/slack-smoke/live.json --json";
+    const verifyEvidenceCommand = "npm run smoke:slack:verify -- --env-file scripts/slack/.env --json";
+    const finalEvidenceCommand =
+      "agent-space integrations slack evidence --workspace-id $AGENT_SPACE_WORKSPACE_ID --integration $AGENT_SPACE_SLACK_INTEGRATION_ID --live-smoke-evidence runtime-output/slack-smoke/live.json --strict --require all --json";
+    const commandIndexes = [
+      livePostMessageCommand,
+      liveAppMentionCommand,
+      drainOutboxCommand,
+      liveFileUploadCommand,
+      verifyEvidenceCommand,
+      finalEvidenceCommand,
+    ].map((command) => output.nextCommands.indexOf(command));
+    assert.deepEqual(commandIndexes.every((index) => index >= 0), true);
+    assert.deepEqual(commandIndexes, [...commandIndexes].sort((left, right) => left - right));
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }

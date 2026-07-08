@@ -245,6 +245,18 @@ test("builds Slack smoke plan and env template without raw external ids", () => 
   assert.match(env.nextCommands.join("\n"), /--replay-webhook/);
   assert.match(env.nextCommands.join("\n"), /--live --evidence runtime-output\/slack-smoke\/live\.json/);
   assert.match(env.nextCommands.join("\n"), /SLACK_SMOKE_LIVE_MODE=file_upload/);
+  const envAppMentionIndex = env.nextCommands.findIndex((command) =>
+    command.includes("SLACK_SMOKE_LIVE_MODE=app_mention")
+  );
+  const envDrainOutboxIndex = env.nextCommands.indexOf("agent-space integrations slack outbox drain --workspace-id workspace-1 --integration slack-1 --json");
+  const envFileUploadIndex = env.nextCommands.findIndex((command) =>
+    command.includes("SLACK_SMOKE_LIVE_MODE=file_upload")
+  );
+  assert.notEqual(envAppMentionIndex, -1);
+  assert.notEqual(envDrainOutboxIndex, -1);
+  assert.notEqual(envFileUploadIndex, -1);
+  assert.ok(envDrainOutboxIndex > envAppMentionIndex);
+  assert.ok(envFileUploadIndex > envDrainOutboxIndex);
   assert.ok(env.nextCommands.includes("npm run smoke:slack:verify -- --env-file scripts/slack/.env --json"));
   assert.match(env.nextCommands.join("\n"), /--live-smoke-evidence runtime-output\/slack-smoke\/live\.json --strict --require all/);
   assert.doesNotMatch(JSON.stringify({ plan, env }), /A111|T111|xoxb|xapp/);
