@@ -223,17 +223,22 @@ test("builds Slack smoke plan and env template without raw external ids", () => 
   assert.match(plan.commands.liveFileUpload, /SLACK_SMOKE_LIVE_MODE=file_upload/);
   assert.equal(plan.commands.verifyLiveEvidence, "npm run smoke:slack:verify -- --env-file scripts/slack/.env --json");
   assert.equal(plan.commands.finalEvidence, "agent-space integrations slack evidence --workspace-id workspace-1 --integration slack-1 --live-smoke-evidence runtime-output/slack-smoke/live.json --strict --require all --json");
+  assert.deepEqual(plan.manualActions.map((action) => action.id), [
+    "native_agent_experience",
+    "approval_block_actions",
+  ]);
+  assert.equal(plan.manualActions.find((action) => action.id === "native_agent_experience")?.status, "manual");
+  assert.equal(plan.manualActions.find((action) => action.id === "approval_block_actions")?.status, "manual");
+  assert.match(plan.manualActions.find((action) => action.id === "native_agent_experience")?.detail ?? "", /app_context_changed/);
+  assert.match(plan.manualActions.find((action) => action.id === "approval_block_actions")?.detail ?? "", /approval status outbox/);
   assert.equal(plan.checklist.find((item) => item.id === "live_file_upload")?.status, "manual");
   assert.equal(plan.checklist.find((item) => item.id === "drain_outbox_reply")?.detail, plan.commands.drainOutbox);
   const nativeExperienceStep = plan.checklist.find((item) => item.id === "native_agent_experience");
   assert.equal(nativeExperienceStep?.status, "manual");
-  assert.match(nativeExperienceStep?.detail ?? "", /app_context_changed/);
-  assert.match(nativeExperienceStep?.detail ?? "", /app_home_opened/);
-  assert.match(nativeExperienceStep?.detail ?? "", /suggested prompts/);
+  assert.equal(nativeExperienceStep?.detail, plan.manualActions.find((action) => action.id === "native_agent_experience")?.detail);
   const approvalStep = plan.checklist.find((item) => item.id === "approval_block_actions");
   assert.equal(approvalStep?.status, "manual");
-  assert.match(approvalStep?.detail ?? "", /processed block_actions/);
-  assert.match(approvalStep?.detail ?? "", /approval status outbox/);
+  assert.equal(approvalStep?.detail, plan.manualActions.find((action) => action.id === "approval_block_actions")?.detail);
   assert.equal(plan.checklist.find((item) => item.id === "verify_live_evidence")?.detail, "npm run smoke:slack:verify -- --env-file scripts/slack/.env --json");
   assert.equal(plan.checklist.find((item) => item.id === "final_evidence")?.status, "manual");
   assert.equal(env.ready, true);
@@ -301,6 +306,14 @@ test("Slack smoke plan setup commands use workspace and integration placeholders
   assert.equal(plan.checklist.find((item) => item.id === "drain_outbox_reply")?.detail, plan.commands.drainOutbox);
   assert.equal(plan.checklist.find((item) => item.id === "worker")?.detail, plan.commands.workerDryRun);
   assert.equal(plan.checklist.find((item) => item.id === "final_evidence")?.detail, plan.commands.finalEvidence);
+  assert.deepEqual(plan.manualActions.map((action) => [action.id, action.status]), [
+    ["native_agent_experience", "blocked"],
+    ["approval_block_actions", "blocked"],
+  ]);
+  assert.equal(
+    plan.checklist.find((item) => item.id === "native_agent_experience")?.detail,
+    plan.manualActions.find((action) => action.id === "native_agent_experience")?.detail,
+  );
 });
 
 test("builds Slack agent_view app manifests with normalized prompts and bot names", () => {

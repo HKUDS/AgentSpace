@@ -124,11 +124,18 @@ export interface SlackSmokePlanReport {
     manifest: SlackAppManifest;
   };
   commands: Record<string, string>;
+  manualActions: SlackSmokePlanManualAction[];
   checklist: Array<{
     id: string;
     status: "ready" | "blocked" | "manual";
     detail: string;
   }>;
+}
+
+export interface SlackSmokePlanManualAction {
+  id: "native_agent_experience" | "approval_block_actions";
+  status: "blocked" | "manual";
+  detail: string;
 }
 
 export interface SlackAppManifestSuggestedPrompt {
@@ -468,6 +475,7 @@ export function buildSlackSmokePlanReport(input: {
     verifyLiveEvidence: "npm run smoke:slack:verify -- --env-file scripts/slack/.env --json",
     finalEvidence: `agent-space integrations slack evidence --workspace-id ${input.workspaceId}${requiredIntegrationFlag} --live-smoke-evidence ${liveSmokeEvidencePath} --strict --require all --json`,
   };
+  const manualActions = buildSlackSmokePlanManualActions(readiness.readyForMessageSmokeCount > 0);
   return {
     workspaceId: input.workspaceId,
     provider: SLACK_PROVIDER_ID,
@@ -498,6 +506,7 @@ export function buildSlackSmokePlanReport(input: {
       manifest,
     },
     commands,
+    manualActions,
     checklist: [
       {
         id: "configure_slack_app",
@@ -548,13 +557,13 @@ export function buildSlackSmokePlanReport(input: {
       },
       {
         id: "native_agent_experience",
-        status: readiness.readyForMessageSmokeCount > 0 ? "manual" : "blocked",
-        detail: "Open the Slack app Messages tab, then send one Slack app-context DM or agent-view message so AgentSpace records app_context_changed or app-context message evidence, app_home_opened welcome evidence, and assistant suggested prompts evidence.",
+        status: manualActions.find((action) => action.id === "native_agent_experience")?.status ?? "blocked",
+        detail: manualActions.find((action) => action.id === "native_agent_experience")?.detail ?? "",
       },
       {
         id: "approval_block_actions",
-        status: readiness.readyForMessageSmokeCount > 0 ? "manual" : "blocked",
-        detail: "Trigger one AgentSpace runtime approval card in Slack and approve or reject it so AgentSpace records processed block_actions evidence and an approval status outbox receipt.",
+        status: manualActions.find((action) => action.id === "approval_block_actions")?.status ?? "blocked",
+        detail: manualActions.find((action) => action.id === "approval_block_actions")?.detail ?? "",
       },
       {
         id: "verify_live_evidence",
@@ -568,6 +577,18 @@ export function buildSlackSmokePlanReport(input: {
       },
     ],
   };
+}
+
+function buildSlackSmokePlanManualActions(readyForMessageSmoke: boolean): SlackSmokePlanManualAction[] {
+  return [{
+    id: "native_agent_experience",
+    status: readyForMessageSmoke ? "manual" : "blocked",
+    detail: "Open the Slack app Messages tab, then send one Slack app-context DM or agent-view message so AgentSpace records app_context_changed or app-context message evidence, app_home_opened welcome evidence, and assistant suggested prompts evidence.",
+  }, {
+    id: "approval_block_actions",
+    status: readyForMessageSmoke ? "manual" : "blocked",
+    detail: "Trigger one AgentSpace runtime approval card in Slack and approve or reject it so AgentSpace records processed block_actions evidence and an approval status outbox receipt.",
+  }];
 }
 
 export function buildSlackSmokeEnvTemplateReport(input: {

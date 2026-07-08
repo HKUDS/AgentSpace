@@ -1171,6 +1171,7 @@ rawPayload = summarized payload or original safe subset
 - `smoke-plan` 的结构化 checklist 和 final evidence 的 top-level `nextCommands` 现在都会在 `live_app_mention` 后显式给出 `agent-space integrations slack outbox drain ... --json`，避免最终验收前漏掉 Slack thread reply 回写。
 - `smoke-env` 和 `scripts/slack/smoke.ts --check-env` 输出的 next commands 也会在 live `app_mention` 后、`file_upload` / `verify` / final evidence 前提示 `outbox drain`，避免操作者从 env dry-run 路径进入验收时漏掉 AgentSpace -> Slack thread reply 关联证据。
 - `smoke-plan` checklist 现在还显式列出 `native_agent_experience` 和 `approval_block_actions` 两个最终验收动作：前者要求在 Slack app Messages / agent view 中产生 app context、app-home welcome 和 suggested prompts 本地证据，后者要求处理一次 Slack Block Kit runtime approval 并留下 `block_actions` 与 approval status outbox 证据，避免 `--require all` 前漏掉 native / approval gate。
+- `smoke-plan` 顶层现在也会输出同一组 `manualActions`，ready 时标记为 `manual`、前置 message smoke 未 ready 时标记为 `blocked`，方便自动化和人工流程不用解析 checklist 文本就能识别 final `--require all` 前的非命令式动作。
 - final evidence report 现在也会在 `manualActions` 中结构化输出缺失 native agent experience / approval block action proof 的 integration ids 和操作说明，避免直接拿 live artifact 跑最终 gate 时漏掉非命令式验收动作。
 - strict Slack approval evidence 现在也要求 `block_actions` 处理记录和已发送的 `agent_status_card` outbox 状态回写同时存在；只有回调处理成功但没有把审批结果成功回写 Slack thread 时，`--require approval/all` 会以 `slack_approval_status_outbox_evidence_missing` 阻断。
 - Slack `agent_status_card` outbox metadata 现在会保留安全 `approvalId` provenance；strict approval evidence 要求 processed `block_actions` 和 sent status-card outbox 指向同一个 approval，避免不同审批记录拼接满足 approval gate。
