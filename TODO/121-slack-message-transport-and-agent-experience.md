@@ -833,7 +833,7 @@ rawPayload = summarized payload or original safe subset
 ### Phase 5：入站 dispatch
 
 - [x] 新增 `inbound.ts`。
-- [ ] 复用 Feishu inbound 的处理结构，但抽出 provider neutral helper 的候选点。
+- [x] 复用 Feishu inbound 的处理结构，但抽出 provider neutral helper 的候选点。
 - [x] 读取 channel binding：
   - [x] Slack channel id -> AgentSpace channel。
   - [x] 未绑定 channel -> 记录 ignored。
@@ -862,6 +862,7 @@ rawPayload = summarized payload or original safe subset
 - `packages/services/src/integrations/providers/slack/__tests__/inbound.test.ts` 覆盖普通 Slack app mention 中的 `@Atlas` 会回查 task、记录 thread binding，并在 inbound mapping metadata 中写入 `taskAgentId` / `taskQueueId` / `routerSessionId` / `threadBindingId`；agent-scoped Slack bot mention 同样会注入 `@Atlas` 并写入独立 task evidence，且不落 raw Slack channel/user id。
 - `packages/services/src/integrations/providers/slack/evidence.ts` 的 message gate 现在要求 inbound mapping 具备 task queue 证据；缺 `taskQueueId` 或 task agent 不匹配会产生 `agent_task_queue_evidence_missing` blocker，避免最终 `--strict --require all` 在未证明 task 创建时误通过。
 - `packages/services/src/integrations/providers/slack/__tests__/evidence.test.ts` 覆盖上述正反行为。真实 DB-backed task 创建仍由 `AGENT_SPACE_SLACK_INBOUND_DB_TESTS=1` gated 测试和 live smoke 验收证明。
+- `packages/services/src/integrations/core/inbound-dispatch.ts` 抽出 provider-neutral `resolveExternalDispatchedTaskSync(...)` / `resolveExternalDispatchedTaskFromRecords(...)`，Slack 和 Feishu inbound 成功 dispatch 后都复用同一套 task queue evidence 回查逻辑。
 
 ### Phase 6：出站和 outbox drain
 
@@ -1043,10 +1044,12 @@ rawPayload = summarized payload or original safe subset
 - Slack inbound setup / identity / permission notices 复用 common notice metadata helper，并保留 `ref_<8 hex>` 引用格式。
 - Feishu inbound setup card、plain setup / identity / permission notices、external guest identity card 复用 common notice metadata helper，并保留 `<16 hex>` 引用格式。
 - `packages/services/src/integrations/core/notices.test.ts`、Slack inbound tests、Feishu inbound tests 覆盖 notice metadata 类型、reasonCode 和 raw external id 不落 metadata。
+- `packages/services/src/integrations/core/inbound-dispatch.test.ts` 覆盖 task queue evidence 只匹配同 agent / channel / source message，并选择最新 task；Slack inbound 和 Feishu inbound 复用该 helper 后仍保留各自 provider-specific guard / notice / native bot 逻辑。
+- `node --experimental-strip-types --test packages/services/src/integrations/providers/feishu/__tests__/*.test.ts` 本地回归通过：141 pass / 53 skipped（skipped 均为需要测试 PostgreSQL 的 DB-gated tests）/ 0 fail。
 
 验收：
 
-- [ ] Feishu 功能不回退。
+- [x] Feishu 功能不回退。
 - [x] Slack 和 Feishu 共用明确 helper，而不是复制大块逻辑。
 - [ ] 新 provider 接入需要改的文件数明显减少。
 

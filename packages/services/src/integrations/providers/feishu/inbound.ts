@@ -1,7 +1,6 @@
 import {
   createExternalMessageOutboxSync,
   createExternalMessageMappingSync,
-  listQueuedTasksSync,
   readEmployeeRuntimeBindingSync,
   readExternalChannelBindingByExternalChatSync,
   readExternalMessageMappingByExternalMessageSync,
@@ -22,6 +21,7 @@ import type { ChannelRecord, MessageAttachment } from "@agent-space/domain/works
 import {
   buildExternalIdHash,
   buildExternalNoticeMetadata,
+  resolveExternalDispatchedTaskSync,
   type ExternalMessageEnvelope,
   type IntegrationRuntimeContext,
 } from "../../core/index.ts";
@@ -908,7 +908,7 @@ function dispatchPreparedFeishuInboundEventSync(input: FeishuInboundPreparedDisp
         .map((candidate) => candidate.speaker)
       : [];
     dispatchedTask = agentSpaceMessageId && input.agentId
-      ? resolveFeishuDispatchedTaskSync({
+      ? resolveExternalDispatchedTaskSync({
         workspaceId: input.context.workspaceId,
         channelName: input.channelBinding.channelName,
         agentId: input.agentId,
@@ -997,22 +997,6 @@ function dispatchPreparedFeishuInboundEventSync(input: FeishuInboundPreparedDisp
     dispatchStatus: "sent",
     mapping,
   };
-}
-
-function resolveFeishuDispatchedTaskSync(input: {
-  workspaceId: string;
-  channelName: string;
-  agentId: string;
-  sourceMessageId: string;
-}): QueuedTaskRecord | null {
-  return listQueuedTasksSync({ workspaceId: input.workspaceId })
-    .filter((task) => task.agentId === input.agentId)
-    .filter((task) => {
-      const payload = parseJsonRecord(task.inputJson);
-      return payload?.sourceMessageId === input.sourceMessageId &&
-        payload.channelName === input.channelName;
-    })
-    .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())[0] ?? null;
 }
 
 function queueFeishuAgentStatusCardBestEffort(input: {
@@ -1820,14 +1804,6 @@ function formatFeishuInboundErrorMessage(error: unknown): string {
   return message
     .replace(/\b(app_secret|appSecret|tenant_access_token|tenantAccessToken|verification_token|verificationToken|encrypt_key|encryptKey)\b\s*[:=]\s*("[^"]+"|'[^']+'|[^,\s]+)/g, "$1=[redacted]")
     .replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/g, "Bearer [redacted]");
-}
-
-function parseJsonRecord(value: string): Record<string, unknown> | null {
-  try {
-    return asRecord(JSON.parse(value));
-  } catch {
-    return null;
-  }
 }
 
 function isPromiseLike<T>(value: T | Promise<T>): value is Promise<T> {

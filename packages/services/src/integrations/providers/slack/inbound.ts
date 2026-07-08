@@ -1,7 +1,6 @@
 import {
   createExternalMessageOutboxSync,
   createExternalMessageMappingSync,
-  listQueuedTasksSync,
   readEmployeeRuntimeBindingSync,
   readExternalChannelBindingByExternalChatSync,
   readExternalMessageMappingByExternalMessageSync,
@@ -14,11 +13,11 @@ import {
   type ExternalIntegrationRecord,
   type ExternalMessageMappingRecord,
   type ExternalMessageOutboxRecord,
-  type QueuedTaskRecord,
 } from "@agent-space/db";
 import type { AgentSpaceState, MessageAttachment, WorkspaceMessage } from "@agent-space/domain/workspace";
 import {
   buildExternalNoticeMetadata,
+  resolveExternalDispatchedTaskSync,
   type ExternalMessageEnvelope,
   type IntegrationRuntimeContext,
 } from "../../core/index.ts";
@@ -89,7 +88,7 @@ export interface SlackInboundProcessDependencies {
   canWriteChannelForActor?: typeof canWriteChannelForActorSync;
   evaluateAgentRouteGuard?: typeof evaluateSlackAgentRouteGuardSync;
   sendChannelHumanMessage?: typeof sendChannelHumanMessageSync;
-  resolveDispatchedTask?: typeof resolveSlackDispatchedTaskSync;
+  resolveDispatchedTask?: typeof resolveExternalDispatchedTaskSync;
   recordThreadBinding?: typeof recordSlackThreadBindingSync;
   createMessageMapping?: typeof createExternalMessageMappingSync;
   createNoticeOutbox?: typeof createExternalMessageOutboxSync;
@@ -121,7 +120,7 @@ interface ResolvedSlackInboundProcessDependencies {
   canWriteChannelForActor: typeof canWriteChannelForActorSync;
   evaluateAgentRouteGuard: typeof evaluateSlackAgentRouteGuardSync;
   sendChannelHumanMessage: typeof sendChannelHumanMessageSync;
-  resolveDispatchedTask: typeof resolveSlackDispatchedTaskSync;
+  resolveDispatchedTask: typeof resolveExternalDispatchedTaskSync;
   recordThreadBinding: typeof recordSlackThreadBindingSync;
   createMessageMapping: typeof createExternalMessageMappingSync;
   createNoticeOutbox: typeof createExternalMessageOutboxSync;
@@ -580,22 +579,6 @@ function dispatchPreparedSlackInboundEventSync(input: SlackInboundPreparedDispat
   };
 }
 
-function resolveSlackDispatchedTaskSync(input: {
-  workspaceId: string;
-  channelName: string;
-  agentId: string;
-  sourceMessageId: string;
-}): QueuedTaskRecord | null {
-  return listQueuedTasksSync({ workspaceId: input.workspaceId })
-    .filter((task) => task.agentId === input.agentId)
-    .filter((task) => {
-      const payload = parseJsonRecord(task.inputJson);
-      return payload?.sourceMessageId === input.sourceMessageId &&
-        payload.channelName === input.channelName;
-    })
-    .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())[0] ?? null;
-}
-
 function resolveSlackTaskAgentId(input: {
   integration?: ExternalIntegrationRecord;
   agentSpaceMessage?: WorkspaceMessage;
@@ -832,7 +815,7 @@ function resolveSlackInboundProcessDependencies(
     canWriteChannelForActor: dependencies?.canWriteChannelForActor ?? canWriteChannelForActorSync,
     evaluateAgentRouteGuard: dependencies?.evaluateAgentRouteGuard ?? evaluateSlackAgentRouteGuardSync,
     sendChannelHumanMessage: dependencies?.sendChannelHumanMessage ?? sendChannelHumanMessageSync,
-    resolveDispatchedTask: dependencies?.resolveDispatchedTask ?? resolveSlackDispatchedTaskSync,
+    resolveDispatchedTask: dependencies?.resolveDispatchedTask ?? resolveExternalDispatchedTaskSync,
     recordThreadBinding: dependencies?.recordThreadBinding ?? recordSlackThreadBindingSync,
     createMessageMapping: dependencies?.createMessageMapping ?? createExternalMessageMappingSync,
     createNoticeOutbox: dependencies?.createNoticeOutbox ?? createExternalMessageOutboxSync,
@@ -995,17 +978,6 @@ function buildSafeAttachmentReference(attachment: MessageAttachment): string {
 function readMetadataString(metadata: Record<string, unknown>, key: string): string | undefined {
   const value = metadata[key];
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
-}
-
-function parseJsonRecord(value: string): Record<string, unknown> | null {
-  try {
-    const parsed = JSON.parse(value) as unknown;
-    return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
-      ? parsed as Record<string, unknown>
-      : null;
-  } catch {
-    return null;
-  }
 }
 
 function isPromiseLike<T>(value: T | Promise<T>): value is Promise<T> {
