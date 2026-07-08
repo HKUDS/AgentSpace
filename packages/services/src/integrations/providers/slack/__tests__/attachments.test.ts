@@ -5,9 +5,11 @@ import { join } from "node:path";
 import test, { before } from "node:test";
 import type { ExternalMessageEnvelope, IntegrationRuntimeContext } from "../../../core/index.ts";
 import {
+  createSlackInboundAttachmentCommandScanner,
   createSlackInboundAttachmentDownloader,
   downloadSlackInboundMessageAttachment,
   resolveSlackInboundAttachmentDescriptor,
+  type SlackInboundAttachmentSecurityScanInput,
 } from "../attachments.ts";
 import { SLACK_PROVIDER_ID } from "../constants.ts";
 
@@ -70,6 +72,7 @@ test("createSlackInboundAttachmentDownloader fetches files.info and persists Sla
     botToken: "xoxb-test",
     fetchImpl,
     maxBytes: 1024,
+    securityScanner: null,
   });
   const attachment = await downloader({
     context,
@@ -158,6 +161,93 @@ test("downloadSlackInboundMessageAttachment rejects unsafe private file URLs wit
   assert.equal(fileFetchCount, 0);
 });
 
+test("downloadSlackInboundMessageAttachment records clean security scan evidence", async () => {
+  let scanInput: SlackInboundAttachmentSecurityScanInput | undefined;
+  const attachment = await downloadSlackInboundMessageAttachment({
+    workspaceId: "default",
+    botToken: "xoxb-test",
+    payload: buildSlackFilePayload(),
+    attachment: buildExternalMessageEnvelope().attachments[0]!,
+    attachmentIndex: 0,
+    fetchImpl: buildSlackFileFetch("clean attachment bytes"),
+    securityScanner(input) {
+      scanInput = input;
+      return {
+        status: "clean",
+        engine: "unit-scanner",
+        reference: "scan-123",
+      };
+    },
+  });
+
+  assert.equal(scanInput?.fileName, "Roadmap.pdf");
+  assert.equal(scanInput?.mediaType, "application/pdf");
+  assert.equal(Buffer.from(scanInput?.contentBytes ?? []).toString("utf8"), "clean attachment bytes");
+  assert.equal(attachment.securityScanStatus, "clean");
+  assert.equal(attachment.securityScanEngine, "unit-scanner");
+  assert.equal(attachment.securityScanRef, "scan-123");
+});
+
+test("downloadSlackInboundMessageAttachment blocks files rejected by security scanner", async () => {
+  await assert.rejects(
+    downloadSlackInboundMessageAttachment({
+      workspaceId: "default",
+      botToken: "xoxb-secret-token",
+      payload: buildSlackFilePayload(),
+      attachment: buildExternalMessageEnvelope().attachments[0]!,
+      attachmentIndex: 0,
+      fetchImpl: buildSlackFileFetch("blocked secret bytes", "xoxb-secret-token"),
+      securityScanner() {
+        return {
+          status: "blocked",
+          engine: "unit-scanner",
+          reference: "Eicar-Test-Signature",
+        };
+      },
+    }),
+    (error) =>
+      error instanceof Error &&
+      "code" in error &&
+      error.code === "slack.attachment_security_scan_blocked" &&
+      !error.message.includes("blocked secret bytes") &&
+      !error.message.includes("xoxb-secret-token"),
+  );
+});
+
+test("createSlackInboundAttachmentCommandScanner reads bytes from stdin and blocks configured exit codes", async () => {
+  const scanner = createSlackInboundAttachmentCommandScanner({
+    command: process.execPath,
+    args: ["-e", [
+      "let data = '';",
+      "process.stdin.on('data', (chunk) => { data += chunk; });",
+      "process.stdin.on('end', () => {",
+      "  if (data.includes('blocked')) {",
+      "    console.log('stream: Eicar-Test-Signature FOUND');",
+      "    process.exit(1);",
+      "  }",
+      "  process.exit(0);",
+      "});",
+    ].join("")],
+    engine: "node-test-scanner",
+    timeoutMs: 5_000,
+  });
+
+  const clean = await scanner(buildSecurityScanInput("safe bytes"));
+  const blocked = await scanner(buildSecurityScanInput("blocked bytes"));
+
+  assert.deepEqual(clean, {
+    status: "clean",
+    engine: "node-test-scanner",
+    reference: undefined,
+  });
+  assert.deepEqual(blocked, {
+    status: "blocked",
+    engine: "node-test-scanner",
+    reference: "Eicar-Test-Signature",
+    message: "Configured Slack attachment security scanner blocked the file.",
+  });
+});
+
 test("resolveSlackInboundAttachmentDescriptor ignores non-Slack attachment metadata", () => {
   assert.equal(resolveSlackInboundAttachmentDescriptor({
     payload: buildSlackFilePayload(),
@@ -199,6 +289,50 @@ function buildExternalMessageEnvelope(): ExternalMessageEnvelope {
     }],
     rawPayload: {},
     receivedAt: "2026-07-08T00:00:00.000Z",
+  };
+}
+
+function buildSlackFileFetch(content: string, expectedToken = "xoxb-test"): typeof fetch {
+  return (async (url, init) => {
+    const urlText = url.toString();
+    if (urlText.endsWith("/files.info")) {
+      return new Response(JSON.stringify({
+        ok: true,
+        file: {
+          id: "FSECRET123",
+          title: "Roadmap.pdf",
+          mimetype: "application/pdf",
+          filetype: "pdf",
+          size: Buffer.byteLength(content),
+          url_private_download: "https://files.slack.com/files-pri/T123-FSECRET123/download/roadmap.pdf",
+        },
+      }), {
+        headers: { "content-type": "application/json" },
+      });
+    }
+    assert.equal(urlText, "https://files.slack.com/files-pri/T123-FSECRET123/download/roadmap.pdf");
+    assert.equal((init?.headers as Record<string, string> | undefined)?.authorization, `Bearer ${expectedToken}`);
+    return new Response(Buffer.from(content, "utf8"), {
+      headers: {
+        "content-type": "application/pdf",
+        "content-length": String(Buffer.byteLength(content)),
+      },
+    });
+  }) as typeof fetch;
+}
+
+function buildSecurityScanInput(content: string): SlackInboundAttachmentSecurityScanInput {
+  return {
+    workspaceId: "default",
+    fileName: "Roadmap.pdf",
+    mediaType: "application/pdf",
+    sizeBytes: Buffer.byteLength(content),
+    contentBytes: Buffer.from(content, "utf8"),
+    descriptor: {
+      fileRef: "ref_f9d46936",
+      fileName: "Roadmap.pdf",
+      mediaType: "application/pdf",
+    },
   };
 }
 

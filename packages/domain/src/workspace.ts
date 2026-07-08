@@ -64,6 +64,9 @@ export interface MessageAttachment {
   storageKey?: string;
   storageUrl?: string;
   sha256?: string;
+  securityScanStatus?: "clean" | "not_scanned";
+  securityScanEngine?: string;
+  securityScanRef?: string;
   deletedAt?: string;
   deletedByUserId?: string;
   deletedByDisplayName?: string;

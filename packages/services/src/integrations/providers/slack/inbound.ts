@@ -924,7 +924,9 @@ function buildSlackFileStorageMetadata(input: {
         : input.failed ? "download_failed" : "not_downloaded",
       storedAttachmentRef: downloaded ? buildSafeAttachmentReference(downloaded) : undefined,
       storageProvider: downloaded ? downloaded.storageProvider ?? "local" : undefined,
-      securityScanStatus: downloaded ? "basic_policy_passed" : "not_scanned",
+      securityScanStatus: downloaded ? downloaded.securityScanStatus ?? "basic_policy_passed" : "not_scanned",
+      securityScanEngine: downloaded?.securityScanEngine,
+      securityScanRef: downloaded?.securityScanRef,
       rawSlackFileIdStored: false,
       privateUrlStored: false,
     };

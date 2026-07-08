@@ -1,3 +1,5 @@
+import { spawn } from "node:child_process";
+import { basename } from "node:path";
 import type { MessageAttachment } from "@agent-space/domain/workspace";
 import { persistWorkspaceAttachmentFromBytesSync } from "../../../attachments/attachments.ts";
 import {
@@ -44,6 +46,26 @@ export type SlackInboundAttachmentDownloader = (
   input: SlackInboundAttachmentDownloadInput
 ) => MessageAttachment | null | Promise<MessageAttachment | null>;
 
+export interface SlackInboundAttachmentSecurityScanInput {
+  workspaceId: string;
+  fileName: string;
+  mediaType: string;
+  sizeBytes: number;
+  contentBytes: Uint8Array;
+  descriptor: SlackInboundAttachmentDescriptor;
+}
+
+export interface SlackInboundAttachmentSecurityScanResult {
+  status: "clean" | "blocked";
+  engine?: string;
+  reference?: string;
+  message?: string;
+}
+
+export type SlackInboundAttachmentSecurityScanner = (
+  input: SlackInboundAttachmentSecurityScanInput
+) => SlackInboundAttachmentSecurityScanResult | Promise<SlackInboundAttachmentSecurityScanResult>;
+
 export function createSlackInboundAttachmentDownloader(input: {
   workspaceId: string;
   botToken: string;
@@ -51,7 +73,11 @@ export function createSlackInboundAttachmentDownloader(input: {
   fetchImpl?: typeof fetch;
   maxBytes?: number;
   timeoutMs?: number;
+  securityScanner?: SlackInboundAttachmentSecurityScanner | null;
 }): SlackInboundAttachmentDownloader {
+  const securityScanner = input.securityScanner === null
+    ? undefined
+    : input.securityScanner ?? resolveSlackInboundAttachmentSecurityScannerFromEnv();
   return async (downloadInput) =>
     downloadSlackInboundMessageAttachment({
       workspaceId: input.workspaceId,
@@ -63,6 +89,7 @@ export function createSlackInboundAttachmentDownloader(input: {
       fetchImpl: input.fetchImpl,
       maxBytes: input.maxBytes,
       timeoutMs: input.timeoutMs,
+      securityScanner,
     });
 }
 
@@ -76,6 +103,7 @@ export async function downloadSlackInboundMessageAttachment(input: {
   fetchImpl?: typeof fetch;
   maxBytes?: number;
   timeoutMs?: number;
+  securityScanner?: SlackInboundAttachmentSecurityScanner;
 }): Promise<MessageAttachment> {
   const botToken = input.botToken.trim();
   if (!botToken) {
@@ -170,12 +198,28 @@ export async function downloadSlackInboundMessageAttachment(input: {
       responseMediaType: response.headers.get("content-type") ?? undefined,
     });
     const contentBytes = await readSlackAttachmentBodyWithLimit(response, maxBytes);
-    return persistWorkspaceAttachmentFromBytesSync({
+    const scanResult = await scanSlackInboundAttachmentBytes({
+      workspaceId: input.workspaceId,
+      fileName: fileInfoDescriptor.fileName,
+      mediaType,
+      contentBytes,
+      descriptor: fileInfoDescriptor,
+      securityScanner: input.securityScanner,
+    });
+    const attachment = persistWorkspaceAttachmentFromBytesSync({
       workspaceId: input.workspaceId,
       contentBytes,
       fileName: fileInfoDescriptor.fileName,
       mediaType,
     });
+    return scanResult
+      ? {
+        ...attachment,
+        securityScanStatus: "clean",
+        securityScanEngine: scanResult.engine,
+        securityScanRef: scanResult.reference,
+      }
+      : attachment;
   } catch (error) {
     if (isAbortError(error)) {
       throw createIntegrationProviderError({
@@ -188,6 +232,116 @@ export async function downloadSlackInboundMessageAttachment(input: {
   } finally {
     clearTimeout(timeout);
   }
+}
+
+export function createSlackInboundAttachmentCommandScanner(input: {
+  command: string;
+  args?: string[];
+  engine?: string;
+  timeoutMs?: number;
+  blockExitCodes?: number[];
+  maxOutputBytes?: number;
+  spawnImpl?: typeof spawn;
+}): SlackInboundAttachmentSecurityScanner {
+  const command = input.command.trim();
+  if (!command) {
+    throw createIntegrationProviderError({
+      provider: SLACK_PROVIDER_ID,
+      code: "slack.attachment_security_scan_command_missing",
+      message: "Slack attachment security scanner command is missing.",
+    });
+  }
+  const args = input.args ?? [];
+  const engine = sanitizeSecurityScanText(input.engine) ?? basename(command);
+  const timeoutMs = normalizePositiveInteger(input.timeoutMs, 30_000);
+  const blockExitCodes = new Set(input.blockExitCodes?.length ? input.blockExitCodes : [1]);
+  const maxOutputBytes = normalizePositiveInteger(input.maxOutputBytes, 4_096);
+  const spawnImpl = input.spawnImpl ?? spawn;
+
+  return (scanInput) => new Promise((resolve, reject) => {
+    let child: ReturnType<typeof spawnImpl>;
+    try {
+      child = spawnImpl(command, args, {
+        stdio: ["pipe", "pipe", "pipe"],
+      });
+    } catch (error) {
+      reject(normalizeSlackAttachmentSecurityScanError(error));
+      return;
+    }
+
+    let timedOut = false;
+    let output = "";
+    const appendOutput = (chunk: Buffer | string) => {
+      if (output.length >= maxOutputBytes) {
+        return;
+      }
+      output = `${output}${String(chunk)}`.slice(0, maxOutputBytes);
+    };
+    child.stdout?.on("data", appendOutput);
+    child.stderr?.on("data", appendOutput);
+
+    const timeout = setTimeout(() => {
+      timedOut = true;
+      child.kill("SIGKILL");
+    }, timeoutMs);
+
+    child.on("error", (error) => {
+      clearTimeout(timeout);
+      reject(normalizeSlackAttachmentSecurityScanError(error));
+    });
+    child.on("close", (code) => {
+      clearTimeout(timeout);
+      if (timedOut) {
+        reject(createIntegrationProviderError({
+          provider: SLACK_PROVIDER_ID,
+          code: "slack.attachment_security_scan_timeout",
+          message: `Slack attachment security scan exceeded the ${timeoutMs} ms timeout.`,
+        }));
+        return;
+      }
+      const exitCode = typeof code === "number" ? code : 1;
+      if (exitCode === 0) {
+        resolve({
+          status: "clean",
+          engine,
+          reference: sanitizeSecurityScanText(extractScannerReference(output)),
+        });
+        return;
+      }
+      if (blockExitCodes.has(exitCode)) {
+        resolve({
+          status: "blocked",
+          engine,
+          reference: sanitizeSecurityScanText(extractScannerReference(output)),
+          message: "Configured Slack attachment security scanner blocked the file.",
+        });
+        return;
+      }
+      reject(createIntegrationProviderError({
+        provider: SLACK_PROVIDER_ID,
+        code: "slack.attachment_security_scan_failed",
+        message: "Configured Slack attachment security scanner failed.",
+      }));
+    });
+
+    child.stdin?.end(Buffer.from(scanInput.contentBytes));
+  });
+}
+
+export function resolveSlackInboundAttachmentSecurityScannerFromEnv(
+  env: NodeJS.ProcessEnv = process.env,
+): SlackInboundAttachmentSecurityScanner | undefined {
+  const command = env.AGENT_SPACE_SLACK_ATTACHMENT_SCAN_COMMAND?.trim();
+  if (!command) {
+    return undefined;
+  }
+  return createSlackInboundAttachmentCommandScanner({
+    command,
+    args: parseScannerArgs(env.AGENT_SPACE_SLACK_ATTACHMENT_SCAN_ARGS),
+    engine: env.AGENT_SPACE_SLACK_ATTACHMENT_SCAN_ENGINE,
+    timeoutMs: parsePositiveInteger(env.AGENT_SPACE_SLACK_ATTACHMENT_SCAN_TIMEOUT_MS),
+    blockExitCodes: parseExitCodes(env.AGENT_SPACE_SLACK_ATTACHMENT_SCAN_BLOCK_EXIT_CODES),
+  });
 }
 
 export function resolveSlackInboundAttachmentDescriptor(input: {
@@ -431,6 +585,106 @@ function truncateText(value: string | undefined, maxLength: number): string | un
 
 function readNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+async function scanSlackInboundAttachmentBytes(input: {
+  workspaceId: string;
+  fileName: string;
+  mediaType: string;
+  contentBytes: Uint8Array;
+  descriptor: SlackInboundAttachmentDescriptor;
+  securityScanner?: SlackInboundAttachmentSecurityScanner;
+}): Promise<SlackInboundAttachmentSecurityScanResult | undefined> {
+  if (!input.securityScanner) {
+    return undefined;
+  }
+
+  let result: SlackInboundAttachmentSecurityScanResult;
+  try {
+    result = await input.securityScanner({
+      workspaceId: input.workspaceId,
+      fileName: input.fileName,
+      mediaType: input.mediaType,
+      sizeBytes: input.contentBytes.byteLength,
+      contentBytes: input.contentBytes,
+      descriptor: input.descriptor,
+    });
+  } catch (error) {
+    throw normalizeSlackAttachmentSecurityScanError(error);
+  }
+
+  if (result.status === "clean") {
+    return {
+      status: "clean",
+      engine: sanitizeSecurityScanText(result.engine),
+      reference: sanitizeSecurityScanText(result.reference),
+    };
+  }
+
+  throw createIntegrationProviderError({
+    provider: SLACK_PROVIDER_ID,
+    code: "slack.attachment_security_scan_blocked",
+    message: "Slack attachment was blocked by the configured security scanner.",
+  });
+}
+
+function normalizeSlackAttachmentSecurityScanError(error: unknown): Error {
+  if (error instanceof Error && "code" in error) {
+    return error;
+  }
+  return createIntegrationProviderError({
+    provider: SLACK_PROVIDER_ID,
+    code: "slack.attachment_security_scan_failed",
+    message: "Configured Slack attachment security scanner failed.",
+  });
+}
+
+function parseScannerArgs(value: string | undefined): string[] {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return [];
+  }
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    if (Array.isArray(parsed) && parsed.every((item) => typeof item === "string")) {
+      return parsed;
+    }
+  } catch {
+    // Fall through to conservative whitespace parsing for simple deployments.
+  }
+  return trimmed.split(/\s+/).filter(Boolean);
+}
+
+function parseExitCodes(value: string | undefined): number[] | undefined {
+  const exitCodes = value?.split(",")
+    .map((item) => Number(item.trim()))
+    .filter((item) => Number.isInteger(item) && item >= 0);
+  return exitCodes && exitCodes.length > 0 ? exitCodes : undefined;
+}
+
+function parsePositiveInteger(value: string | undefined): number | undefined {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : undefined;
+}
+
+function extractScannerReference(output: string): string | undefined {
+  const clean = sanitizeSecurityScanText(output);
+  if (!clean) {
+    return undefined;
+  }
+  const foundIndex = clean.toUpperCase().indexOf(" FOUND");
+  if (foundIndex > 0) {
+    return clean.slice(0, foundIndex).split(/\s+/).slice(-1)[0];
+  }
+  return clean.split(/\s+/).slice(0, 6).join(" ");
+}
+
+function sanitizeSecurityScanText(value: string | undefined): string | undefined {
+  const normalized = value?.replace(/\s+/g, " ").trim();
+  if (!normalized) {
+    return undefined;
+  }
+  return normalized.length > 120 ? normalized.slice(0, 120).trimEnd() : normalized;
 }
 
 function isLocalOrPrivateHostname(hostname: string): boolean {

@@ -1015,7 +1015,14 @@ rawPayload = summarized payload or original safe subset
 - [x] 文件内容进入 workspace data policy。
 - [x] 出站文件使用 SDK `uploadV2` 或 external upload flow。
 - [x] 文件大小、类型、host allowlist、timeout 和 clear failure 策略。
-- [ ] 可选：接入真正病毒扫描/恶意内容扫描引擎。
+- [x] 可选：接入真正病毒扫描/恶意内容扫描引擎。
+
+证据：
+
+- `packages/services/src/integrations/providers/slack/attachments.ts` 支持 `SlackInboundAttachmentSecurityScanner` 注入，并提供 `AGENT_SPACE_SLACK_ATTACHMENT_SCAN_COMMAND` / `ARGS` / `ENGINE` / `TIMEOUT_MS` / `BLOCK_EXIT_CODES` 配置的 stdin command scanner；下载字节在写入 AgentSpace attachment storage 前必须先通过 scanner。
+- clean scan 会在附件和 Slack inbound mapping metadata 中记录 `securityScanStatus=clean`、脱敏 engine/ref；blocked scan 使用结构化 `slack.attachment_security_scan_blocked` 错误阻断落库，不输出 token、文件字节或 Slack private URL。
+- `deploy/systemd/agentspace-slack-worker.env.example`、`deploy/slack-worker/slack-worker.env.example`、`scripts/slack/env.example` 均给出 ClamAV `clamscan --no-summary -` 配置示例。
+- `packages/services/src/integrations/providers/slack/__tests__/attachments.test.ts` 覆盖 clean scanner evidence、blocked scanner failure、command scanner exit-code 行为。
 
 验收：
 

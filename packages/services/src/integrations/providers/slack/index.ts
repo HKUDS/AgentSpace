@@ -30,12 +30,17 @@ export {
 export {
   SLACK_INBOUND_ATTACHMENT_MAX_BYTES,
   SLACK_INBOUND_ATTACHMENT_TIMEOUT_MS,
+  createSlackInboundAttachmentCommandScanner,
   createSlackInboundAttachmentDownloader,
   downloadSlackInboundMessageAttachment,
   resolveSlackInboundAttachmentDescriptor,
+  resolveSlackInboundAttachmentSecurityScannerFromEnv,
   type SlackInboundAttachmentDescriptor,
   type SlackInboundAttachmentDownloadInput,
   type SlackInboundAttachmentDownloader,
+  type SlackInboundAttachmentSecurityScanInput,
+  type SlackInboundAttachmentSecurityScanResult,
+  type SlackInboundAttachmentSecurityScanner,
 } from "./attachments.ts";
 export {
   buildEncryptedSlackCredentials,
