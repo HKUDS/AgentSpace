@@ -1048,8 +1048,8 @@ rawPayload = summarized payload or original safe subset
 ### CLI tests
 
 - [ ] `apps/cli/src/commands/integrations.test.ts` 加 Slack subcommands。
-- [ ] env-file placeholder rejection。
-- [ ] JSON output redaction。
+- [x] env-file placeholder rejection。
+- [x] JSON output redaction。
 - [ ] dry-run worker summary。
 
 ### Smoke tests

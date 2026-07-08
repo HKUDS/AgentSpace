@@ -42,6 +42,9 @@ import { runIntegrationsCommand } from "./integrations/index.ts";
 import { runIntegrationsOutboxCommand } from "./integrations/outbox.ts";
 import {
   createSlackAgentBotBindingForCli,
+  createSlackChannelBindingForCli,
+  createSlackIntegrationForCli,
+  createSlackUserBindingForCli,
   disableSlackAgentBotForCli,
   runSlackIntegrationCommand,
 } from "./integrations/slack.ts";
@@ -192,6 +195,192 @@ test("slack --help prints usage without touching external services", async () =>
   assert.match(output, /agent-space integrations slack outbox drain/);
   assert.match(output, /--dry-run/);
   assert.match(output, /--strict/);
+});
+
+test("Slack create CLI stores encrypted credentials and returns redacted setup output", () => {
+  const envDir = mkdtempSync(join(tmpdir(), "agent-space-slack-create-cli-"));
+  const envFile = join(envDir, ".env");
+  writeFileSync(envFile, [
+    "SLACK_BOT_TOKEN=xoxb-workspace-secret",
+    "SLACK_SIGNING_SECRET=workspace-signing-secret",
+    "SLACK_APP_TOKEN=xapp-workspace-secret",
+    "SLACK_CLIENT_ID=client-id-secret",
+    "SLACK_CLIENT_SECRET=client-secret-value",
+  ].join("\n"));
+  const encryptInputs: unknown[] = [];
+  const createInputs: unknown[] = [];
+
+  try {
+    const report = createSlackIntegrationForCli({
+      "workspace-id": "workspace-1",
+      name: "Launch Slack",
+      "app-id": "A-workspace",
+      "team-id": "T-workspace",
+      transport: "websocket_worker",
+      "env-file": envFile,
+      "client-id-env": "SLACK_CLIENT_ID",
+      "client-secret-env": "SLACK_CLIENT_SECRET",
+      "app-level-token-env": "SLACK_APP_TOKEN",
+      "created-by-user-id": "admin-1",
+    }, {
+      encryptCredentials: (input) => {
+        encryptInputs.push(input);
+        return {
+          botToken: "encrypted-bot-token",
+          signingSecret: "encrypted-signing-secret",
+          appLevelToken: "encrypted-app-token",
+          clientId: "encrypted-client-id",
+          clientSecret: "encrypted-client-secret",
+        };
+      },
+      createIntegration: (input) => {
+        createInputs.push(input);
+        return buildIntegrationRecord({
+          id: "slack-created",
+          provider: "slack",
+          displayName: input.displayName,
+          transportMode: input.transportMode,
+          appId: input.appId,
+          tenantKey: input.tenantKey,
+          encryptedCredentialsJson: JSON.stringify(input.encryptedCredentialsJson),
+          configJson: JSON.stringify(input.configJson),
+          capabilitiesJson: JSON.stringify(input.capabilitiesJson),
+          scopesJson: JSON.stringify(input.scopesJson),
+          createdByUserId: input.createdByUserId,
+        }) as never;
+      },
+    });
+
+    assert.deepEqual(encryptInputs, [{
+      botToken: "xoxb-workspace-secret",
+      signingSecret: "workspace-signing-secret",
+      appLevelToken: "xapp-workspace-secret",
+      clientId: "client-id-secret",
+      clientSecret: "client-secret-value",
+    }]);
+    assert.equal(createInputs.length, 1);
+    assert.equal(report.ok, true);
+    assert.equal(report.integrationId, "slack-created");
+    assert.equal(report.provider, "slack");
+    assert.equal(report.transportMode, "websocket_worker");
+    assert.equal(report.eventCallbackPath, "/api/integrations/slack/events");
+    assert.equal(report.interactionCallbackPath, "/api/integrations/slack/interactions");
+    assert.equal(report.secretRedacted, true);
+    assert.deepEqual(report.credentialSummary, {
+      hasBotToken: true,
+      hasSigningSecret: true,
+      hasAppLevelToken: true,
+      hasClientId: true,
+      hasClientSecret: true,
+    });
+    const serialized = JSON.stringify({ report, createInputs });
+    assert.doesNotMatch(serialized, /xoxb-workspace-secret|workspace-signing-secret|xapp-workspace-secret|client-secret-value/);
+    assert.match(serialized, /encrypted-bot-token/);
+    assert.match(serialized, /messageTransport/);
+
+    assert.throws(() => createSlackIntegrationForCli({
+      "workspace-id": "workspace-1",
+      "app-id": "CHANGE_ME_SLACK_APP_ID",
+      "team-id": "T-workspace",
+      "env-file": envFile,
+    }, {
+      encryptCredentials: () => {
+        throw new Error("encryptCredentials should not run for placeholder values");
+      },
+      createIntegration: () => {
+        throw new Error("createIntegration should not run for placeholder values");
+      },
+    }), /slack\.placeholder_value:app-id/);
+  } finally {
+    rmSync(envDir, { recursive: true, force: true });
+  }
+});
+
+test("Slack channel and user binding CLI returns redacted external references", () => {
+  const integration = buildIntegrationRecord({
+    id: "slack-1",
+    provider: "slack",
+    displayName: "Slack",
+    transportMode: "http_webhook",
+  }) as never;
+  const readIntegration = () => integration;
+  const channelInputs: unknown[] = [];
+  const userInputs: unknown[] = [];
+
+  const channelReport = createSlackChannelBindingForCli({
+    "workspace-id": "workspace-1",
+    integration: "slack-1",
+    channel: "general",
+    "slack-channel": "C_SECRET_CHANNEL_123456",
+    type: "channel",
+    name: "launch-room",
+    "created-by-user-id": "admin-1",
+  }, {
+    readIntegration,
+    upsertChannelBinding: (input) => {
+      channelInputs.push(input);
+      return buildChannelBinding("slack-1", {
+        id: "slack-channel-binding",
+        workspaceId: input.workspaceId,
+        integrationId: input.integrationId,
+        channelName: input.channelName,
+        externalChatId: input.externalChatId,
+        externalChatType: input.externalChatType,
+        externalChatName: input.externalChatName,
+        createdByUserId: input.createdByUserId,
+      }) as never;
+    },
+  });
+
+  const userReport = createSlackUserBindingForCli({
+    "workspace-id": "workspace-1",
+    integration: "slack-1",
+    "user-id": "user-1",
+    "slack-user": "U_SECRET_USER_123456",
+    "display-name": "Mina Slack",
+  }, {
+    readIntegration,
+    upsertUserBinding: (input) => {
+      userInputs.push(input);
+      return buildUserBinding("slack-1", {
+        id: "slack-user-binding",
+        workspaceId: input.workspaceId,
+        integrationId: input.integrationId,
+        userId: input.userId,
+        externalUserId: input.externalUserId,
+        displayName: input.displayName,
+      }) as never;
+    },
+  });
+
+  assert.deepEqual(channelInputs, [{
+    workspaceId: "workspace-1",
+    integrationId: "slack-1",
+    channelName: "general",
+    externalChatId: "C_SECRET_CHANNEL_123456",
+    externalChatType: "channel",
+    externalChatName: "launch-room",
+    metadataJson: {
+      provider: "slack",
+      provisionSource: "manual",
+    },
+    createdByUserId: "admin-1",
+  }]);
+  assert.deepEqual(userInputs, [{
+    workspaceId: "workspace-1",
+    integrationId: "slack-1",
+    userId: "user-1",
+    externalUserId: "U_SECRET_USER_123456",
+    displayName: "Mina Slack",
+    metadataJson: {
+      provider: "slack",
+    },
+  }]);
+  assert.equal(channelReport.ok, true);
+  assert.equal(channelReport.externalChatReference, "channel C_SE...3456");
+  assert.equal(userReport.ok, true);
+  assert.equal(userReport.externalUserReference, "user U_SE...3456");
+  assert.doesNotMatch(JSON.stringify({ channelReport, userReport }), /C_SECRET_CHANNEL_123456|U_SECRET_USER_123456/);
 });
 
 test("Slack agent bot CLI defaults to Socket Mode and redacts credentials", () => {
@@ -10740,7 +10929,7 @@ function buildChannelBinding(integrationId: string, overrides: Record<string, un
   } as never;
 }
 
-function buildUserBinding(integrationId: string) {
+function buildUserBinding(integrationId: string, overrides: Record<string, unknown> = {}) {
   return {
     id: `user-${integrationId}`,
     workspaceId: "workspace-1",
@@ -10751,6 +10940,7 @@ function buildUserBinding(integrationId: string) {
     metadataJson: "{}",
     createdAt: freshFeishuEvidenceTimestamp(),
     updatedAt: freshFeishuEvidenceTimestamp(),
+    ...overrides,
   } as never;
 }
 

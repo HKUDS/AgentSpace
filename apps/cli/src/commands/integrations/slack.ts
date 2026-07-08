@@ -147,7 +147,15 @@ export async function runSlackIntegrationCommand(args: string[], format: OutputF
   return 1;
 }
 
-export function createSlackIntegrationForCli(flags: Record<string, string | boolean>): Record<string, unknown> {
+export function createSlackIntegrationForCli(
+  flags: Record<string, string | boolean>,
+  deps: {
+    createIntegration?: typeof createExternalIntegrationSync;
+    encryptCredentials?: typeof buildEncryptedSlackCredentials;
+  } = {},
+): Record<string, unknown> {
+  const createIntegration = deps.createIntegration ?? createExternalIntegrationSync;
+  const encryptCredentials = deps.encryptCredentials ?? buildEncryptedSlackCredentials;
   const workspaceId = getStringFlag(flags, "workspace-id") ?? "default";
   const env = readSlackCliEnv(getStringFlag(flags, "env-file"));
   const botTokenEnv = getStringFlag(flags, "bot-token-env") ?? "SLACK_BOT_TOKEN";
@@ -173,14 +181,14 @@ export function createSlackIntegrationForCli(flags: Record<string, string | bool
   assertNoPlaceholder(appId, "app-id");
   assertNoPlaceholder(teamId, "team-id");
 
-  const integration = createExternalIntegrationSync({
+  const integration = createIntegration({
     workspaceId,
     provider: SLACK_PROVIDER_ID,
     displayName: getStringFlag(flags, "name") ?? "Slack",
     transportMode,
     appId,
     tenantKey: teamId,
-    encryptedCredentialsJson: buildEncryptedSlackCredentials({
+    encryptedCredentialsJson: encryptCredentials({
       botToken,
       signingSecret,
       appLevelToken,
@@ -207,7 +215,15 @@ export function createSlackIntegrationForCli(flags: Record<string, string | bool
   return summarizeSlackIntegrationForCli(integration);
 }
 
-export function createSlackChannelBindingForCli(flags: Record<string, string | boolean>): Record<string, unknown> {
+export function createSlackChannelBindingForCli(
+  flags: Record<string, string | boolean>,
+  deps: {
+    readIntegration?: typeof readExternalIntegrationSync;
+    upsertChannelBinding?: typeof upsertExternalChannelBindingSync;
+  } = {},
+): Record<string, unknown> {
+  const readIntegration = deps.readIntegration ?? readExternalIntegrationSync;
+  const upsertChannelBinding = deps.upsertChannelBinding ?? upsertExternalChannelBindingSync;
   const workspaceId = getStringFlag(flags, "workspace-id") ?? "default";
   const integrationId = requireText(
     getStringFlag(flags, "integration") ?? getStringFlag(flags, "integration-id"),
@@ -218,8 +234,8 @@ export function createSlackChannelBindingForCli(flags: Record<string, string | b
     getStringFlag(flags, "slack-channel") ?? getStringFlag(flags, "channel-id"),
     "slack.bind_channel.missing_slack_channel",
   );
-  assertActiveSlackIntegration(workspaceId, integrationId);
-  const binding = upsertExternalChannelBindingSync({
+  assertActiveSlackIntegration(workspaceId, integrationId, readIntegration);
+  const binding = upsertChannelBinding({
     workspaceId,
     integrationId,
     channelName,
@@ -242,7 +258,15 @@ export function createSlackChannelBindingForCli(flags: Record<string, string | b
   };
 }
 
-export function createSlackUserBindingForCli(flags: Record<string, string | boolean>): Record<string, unknown> {
+export function createSlackUserBindingForCli(
+  flags: Record<string, string | boolean>,
+  deps: {
+    readIntegration?: typeof readExternalIntegrationSync;
+    upsertUserBinding?: typeof upsertExternalUserBindingSync;
+  } = {},
+): Record<string, unknown> {
+  const readIntegration = deps.readIntegration ?? readExternalIntegrationSync;
+  const upsertUserBinding = deps.upsertUserBinding ?? upsertExternalUserBindingSync;
   const workspaceId = getStringFlag(flags, "workspace-id") ?? "default";
   const integrationId = requireText(
     getStringFlag(flags, "integration") ?? getStringFlag(flags, "integration-id"),
@@ -253,8 +277,8 @@ export function createSlackUserBindingForCli(flags: Record<string, string | bool
     getStringFlag(flags, "slack-user") ?? getStringFlag(flags, "slack-user-id"),
     "slack.bind_user.missing_slack_user",
   );
-  assertActiveSlackIntegration(workspaceId, integrationId);
-  const binding = upsertExternalUserBindingSync({
+  assertActiveSlackIntegration(workspaceId, integrationId, readIntegration);
+  const binding = upsertUserBinding({
     workspaceId,
     integrationId,
     userId,
@@ -456,6 +480,7 @@ function summarizeSlackIntegrationForCli(integration: ReturnType<typeof createEx
     eventCallbackPath: SLACK_EVENT_CALLBACK_PATH,
     interactionCallbackPath: SLACK_INTERACTION_CALLBACK_PATH,
     credentialSummary,
+    secretRedacted: true,
   };
 }
 
@@ -477,8 +502,12 @@ function summarizeSlackAgentBotBindingForCli(action: "created" | "disabled", int
   };
 }
 
-function assertActiveSlackIntegration(workspaceId: string, integrationId: string) {
-  const integration = readExternalIntegrationSync({ workspaceId, integrationId });
+function assertActiveSlackIntegration(
+  workspaceId: string,
+  integrationId: string,
+  readIntegration: typeof readExternalIntegrationSync = readExternalIntegrationSync,
+) {
+  const integration = readIntegration({ workspaceId, integrationId });
   if (!integration || integration.provider !== SLACK_PROVIDER_ID || integration.status !== "active") {
     throw new Error("slack.integration_not_active");
   }
