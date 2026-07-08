@@ -34,6 +34,7 @@ import {
   resolveSlackEventReceivedAt,
   resolveSlackEventType,
   resolveSlackAppHomeOpenedMessagesTabEvent,
+  buildSlackReference,
   summarizeSlackAgentContextPayload,
   summarizeSlackInboundEventPayload,
 } from "./events.ts";
@@ -63,6 +64,11 @@ export interface ProcessSlackInboundEventInput {
   payload: Record<string, unknown>;
   integration?: ExternalIntegrationRecord;
   attachmentDownloader?: SlackInboundAttachmentDownloader;
+}
+
+export interface SlackInboundPermissionNoticeOutboxInput {
+  message: Pick<ExternalMessageEnvelope, "externalChatId" | "externalThreadId">;
+  text: string;
 }
 
 interface SlackInboundPreparedDispatch {
@@ -574,28 +580,41 @@ function queueSlackInboundNoticeSync(input: {
   channelBindingId?: string;
   text: string;
 }): ExternalMessageOutboxRecord {
-  const outbound = buildSlackTextOutboundMessage({
-    targetExternalChatId: input.message.externalChatId,
-    targetExternalThreadId: input.message.externalThreadId,
+  const notice = buildSlackInboundPermissionNoticeOutbox({
+    message: input.message,
     text: input.text,
   });
   return createExternalMessageOutboxSync({
     workspaceId: input.context.workspaceId,
     integrationId: input.context.integrationId,
     channelBindingId: input.channelBindingId,
+    targetExternalChatId: notice.targetExternalChatId,
+    targetExternalThreadId: notice.targetExternalThreadId,
+    payloadJson: notice.payload,
+    metadataJson: notice.metadataJson,
+  });
+}
+
+export function buildSlackInboundPermissionNoticeOutbox(input: SlackInboundPermissionNoticeOutboxInput) {
+  const outbound = buildSlackTextOutboundMessage({
+    targetExternalChatId: input.message.externalChatId,
+    targetExternalThreadId: input.message.externalThreadId,
+    text: input.text,
+  });
+  return {
     targetExternalChatId: outbound.targetExternalChatId,
     targetExternalThreadId: outbound.targetExternalThreadId,
-    payloadJson: outbound.payload,
+    payload: outbound.payload,
     metadataJson: {
       provider: SLACK_PROVIDER_ID,
       outboxSource: "inbound_permission_notice",
       noticeType: "permission_denied",
-      externalChatReference: `slack:${input.message.externalChatId.slice(0, 3)}...${input.message.externalChatId.slice(-3)}`,
+      externalChatReference: buildSlackReference(input.message.externalChatId),
       externalThreadReference: input.message.externalThreadId
-        ? `slack:${input.message.externalThreadId.slice(0, 4)}...${input.message.externalThreadId.slice(-4)}`
+        ? buildSlackReference(input.message.externalThreadId)
         : undefined,
     },
-  });
+  };
 }
 
 function evaluateSlackAgentRouteGuardSync(input: {

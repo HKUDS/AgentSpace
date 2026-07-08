@@ -85,9 +85,11 @@ export {
   type NormalizeSlackInboundMessageInput,
 } from "./normalize-message.ts";
 export {
+  buildSlackInboundPermissionNoticeOutbox,
   processSlackInboundEvent,
   processSlackInboundEventSync,
   type ProcessSlackInboundEventInput,
+  type SlackInboundPermissionNoticeOutboxInput,
   type SlackInboundProcessResult,
 } from "./inbound.ts";
 export {

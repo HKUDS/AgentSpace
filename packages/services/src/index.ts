@@ -718,6 +718,7 @@ export {
   buildSlackApprovalPayloadHash,
   buildSlackBlockKitOutboundMessage,
   buildSlackFileUploadOutboundMessage,
+  buildSlackInboundPermissionNoticeOutbox,
   buildSlackTextOutboundMessage,
   buildSlackUrlVerificationResponse,
   checkSlackIntegrationHealth,

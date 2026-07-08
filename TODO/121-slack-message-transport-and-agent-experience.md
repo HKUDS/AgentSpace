@@ -1013,7 +1013,7 @@ rawPayload = summarized payload or original safe subset
 - [x] self/bot event ignored。
 - [x] duplicate event ignored。
 - [x] missing binding ignored。
-- [ ] permission denied ignored with notice。
+- [x] permission denied ignored with notice。
 - [x] outbox success。
 - [x] outbox rate limit retry。
 - [x] outbox terminal provider error。
