@@ -925,6 +925,7 @@ test("Slack smoke live evidence artifact accumulates redacted post, app mention,
         channelReferences?: string[];
       };
       issues?: string[];
+      manualActions?: Array<{ id?: string; detail?: string }>;
       nextCommands?: string[];
     };
     assert.equal(verificationOutput.valid, true);
@@ -934,6 +935,12 @@ test("Slack smoke live evidence artifact accumulates redacted post, app mention,
     assert.equal(verificationOutput.summary?.channelMatched, true);
     assert.deepEqual(verificationOutput.summary?.channelReferences, [`channel ${slackRef("CEVIDENCE")}`]);
     assert.deepEqual(verificationOutput.issues, []);
+    assert.deepEqual(verificationOutput.manualActions?.map((action) => action.id), [
+      "native_agent_experience",
+      "approval_block_actions",
+    ]);
+    assert.match(verificationOutput.manualActions?.[0]?.detail ?? "", /app-home welcome/);
+    assert.match(verificationOutput.manualActions?.[1]?.detail ?? "", /approval status outbox/);
     assert.deepEqual(verificationOutput.nextCommands, [
       "agent-space integrations slack outbox drain --workspace-id $AGENT_SPACE_WORKSPACE_ID --integration $AGENT_SPACE_SLACK_INTEGRATION_ID --json",
       `agent-space integrations slack evidence --workspace-id $AGENT_SPACE_WORKSPACE_ID --integration $AGENT_SPACE_SLACK_INTEGRATION_ID --live-smoke-evidence ${evidencePath} --strict --require all --json`,
@@ -1058,6 +1065,7 @@ test("Slack smoke evidence verifier rejects live runs from different channels", 
         channelReferences?: string[];
       };
       issues?: string[];
+      manualActions?: Array<{ id?: string }>;
       nextCommands?: string[];
     };
     assert.equal(output.valid, false);
@@ -1068,6 +1076,10 @@ test("Slack smoke evidence verifier rejects live runs from different channels", 
       `channel ${slackRef("CTWO")}`,
     ]);
     assert.ok(output.issues?.includes("slack_live_smoke_channel_mismatch"));
+    assert.deepEqual(output.manualActions?.map((action) => action.id), [
+      "native_agent_experience",
+      "approval_block_actions",
+    ]);
     const expectedCommands = [
       `npm run smoke:slack -- --env-file scripts/slack/.env --live --evidence ${evidencePath} --json`,
       `SLACK_SMOKE_LIVE_MODE=app_mention npm run smoke:slack -- --env-file scripts/slack/.env --live --evidence ${evidencePath} --json`,

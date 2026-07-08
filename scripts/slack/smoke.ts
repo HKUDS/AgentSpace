@@ -85,6 +85,11 @@ interface SlackSmokeEvidenceArtifactStatus {
   reasonCode?: "slack.smoke.evidence_requires_live_or_replay" | "slack.smoke.evidence_output_not_ready";
 }
 
+interface SlackSmokeManualAction {
+  id: "native_agent_experience" | "approval_block_actions";
+  detail: string;
+}
+
 interface SlackSmokeEvidenceVerificationOutput {
   evidencePath: string;
   checkedAt: string;
@@ -104,6 +109,7 @@ interface SlackSmokeEvidenceVerificationOutput {
   };
   expectedContext?: SlackSmokeContext;
   issues: string[];
+  manualActions: SlackSmokeManualAction[];
   nextCommands: string[];
 }
 
@@ -975,6 +981,10 @@ function formatSlackSmokeEvidenceVerificationOutput(output: SlackSmokeEvidenceVe
       lines.push(`- ${issue}`);
     }
   }
+  lines.push("Manual actions:");
+  for (const action of output.manualActions) {
+    lines.push(`- ${action.id}: ${action.detail}`);
+  }
   lines.push("Next commands:");
   for (const command of output.nextCommands) {
     lines.push(`- ${command}`);
@@ -1230,6 +1240,7 @@ function verifySlackSmokeEvidenceFile(path: string, input: {
       malformedReferenceCount,
     },
     issues: uniqueIssues,
+    manualActions: buildSlackSmokeEvidenceVerificationManualActions(),
     nextCommands: buildSlackSmokeEvidenceVerificationNextCommands({
       evidencePath: path,
       valid,
@@ -1238,6 +1249,16 @@ function verifySlackSmokeEvidenceFile(path: string, input: {
       expectedContext: input.expectedContext,
     }),
   };
+}
+
+function buildSlackSmokeEvidenceVerificationManualActions(): SlackSmokeManualAction[] {
+  return [{
+    id: "native_agent_experience",
+    detail: "Open the Slack app Messages tab, then send one app-context DM or agent-view message so AgentSpace records app context, app-home welcome, and assistant suggested prompt evidence.",
+  }, {
+    id: "approval_block_actions",
+    detail: "Trigger one AgentSpace runtime approval card in Slack and approve or reject it so AgentSpace records processed block_actions evidence and an approval status outbox receipt.",
+  }];
 }
 
 function buildSlackSmokeEvidenceVerificationNextCommands(input: {
