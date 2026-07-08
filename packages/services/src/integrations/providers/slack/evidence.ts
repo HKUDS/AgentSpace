@@ -312,7 +312,8 @@ function buildFileEvidence(
     hasSlackStoredAttachmentEvidence(mapping.metadataJson)
   ).length;
   const outboundUploadEvidence = outbox.filter((item) =>
-    hasSlackOutboundFileUploadEvidence(item.metadataJson) || hasSlackOutboundFileUploadEvidence(item.payloadJson)
+    item.status === "sent" &&
+    (hasSlackOutboundFileUploadEvidence(item.metadataJson) || hasSlackOutboundFileUploadEvidence(item.payloadJson))
   ).length;
   const unsafeFileMetadataRows = [
     ...events.map((event) => event.payloadJson),

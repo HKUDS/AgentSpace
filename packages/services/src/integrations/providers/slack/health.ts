@@ -11,6 +11,7 @@ import {
   SLACK_AGENT_VIEW_SCOPES,
   SLACK_BOT_MESSAGE_SCOPES,
   SLACK_EVENT_CALLBACK_PATH,
+  SLACK_FILE_UPLOAD_SCOPES,
   SLACK_INTERACTION_CALLBACK_PATH,
   SLACK_PROVIDER_ID,
   SLACK_REQUIRED_EVENTS,
@@ -471,7 +472,7 @@ export function buildSlackSmokePlanReport(input: {
       interactionCallbackPath: SLACK_INTERACTION_CALLBACK_PATH,
       requiredEvents: uniqueStrings([...SLACK_REQUIRED_EVENTS, ...SLACK_AGENT_VIEW_EVENTS]),
       agentViewEvents: [...SLACK_AGENT_VIEW_EVENTS],
-      botScopes: uniqueStrings([...SLACK_BOT_MESSAGE_SCOPES, ...SLACK_AGENT_VIEW_SCOPES]),
+      botScopes: uniqueStrings([...SLACK_BOT_MESSAGE_SCOPES, ...SLACK_AGENT_VIEW_SCOPES, ...SLACK_FILE_UPLOAD_SCOPES]),
       socketModeScopes: [...SLACK_SOCKET_MODE_SCOPES],
       credentialFields: ["bot_token", "signing_secret", "app_level_token"],
       agentView: {
@@ -612,7 +613,7 @@ export function buildSlackAgentViewAppManifest(input: {
     },
     oauth_config: {
       scopes: {
-        bot: uniqueStrings([...SLACK_BOT_MESSAGE_SCOPES, ...SLACK_AGENT_VIEW_SCOPES]),
+        bot: uniqueStrings([...SLACK_BOT_MESSAGE_SCOPES, ...SLACK_AGENT_VIEW_SCOPES, ...SLACK_FILE_UPLOAD_SCOPES]),
       },
     },
     settings: {

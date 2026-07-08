@@ -1,3 +1,4 @@
+import { existsSync, readFileSync } from "node:fs";
 import {
   completeExternalMessageOutboxSync,
   createExternalMessageMappingSync,
@@ -100,7 +101,10 @@ export interface SlackAssistantSuggestedPromptsPayload extends Record<string, un
   thread_ts?: string;
 }
 
-export type SlackOutboundApiPayload = SlackChatPostMessagePayload | SlackAssistantSuggestedPromptsPayload;
+export type SlackOutboundApiPayload =
+  | SlackChatPostMessagePayload
+  | SlackAssistantSuggestedPromptsPayload
+  | SlackFileUploadOutboundPayload;
 
 export type SlackAgentStatusCardStatus =
   | "thinking"
@@ -127,6 +131,27 @@ export interface SlackApiPostMessageResult extends SlackApiMethodResult {
   ts?: string;
 }
 
+export interface SlackApiFileUploadResult extends SlackApiMethodResult {
+  fileRefs?: string[];
+}
+
+export interface SlackFileUploadItem {
+  attachmentId: string;
+  filename: string;
+  title: string;
+  mediaType?: string;
+  sizeBytes: number;
+  storedPath: string;
+}
+
+export interface SlackFileUploadOutboundPayload extends Record<string, unknown> {
+  method: "files.completeUploadExternal";
+  channel_id: string;
+  files: SlackFileUploadItem[];
+  initial_comment?: string;
+  thread_ts?: string;
+}
+
 export function buildSlackTextOutboundMessage(input: {
   targetExternalChatId: string;
   text: string;
@@ -141,6 +166,30 @@ export function buildSlackTextOutboundMessage(input: {
       text,
       ...(input.targetExternalThreadId ? { thread_ts: input.targetExternalThreadId } : {}),
     },
+  };
+}
+
+export function buildSlackFileUploadOutboundMessage(input: {
+  targetExternalChatId: string;
+  attachments: MessageAttachment[];
+  text?: string;
+  targetExternalThreadId?: string;
+}): ExternalOutboundMessagePayload {
+  const files = normalizeSlackFileUploadItems(input.attachments);
+  if (files.length === 0) {
+    throw new Error("slack.file_upload_payload_empty");
+  }
+  const initialComment = input.text?.trim();
+  return {
+    targetExternalChatId: input.targetExternalChatId,
+    targetExternalThreadId: input.targetExternalThreadId,
+    payload: {
+      method: "files.completeUploadExternal",
+      channel_id: input.targetExternalChatId,
+      files,
+      ...(initialComment ? { initial_comment: truncateSlackText(initialComment) } : {}),
+      ...(input.targetExternalThreadId ? { thread_ts: input.targetExternalThreadId } : {}),
+    } satisfies SlackFileUploadOutboundPayload,
   };
 }
 
@@ -362,7 +411,7 @@ export function queueSlackOutboundMessageSync(input: {
     targetExternalThreadId: input.message.externalThreadId,
     text: appendSlackAttachmentNotice(input.message.text, input.message.attachments),
   });
-  return enqueueExternalOutboundMessageSync({
+  const textOutbox = enqueueExternalOutboundMessageSync({
     context: input.context,
     channelBindingId: channelBinding.id,
     agentSpaceMessageId: input.message.agentSpaceMessageId,
@@ -373,6 +422,53 @@ export function queueSlackOutboundMessageSync(input: {
       integration,
       attachmentCount: countSendableSlackAttachments(input.message.attachments),
     }),
+  });
+  queueSlackFileUploadOutboxSync({
+    context: input.context,
+    integration,
+    channelBindingId: channelBinding.id,
+    agentSpaceMessageId: input.message.agentSpaceMessageId,
+    targetExternalChatId: channelBinding.externalChatId,
+    targetExternalThreadId: input.message.externalThreadId,
+    attachments: input.message.attachments,
+  });
+  return textOutbox;
+}
+
+function queueSlackFileUploadOutboxSync(input: {
+  context: IntegrationRuntimeContext;
+  integration?: Pick<ExternalIntegrationRecord, "id" | "agentId"> | null;
+  channelBindingId?: string;
+  agentSpaceMessageId?: string;
+  targetExternalChatId: string;
+  targetExternalThreadId?: string;
+  attachments?: MessageAttachment[];
+}): ExternalMessageOutboxRecord | null {
+  const attachments = (input.attachments ?? []).filter(isSendableSlackAttachment);
+  if (attachments.length === 0) {
+    return null;
+  }
+  const outbound = buildSlackFileUploadOutboundMessage({
+    targetExternalChatId: input.targetExternalChatId,
+    targetExternalThreadId: input.targetExternalThreadId,
+    attachments,
+  });
+  return enqueueExternalOutboundMessageSync({
+    context: input.context,
+    channelBindingId: input.channelBindingId,
+    agentSpaceMessageId: input.agentSpaceMessageId,
+    outbound,
+    metadataJson: {
+      ...buildSlackQueuedOutboxMetadata({
+        source: "slack_file_upload",
+        outbound,
+        integration: input.integration,
+        attachmentCount: attachments.length,
+      }),
+      slackUploadFlow: "external_upload",
+      method: "files.completeUploadExternal",
+      files: buildSlackQueuedFileUploadMetadata((outbound.payload as SlackFileUploadOutboundPayload).files),
+    },
   });
 }
 
@@ -541,6 +637,22 @@ export function queueSlackChannelReplyOutboxSync(input: {
         attachmentCount: countSendableSlackAttachments(input.attachments),
       }),
     }));
+    const uploadOutbox = queueSlackFileUploadOutboxSync({
+      context: {
+        workspaceId: input.workspaceId,
+        integrationId: integration.id,
+        provider: SLACK_PROVIDER_ID,
+      },
+      integration,
+      channelBindingId: channelBinding.id,
+      agentSpaceMessageId: input.agentSpaceMessageId,
+      targetExternalChatId: channelBinding.externalChatId,
+      targetExternalThreadId: resolveSlackReplyTargetExternalMessageId(sourceMapping),
+      attachments: input.attachments,
+    });
+    if (uploadOutbox) {
+      outboxItems.push(uploadOutbox);
+    }
   }
 
   return outboxItems;
@@ -693,6 +805,50 @@ export async function processSlackOutboxMessage(input: {
   });
   const credentials = readSlackIntegrationCredentials(input.integration);
   const payload = readSlackOutboundPayload(locked.payloadJson);
+  if (isSlackFileUploadPayload(payload)) {
+    const response = await sendSlackFileUploadExternal({
+      botToken: credentials.botToken,
+      payload,
+      baseUrl: input.baseUrl,
+      fetchImpl: input.fetchImpl,
+    });
+    if (response.ok) {
+      completeExternalMessageOutboxSync({
+        workspaceId: input.workspaceId,
+        outboxId: locked.id,
+      });
+      createExternalMessageMappingSync({
+        workspaceId: input.workspaceId,
+        integrationId: input.integration.id,
+        channelBindingId: locked.channelBindingId,
+        direction: "outbound",
+        externalMessageId: `slack-file-upload-${locked.id}`,
+        externalThreadId: payload.thread_ts,
+        agentSpaceMessageId: locked.agentSpaceMessageId,
+        metadataJson: {
+          provider: SLACK_PROVIDER_ID,
+          mappingSource: "slack_file_upload",
+          outboxSource: "slack_file_upload",
+          slackUploadFlow: "external_upload",
+          method: "files.completeUploadExternal",
+          externalChatReference: formatSlackOutboundReference(payload.channel_id),
+          externalThreadReference: formatSlackOutboundReference(payload.thread_ts),
+          files: buildSlackFileUploadEvidenceMetadata(payload.files, response.fileRefs),
+          rawSlackFileIdStored: false,
+        },
+      });
+      return {
+        outboxId: locked.id,
+        status: "sent",
+      };
+    }
+    return failSlackOutboxWithResponse({
+      workspaceId: input.workspaceId,
+      locked,
+      response,
+      defaultErrorMessage: "Slack file upload failed.",
+    });
+  }
   if (isSlackAssistantSuggestedPromptsPayload(payload)) {
     const response = await sendSlackAssistantSuggestedPrompts({
       botToken: credentials.botToken,
@@ -876,12 +1032,262 @@ export async function sendSlackAssistantSuggestedPrompts(input: {
   };
 }
 
+export async function sendSlackFileUploadExternal(input: {
+  botToken: string;
+  payload: SlackFileUploadOutboundPayload;
+  baseUrl?: string;
+  fetchImpl?: typeof fetch;
+}): Promise<SlackApiFileUploadResult> {
+  const botToken = input.botToken.trim();
+  if (!botToken) {
+    return {
+      ok: false,
+      status: 0,
+      errorCode: "slack.bot_token_missing",
+      errorMessage: "Slack bot token is missing.",
+    };
+  }
+  const fetchImpl = input.fetchImpl ?? fetch;
+  const uploadedFiles: Array<{ fileId: string; title: string }> = [];
+  for (const file of input.payload.files) {
+    const content = readSlackFileUploadContent(file);
+    if (!content.ok) {
+      return content;
+    }
+    const ticket = await requestSlackFileUploadUrl({
+      botToken,
+      filename: file.filename,
+      length: content.bytes.byteLength,
+      baseUrl: input.baseUrl,
+      fetchImpl,
+    });
+    if (!ticket.ok) {
+      return ticket;
+    }
+    const uploaded = await uploadSlackFileBytes({
+      uploadUrl: ticket.uploadUrl,
+      bytes: content.bytes,
+      mediaType: file.mediaType,
+      fetchImpl,
+    });
+    if (!uploaded.ok) {
+      return uploaded;
+    }
+    uploadedFiles.push({
+      fileId: ticket.fileId,
+      title: file.title,
+    });
+  }
+
+  const completed = await completeSlackFileUploadExternal({
+    botToken,
+    channelId: input.payload.channel_id,
+    files: uploadedFiles,
+    initialComment: input.payload.initial_comment,
+    threadTs: input.payload.thread_ts,
+    baseUrl: input.baseUrl,
+    fetchImpl,
+  });
+  if (!completed.ok) {
+    return completed;
+  }
+  return {
+    ...completed,
+    fileRefs: uploadedFiles.map((file) => formatSlackOutboundReference(file.fileId)).filter((ref): ref is string => Boolean(ref)),
+  };
+}
+
+async function requestSlackFileUploadUrl(input: {
+  botToken: string;
+  filename: string;
+  length: number;
+  baseUrl?: string;
+  fetchImpl: typeof fetch;
+}): Promise<SlackApiMethodResult & { uploadUrl: string; fileId: string }> {
+  const response = await input.fetchImpl(`${input.baseUrl ?? "https://slack.com/api"}/files.getUploadURLExternal`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${input.botToken}`,
+      "content-type": "application/json; charset=utf-8",
+    },
+    body: JSON.stringify({
+      filename: input.filename,
+      length: input.length,
+    }),
+  });
+  const rateLimited = readSlackRateLimitedResponse(response, "files.getUploadURLExternal");
+  if (rateLimited) {
+    return { ...rateLimited, uploadUrl: "", fileId: "" };
+  }
+  const data = await readSlackJsonResponse(response);
+  if (response.ok && data.ok === true && typeof data.upload_url === "string" && typeof data.file_id === "string") {
+    return {
+      ok: true,
+      status: response.status,
+      uploadUrl: data.upload_url,
+      fileId: data.file_id,
+    };
+  }
+  const errorCode = typeof data.error === "string" ? data.error : `http_${response.status}`;
+  return {
+    ok: false,
+    status: response.status,
+    errorCode,
+    errorMessage: `Slack files.getUploadURLExternal failed: ${errorCode}`,
+    uploadUrl: "",
+    fileId: "",
+  };
+}
+
+async function uploadSlackFileBytes(input: {
+  uploadUrl: string;
+  bytes: Uint8Array;
+  mediaType?: string;
+  fetchImpl: typeof fetch;
+}): Promise<SlackApiMethodResult> {
+  const body = input.bytes.buffer.slice(
+    input.bytes.byteOffset,
+    input.bytes.byteOffset + input.bytes.byteLength,
+  ) as ArrayBuffer;
+  const response = await input.fetchImpl(input.uploadUrl, {
+    method: "POST",
+    headers: {
+      "content-type": input.mediaType || "application/octet-stream",
+      "content-length": String(input.bytes.byteLength),
+    },
+    body,
+  });
+  const rateLimited = readSlackRateLimitedResponse(response, "file_upload_url");
+  if (rateLimited) {
+    return rateLimited;
+  }
+  if (response.ok) {
+    return {
+      ok: true,
+      status: response.status,
+    };
+  }
+  return {
+    ok: false,
+    status: response.status,
+    errorCode: `slack.file_upload_http_${response.status}`,
+    errorMessage: `Slack file upload URL returned HTTP ${response.status}.`,
+  };
+}
+
+async function completeSlackFileUploadExternal(input: {
+  botToken: string;
+  channelId: string;
+  files: Array<{ fileId: string; title: string }>;
+  initialComment?: string;
+  threadTs?: string;
+  baseUrl?: string;
+  fetchImpl: typeof fetch;
+}): Promise<SlackApiMethodResult> {
+  const response = await input.fetchImpl(`${input.baseUrl ?? "https://slack.com/api"}/files.completeUploadExternal`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${input.botToken}`,
+      "content-type": "application/json; charset=utf-8",
+    },
+    body: JSON.stringify({
+      channel_id: input.channelId,
+      files: input.files.map((file) => ({
+        id: file.fileId,
+        title: file.title,
+      })),
+      ...(input.initialComment ? { initial_comment: input.initialComment } : {}),
+      ...(input.threadTs ? { thread_ts: input.threadTs } : {}),
+    }),
+  });
+  const rateLimited = readSlackRateLimitedResponse(response, "files.completeUploadExternal");
+  if (rateLimited) {
+    return rateLimited;
+  }
+  const data = await readSlackJsonResponse(response);
+  if (response.ok && data.ok === true) {
+    return {
+      ok: true,
+      status: response.status,
+    };
+  }
+  const errorCode = typeof data.error === "string" ? data.error : `http_${response.status}`;
+  return {
+    ok: false,
+    status: response.status,
+    errorCode,
+    errorMessage: `Slack files.completeUploadExternal failed: ${errorCode}`,
+  };
+}
+
+function readSlackFileUploadContent(file: SlackFileUploadItem): SlackApiMethodResult & { bytes: Uint8Array } {
+  if (!file.storedPath || !existsSync(file.storedPath)) {
+    return {
+      ok: false,
+      status: 400,
+      errorCode: "slack.file_unreadable",
+      errorMessage: "Slack file upload source attachment is not readable from local storage.",
+      bytes: new Uint8Array(),
+    };
+  }
+  try {
+    const bytes = readFileSync(file.storedPath);
+    if (bytes.byteLength <= 0) {
+      return {
+        ok: false,
+        status: 400,
+        errorCode: "slack.file_empty",
+        errorMessage: "Slack file upload source attachment is empty.",
+        bytes: new Uint8Array(),
+      };
+    }
+    return {
+      ok: true,
+      status: 0,
+      bytes,
+    };
+  } catch {
+    return {
+      ok: false,
+      status: 400,
+      errorCode: "slack.file_unreadable",
+      errorMessage: "Slack file upload source attachment is not readable from local storage.",
+      bytes: new Uint8Array(),
+    };
+  }
+}
+
+function readSlackRateLimitedResponse(response: Response, method: string): SlackApiMethodResult | null {
+  if (response.status !== 429) {
+    return null;
+  }
+  const retryAfter = Number(response.headers.get("retry-after") ?? "");
+  return {
+    ok: false,
+    status: response.status,
+    errorCode: "slack.rate_limited",
+    errorMessage: `Slack rate limited ${method}.`,
+    retryAfterSeconds: Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : undefined,
+  };
+}
+
+async function readSlackJsonResponse(response: Response): Promise<Record<string, unknown>> {
+  try {
+    return await response.json() as Record<string, unknown>;
+  } catch {
+    return {};
+  }
+}
+
 export function computeSlackOutboxNextAttemptAt(retryAfterSeconds = 60): string {
   return new Date(Date.now() + Math.max(1, retryAfterSeconds) * 1000).toISOString();
 }
 
 function readSlackOutboundPayload(value: string): SlackOutboundApiPayload {
   const parsed = JSON.parse(value) as Record<string, unknown>;
+  if (parsed.method === "files.completeUploadExternal") {
+    return readSlackFileUploadPayload(parsed);
+  }
   if (parsed.method === "assistant.threads.setSuggestedPrompts") {
     return readSlackAssistantSuggestedPromptsPayload(parsed);
   }
@@ -896,6 +1302,47 @@ function readSlackOutboundPayload(value: string): SlackOutboundApiPayload {
     channel,
     text: truncateSlackText(text),
     ...(blocks ? { blocks, unfurl_links: false, unfurl_media: false } : {}),
+    ...(threadTs ? { thread_ts: threadTs } : {}),
+  };
+}
+
+function readSlackFileUploadPayload(parsed: Record<string, unknown>): SlackFileUploadOutboundPayload {
+  const channelId = typeof parsed.channel_id === "string" ? parsed.channel_id.trim() : "";
+  const threadTs = typeof parsed.thread_ts === "string" ? parsed.thread_ts.trim() : undefined;
+  const initialComment = typeof parsed.initial_comment === "string" ? parsed.initial_comment.trim() : undefined;
+  const files = Array.isArray(parsed.files)
+    ? parsed.files.flatMap((file): SlackFileUploadItem[] => {
+        if (!file || typeof file !== "object" || Array.isArray(file)) {
+          return [];
+        }
+        const record = file as Record<string, unknown>;
+        const attachmentId = readString(record.attachmentId);
+        const filename = readString(record.filename);
+        const storedPath = readString(record.storedPath);
+        const sizeBytes = typeof record.sizeBytes === "number" && Number.isFinite(record.sizeBytes)
+          ? record.sizeBytes
+          : 0;
+        if (!attachmentId || !filename || !storedPath || sizeBytes <= 0) {
+          return [];
+        }
+        return [{
+          attachmentId,
+          filename,
+          title: readString(record.title) ?? filename,
+          storedPath,
+          sizeBytes,
+          mediaType: readString(record.mediaType),
+        }];
+      })
+    : [];
+  if (!channelId || files.length === 0) {
+    throw new Error("slack.file_upload_payload_invalid");
+  }
+  return {
+    method: "files.completeUploadExternal",
+    channel_id: channelId,
+    files,
+    ...(initialComment ? { initial_comment: truncateSlackText(initialComment) } : {}),
     ...(threadTs ? { thread_ts: threadTs } : {}),
   };
 }
@@ -935,13 +1382,20 @@ function isSlackAssistantSuggestedPromptsPayload(
   return "method" in payload && payload.method === "assistant.threads.setSuggestedPrompts";
 }
 
+function isSlackFileUploadPayload(
+  payload: SlackOutboundApiPayload,
+): payload is SlackFileUploadOutboundPayload {
+  return "method" in payload && payload.method === "files.completeUploadExternal";
+}
+
 function buildSlackQueuedOutboxMetadata(input: {
   source:
     | "direct_outbound_message"
     | "agent_reply"
     | "agent_status_card"
     | "app_home_opened_welcome"
-    | "assistant_suggested_prompts";
+    | "assistant_suggested_prompts"
+    | "slack_file_upload";
   outbound: Pick<ExternalOutboundMessagePayload, "targetExternalChatId" | "targetExternalThreadId">;
   integration?: Pick<ExternalIntegrationRecord, "id" | "agentId"> | null;
   attachmentCount?: number;
@@ -954,7 +1408,7 @@ function buildSlackQueuedOutboxMetadata(input: {
     externalThreadReference: formatSlackOutboundReference(input.outbound.targetExternalThreadId),
     agentId,
     botBindingId: agentId ? input.integration?.id : undefined,
-    attachmentsUploaded: false,
+    attachmentsUploaded: input.source === "slack_file_upload" ? undefined : false,
     attachmentCount: input.attachmentCount && input.attachmentCount > 0 ? input.attachmentCount : undefined,
   };
 }
@@ -1171,19 +1625,67 @@ function resolveSlackAgentStatusCardView(status: SlackAgentStatusCardStatus): {
   }
 }
 
+function normalizeSlackFileUploadItems(attachments: MessageAttachment[]): SlackFileUploadItem[] {
+  return attachments
+    .filter(isSendableSlackAttachment)
+    .map((attachment) => ({
+      attachmentId: attachment.id,
+      filename: truncateSlackFileName(attachment.fileName || "attachment"),
+      title: truncateSlackFileName(attachment.fileName || "attachment"),
+      mediaType: attachment.mediaType,
+      sizeBytes: attachment.sizeBytes,
+      storedPath: attachment.storedPath,
+    }))
+    .filter((file) => file.attachmentId && file.filename && file.storedPath && file.sizeBytes > 0)
+    .slice(0, 10);
+}
+
+function buildSlackQueuedFileUploadMetadata(files: SlackFileUploadItem[]): Array<Record<string, unknown>> {
+  return files.map((file) => ({
+    attachmentId: file.attachmentId,
+    fileName: file.filename,
+    mediaType: file.mediaType,
+    sizeBytes: file.sizeBytes,
+    uploadStatus: "pending",
+    rawSlackFileIdStored: false,
+  }));
+}
+
+function buildSlackFileUploadEvidenceMetadata(
+  files: SlackFileUploadItem[],
+  fileRefs: string[] | undefined,
+): Array<Record<string, unknown>> {
+  return files.map((file, index) => ({
+    attachmentId: file.attachmentId,
+    fileName: file.filename,
+    mediaType: file.mediaType,
+    sizeBytes: file.sizeBytes,
+    fileRef: fileRefs?.[index],
+    uploadStatus: "sent",
+    rawSlackFileIdStored: false,
+  }));
+}
+
 function appendSlackAttachmentNotice(text: string, attachments: MessageAttachment[] | undefined): string {
   const count = countSendableSlackAttachments(attachments);
   if (count <= 0) {
     return text;
   }
   const suffix = count === 1
-    ? "[1 attachment is available in AgentSpace. Slack file upload is not enabled for this integration yet.]"
-    : `[${count} attachments are available in AgentSpace. Slack file upload is not enabled for this integration yet.]`;
+    ? "[1 attachment will be uploaded to Slack separately.]"
+    : `[${count} attachments will be uploaded to Slack separately.]`;
   return [text, suffix].filter((part) => part.trim()).join("\n\n");
 }
 
 function countSendableSlackAttachments(attachments: MessageAttachment[] | undefined): number {
-  return (attachments ?? []).filter((attachment) => !attachment.deletedAt).length;
+  return (attachments ?? []).filter(isSendableSlackAttachment).length;
+}
+
+function isSendableSlackAttachment(attachment: MessageAttachment): boolean {
+  return !attachment.deletedAt &&
+    Boolean(attachment.id) &&
+    Boolean(attachment.storedPath) &&
+    attachment.sizeBytes > 0;
 }
 
 function readSlackBlocks(value: unknown): Record<string, unknown>[] | undefined {
@@ -1205,6 +1707,11 @@ function truncateSlackBlockText(text: string): string {
   return text.length > 2800
     ? `${text.slice(0, 2769)}\n\n[truncated by AgentSpace]`
     : text;
+}
+
+function truncateSlackFileName(value: string): string {
+  const trimmed = value.trim() || "attachment";
+  return trimmed.length > 255 ? trimmed.slice(0, 255).trimEnd() : trimmed;
 }
 
 function escapeSlackMrkdwn(value: string): string {

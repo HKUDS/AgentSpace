@@ -1,14 +1,19 @@
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 import {
   buildSlackAgentStatusCardOutboundMessage,
   buildSlackAppHomeOpenedWelcomeOutboundMessage,
   buildSlackAssistantSuggestedPromptsOutboundMessage,
+  buildSlackFileUploadOutboundMessage,
   buildSlackTextOutboundMessage,
   resolveSlackReplyTargetExternalMessageId,
   selectSlackOutboundChannelBindingForReply,
   sendSlackAssistantSuggestedPrompts,
   sendSlackChatPostMessage,
+  sendSlackFileUploadExternal,
 } from "../outbound.ts";
 
 test("builds Slack text outbound payloads with thread targets", () => {
@@ -56,6 +61,116 @@ test("sends Slack chat.postMessage payloads", async () => {
   assert.equal(calls.length, 1);
   assert.equal(calls[0]?.url, "https://slack.com/api/chat.postMessage");
   assert.equal((calls[0]?.init?.headers as Record<string, string>).Authorization, "Bearer xoxb-test");
+});
+
+test("builds Slack external file upload payloads without deprecated files.upload", () => {
+  const outbound = buildSlackFileUploadOutboundMessage({
+    targetExternalChatId: "C123",
+    targetExternalThreadId: "1783400000.000100",
+    text: "Here is the chart.",
+    attachments: [{
+      id: "att-1",
+      fileName: "chart.png",
+      mediaType: "image/png",
+      kind: "image",
+      sizeBytes: 12,
+      storedPath: "/tmp/chart.png",
+    }],
+  });
+
+  assert.equal(outbound.targetExternalChatId, "C123");
+  assert.equal(outbound.targetExternalThreadId, "1783400000.000100");
+  assert.deepEqual(outbound.payload, {
+    method: "files.completeUploadExternal",
+    channel_id: "C123",
+    thread_ts: "1783400000.000100",
+    initial_comment: "Here is the chart.",
+    files: [{
+      attachmentId: "att-1",
+      filename: "chart.png",
+      title: "chart.png",
+      mediaType: "image/png",
+      sizeBytes: 12,
+      storedPath: "/tmp/chart.png",
+    }],
+  });
+  assert.doesNotMatch(JSON.stringify(outbound), /files\.upload/);
+});
+
+test("uploads Slack files with the external upload flow", async () => {
+  const tempDir = mkdtempSync(join(tmpdir(), "agentspace-slack-upload-"));
+  const filePath = join(tempDir, "chart.png");
+  writeFileSync(filePath, Buffer.from("chart-bytes"));
+  const calls: Array<{
+    url: string;
+    init?: RequestInit;
+  }> = [];
+
+  try {
+    const result = await sendSlackFileUploadExternal({
+      botToken: "xoxb-test",
+      payload: {
+        method: "files.completeUploadExternal",
+        channel_id: "C123",
+        thread_ts: "1783400000.000100",
+        files: [{
+          attachmentId: "att-1",
+          filename: "chart.png",
+          title: "chart.png",
+          mediaType: "image/png",
+          sizeBytes: 11,
+          storedPath: filePath,
+        }],
+      },
+      fetchImpl: async (url, init) => {
+        calls.push({ url: String(url), init });
+        if (String(url).endsWith("/files.getUploadURLExternal")) {
+          return new Response(JSON.stringify({
+            ok: true,
+            upload_url: "https://files.slack.com/upload/v1/TICKET",
+            file_id: "FSECRET123",
+          }), { status: 200 });
+        }
+        if (String(url) === "https://files.slack.com/upload/v1/TICKET") {
+          return new Response("", { status: 200 });
+        }
+        if (String(url).endsWith("/files.completeUploadExternal")) {
+          return new Response(JSON.stringify({
+            ok: true,
+            files: [{ id: "FSECRET123", title: "chart.png" }],
+          }), { status: 200 });
+        }
+        return new Response(JSON.stringify({ ok: false, error: "unexpected" }), { status: 500 });
+      },
+    });
+
+    assert.equal(result.ok, true);
+    assert.equal(result.fileRefs?.length, 1);
+    assert.match(result.fileRefs?.[0] ?? "", /^ref_[a-f0-9]{8}$/);
+    assert.deepEqual(calls.map((call) => call.url), [
+      "https://slack.com/api/files.getUploadURLExternal",
+      "https://files.slack.com/upload/v1/TICKET",
+      "https://slack.com/api/files.completeUploadExternal",
+    ]);
+    const ticketBody = JSON.parse(String(calls[0]?.init?.body ?? "{}")) as Record<string, unknown>;
+    assert.deepEqual(ticketBody, {
+      filename: "chart.png",
+      length: 11,
+    });
+    assert.equal((calls[0]?.init?.headers as Record<string, string>).Authorization, "Bearer xoxb-test");
+    assert.equal((calls[1]?.init?.headers as Record<string, string>)["content-type"], "image/png");
+    assert.deepEqual(
+      JSON.parse(String(calls[2]?.init?.body ?? "{}")),
+      {
+        channel_id: "C123",
+        thread_ts: "1783400000.000100",
+        files: [{ id: "FSECRET123", title: "chart.png" }],
+      },
+    );
+    assert.equal(calls.some((call) => call.url.includes("files.upload")), false);
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
 });
 
 test("builds Slack Block Kit approval status cards with safe action values", () => {
