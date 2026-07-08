@@ -34,9 +34,9 @@ describe("SlackIntegrationSettingsPanel", () => {
     expect(screen.getByLabelText("Slack User ID")).toBeInTheDocument();
     expect(screen.getAllByText("Slack Agent").length).toBeGreaterThan(0);
     expect(screen.getByText(/Slack Conversation: launch-room/)).toBeInTheDocument();
-    expect(screen.getByText(/Slack Channel: slack:C_S...RAL/)).toBeInTheDocument();
-    expect(screen.getByText(/Conversation Reference: slack:C_S...RAL/)).toBeInTheDocument();
-    expect(screen.getByText(/User Reference: slack:U_M...INA/)).toBeInTheDocument();
+    expect(screen.getByText(/Slack Channel: ref_channel_signal/)).toBeInTheDocument();
+    expect(screen.getByText(/Conversation Reference: ref_channel_signal/)).toBeInTheDocument();
+    expect(screen.getByText(/User Reference: ref_user_mina/)).toBeInTheDocument();
     expect(screen.getByText(/Health: Healthy/)).toBeInTheDocument();
     expect(screen.getByText("Outbound Failures")).toBeInTheDocument();
     expect(screen.getByText("slack.outbound.missing_scope")).toBeInTheDocument();
@@ -53,16 +53,16 @@ describe("SlackIntegrationSettingsPanel", () => {
     expect(screen.getByText("Available Integrations")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Slack User Bindings" })).toBeInTheDocument();
     expect(screen.getByDisplayValue("Mina (mina@example.com)")).toBeDisabled();
-    expect(screen.getByText(/User Reference: slack:U_M...INA/)).toBeInTheDocument();
+    expect(screen.getByText(/User Reference: ref_user_mina/)).toBeInTheDocument();
 
     expect(screen.queryByText("Create Slack Integration")).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Slack Apps" })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Slack Channel Mappings" })).not.toBeInTheDocument();
     expect(screen.queryByText("Outbound Failures")).not.toBeInTheDocument();
     expect(screen.queryByText("launch-room")).not.toBeInTheDocument();
-    expect(screen.queryByText(/slack:C_S...RAL/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/ref_channel_signal/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Kai/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/slack:U_K...AIT/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/ref_user_kai/)).not.toBeInTheDocument();
   });
 });
 
@@ -129,7 +129,7 @@ const integration: SlackIntegrationSettingsItem = {
       id: "user-binding-mina",
       integrationId: "slack-1",
       userId: "user-mina",
-      externalUserReference: "slack:U_M...INA",
+      externalUserReference: "ref_user_mina",
       externalUserIdRedacted: true,
       displayName: "Mina Slack",
       status: "active",
@@ -140,7 +140,7 @@ const integration: SlackIntegrationSettingsItem = {
       id: "user-binding-kai",
       integrationId: "slack-1",
       userId: "user-kai",
-      externalUserReference: "slack:U_K...AIT",
+      externalUserReference: "ref_user_kai",
       externalUserIdRedacted: true,
       displayName: "Kai Slack",
       status: "active",
@@ -153,7 +153,7 @@ const integration: SlackIntegrationSettingsItem = {
       id: "channel-binding-general",
       integrationId: "slack-1",
       channelName: "general",
-      externalChannelReference: "slack:C_S...RAL",
+      externalChannelReference: "ref_channel_signal",
       externalChannelIdRedacted: true,
       externalChannelType: "channel",
       externalChannelName: "launch-room",
@@ -168,9 +168,9 @@ const integration: SlackIntegrationSettingsItem = {
       id: "outbox-1",
       integrationId: "slack-1",
       channelBindingId: "channel-binding-general",
-      targetExternalChannelReference: "slack:C_S...RAL",
+      targetExternalChannelReference: "ref_channel_signal",
       targetExternalChannelIdRedacted: true,
-      targetExternalThreadReference: "slack:1720...0100",
+      targetExternalThreadReference: "ref_thread_primary",
       targetExternalThreadIdRedacted: true,
       status: "failed",
       attempts: 2,
@@ -183,7 +183,7 @@ const integration: SlackIntegrationSettingsItem = {
     {
       id: "event-1",
       integrationId: "slack-1",
-      externalEventReference: "slack:Ev...001",
+      externalEventReference: "ref_event_mention",
       externalEventIdRedacted: true,
       eventType: "event_callback:app_mention",
       status: "ignored",
@@ -191,7 +191,7 @@ const integration: SlackIntegrationSettingsItem = {
       receivedAt: "2026-07-08T00:02:00.000Z",
       bindingSuggestion: {
         kind: "channel",
-        externalChannelReference: "slack:C_N...EED",
+        externalChannelReference: "ref_channel_needed",
         externalChannelIdRedacted: true,
       },
     },

@@ -1165,6 +1165,7 @@ rawPayload = summarized payload or original safe subset
 - Slack inbound 传给 AgentSpace message 的 `externalInput.actor.externalActorReference` 现在使用 `ref_...` 脱敏引用，不再使用 `slack:<raw user id>`，避免 raw Slack user id 进入 workspace message / agent context。
 - daemon task prompt 现在有 Slack 专项回归：`externalInput` 中的 raw Slack event id、message ts、channel id 和 actor user id 都不会进入 agent prompt，只会以 `ref_...` 安全引用或已脱敏 `externalContext` 摘要出现。
 - Slack CLI `create` / `bind-agent-bot` / `disable-agent-bot` 的用户可见摘要现在只输出 `appReference` / `teamReference`，`bind-channel` / `bind-user` 只输出 `ref_...` external references，不再回显 raw Slack app/team/channel/user id 或首尾片段；`apps/cli/src/commands/integrations.test.ts` 覆盖这些 JSON 输出脱敏。
+- Slack Web settings 的绑定、出站失败和入站事件测试夹具现在只使用哈希式 `ref_...` 引用；`slack-settings-data` 测试也会断言设置摘要不包含 saved channel/user/event/thread 原始 ID 或首尾片段。
 - strict final evidence 要求累积 artifact 的每条 live run 都自带 workspace/integration/app/team context，且逐条满足 24 小时 freshness；只有旧版单 run artifact 才允许回退使用顶层 context，避免历史 contextless 或 stale runs 在追加新 run 后被误复用。
 - strict final evidence 报告现在有顶层 `blockers` 字段；只有整份 report 未满足时才聚合 `active_slack_integration_missing`、`slack_live_smoke_evidence_missing`、相关 integration 级 blockers 和 live artifact / 本地 evidence integration mismatch。workspace-wide 已通过时，其他未满足 integration 的问题仍保留在 `integrations[].blockers`，不会误报为 report 失败原因。
 - strict Slack evidence 会忽略超过 24 小时的本地 event / mapping / outbox 证据；如果旧记录本可满足门禁但 fresh 证据不足，最终报告会以 `local_evidence_stale` 阻断，避免用历史 smoke 误通过验收。

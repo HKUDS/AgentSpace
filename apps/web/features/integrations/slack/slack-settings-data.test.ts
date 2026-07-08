@@ -53,9 +53,11 @@ vi.mock("@agent-space/services", () => ({
     },
   }),
   buildSlackReference: (value: string) => {
-    const first = value.charCodeAt(0).toString(16);
-    const last = value.charCodeAt(value.length - 1).toString(16);
-    return `ref_${value.length}_${first}_${last}`;
+    let hash = 2166136261;
+    for (let index = 0; index < value.length; index += 1) {
+      hash = Math.imul(hash ^ value.charCodeAt(index), 16777619) >>> 0;
+    }
+    return `ref_${value.length}_${hash.toString(36)}`;
   },
   SLACK_DEFAULT_SCOPES: ["app_mentions:read", "chat:write"],
   SLACK_EVENT_CALLBACK_PATH: "/api/integrations/slack/events",
@@ -315,9 +317,11 @@ describe("Slack settings data", () => {
 });
 
 function expectedSlackReference(value: string): string {
-  const first = value.charCodeAt(0).toString(16);
-  const last = value.charCodeAt(value.length - 1).toString(16);
-  return `ref_${value.length}_${first}_${last}`;
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = Math.imul(hash ^ value.charCodeAt(index), 16777619) >>> 0;
+  }
+  return `ref_${value.length}_${hash.toString(36)}`;
 }
 
 function buildIntegration() {
