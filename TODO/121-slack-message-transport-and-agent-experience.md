@@ -721,20 +721,20 @@ deploy/slack-worker/slack-worker.env.example
 
 ### Phase 2：credentials 加密和 create/list
 
-- [ ] 新增 `credentials.ts`。
-- [ ] 支持 `AGENT_SPACE_SLACK_CREDENTIAL_ENCRYPTION_KEY`，fallback 到 `AGENT_SPACE_INTEGRATION_CREDENTIAL_ENCRYPTION_KEY`。
-- [ ] 加 `buildEncryptedSlackCredentials(...)`。
-- [ ] 加 `readSlackIntegrationCredentials(...)`。
-- [ ] 加 `summarizeSlackStoredCredentials(...)`。
-- [ ] CLI 支持 `integrations slack create`。
-- [ ] Web action 支持 create Slack integration。
-- [ ] Settings data 能列出 Slack integration。
+- [x] 新增 `credentials.ts`。
+- [x] 支持 `AGENT_SPACE_SLACK_CREDENTIAL_ENCRYPTION_KEY`，fallback 到 `AGENT_SPACE_INTEGRATION_CREDENTIAL_ENCRYPTION_KEY`。
+- [x] 加 `buildEncryptedSlackCredentials(...)`。
+- [x] 加 `readSlackIntegrationCredentials(...)`。
+- [x] 加 `summarizeSlackStoredCredentials(...)`。
+- [x] CLI 支持 `integrations slack create`。
+- [x] Web action 支持 create Slack integration。
+- [x] Settings data 能列出 Slack integration。
 
 验收：
 
-- [ ] credentials 不进入 snapshot / logs / tests snapshot。
-- [ ] placeholder token 被拒绝。
-- [ ] 缺少 encryption key 给出结构化 next step。
+- [x] credentials 不进入 settings summary / create payload / tests snapshot。
+- [x] placeholder token 被拒绝。
+- [x] 缺少或无效 encryption key 给出结构化错误 / setup 指引。
 
 ### Phase 3：HTTP Events API
 
@@ -995,28 +995,28 @@ rawPayload = summarized payload or original safe subset
 
 ### Unit tests
 
-- [ ] `packages/services/src/integrations/providers/slack/__tests__/events.test.ts`
-- [ ] `normalize-message.test.ts`
-- [ ] `inbound.test.ts`
-- [ ] `outbound.test.ts`
+- [x] `packages/services/src/integrations/providers/slack/__tests__/events.test.ts`
+- [x] `normalize-message.test.ts`
+- [x] `inbound-db.test.ts`
+- [x] `outbound.test.ts`
 - [x] `interactions.test.ts`
-- [ ] `credentials.test.ts`
-- [ ] `health.test.ts`
-- [ ] `socket-worker.test.ts`
+- [x] `credentials.test.ts`
+- [x] `health.test.ts`
+- [x] `socket-worker.test.ts`
 
 覆盖：
 
-- [ ] signature valid / invalid / stale。
-- [ ] url verification challenge。
-- [ ] app mention normalization。
-- [ ] DM normalization。
-- [ ] self/bot event ignored。
-- [ ] duplicate event ignored。
-- [ ] missing binding ignored。
+- [x] signature valid / invalid / stale。
+- [x] url verification challenge。
+- [x] app mention normalization。
+- [x] DM normalization。
+- [x] self/bot event ignored。
+- [x] duplicate event ignored。
+- [x] missing binding ignored。
 - [ ] permission denied ignored with notice。
-- [ ] outbox success。
-- [ ] outbox rate limit retry。
-- [ ] outbox terminal provider error。
+- [x] outbox success。
+- [x] outbox rate limit retry。
+- [x] outbox terminal provider error。
 - [x] Block Kit approval action parsing / payload hash。
 
 ### DB tests

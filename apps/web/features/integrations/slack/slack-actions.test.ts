@@ -204,6 +204,50 @@ describe("Slack actions", () => {
     expect(JSON.stringify(mockCreateExternalIntegrationSync.mock.calls[0]?.[0])).not.toContain("xoxb-real");
   });
 
+  it("rejects generated Slack setup placeholders before writing", async () => {
+    await expect(createSlackIntegrationAction({
+      displayName: "Slack",
+      transportMode: "http_webhook",
+      appId: "CHANGE_ME_SLACK_APP_ID",
+      teamId: "T111",
+      botToken: "xoxb-real",
+      signingSecret: "signing-real",
+    })).rejects.toThrow("slack.integration.placeholder_value");
+
+    expect(mockBuildEncryptedSlackCredentials).not.toHaveBeenCalled();
+    expect(mockCreateExternalIntegrationSync).not.toHaveBeenCalled();
+  });
+
+  it("returns structured Slack credential encryption setup errors", async () => {
+    mockBuildEncryptedSlackCredentials.mockImplementationOnce(() => {
+      throw new Error("AGENT_SPACE_SLACK_CREDENTIAL_ENCRYPTION_KEY is required to store Slack credentials.");
+    });
+
+    await expect(createSlackIntegrationAction({
+      displayName: "Slack",
+      transportMode: "http_webhook",
+      appId: "A111",
+      teamId: "T111",
+      botToken: "xoxb-real",
+      signingSecret: "signing-real",
+    })).rejects.toThrow("slack.integration.credential_encryption_key_missing");
+
+    mockBuildEncryptedSlackCredentials.mockImplementationOnce(() => {
+      throw new Error("AGENT_SPACE_SLACK_CREDENTIAL_ENCRYPTION_KEY must be a base64-encoded 32-byte key.");
+    });
+
+    await expect(createSlackIntegrationAction({
+      displayName: "Slack",
+      transportMode: "http_webhook",
+      appId: "A111",
+      teamId: "T111",
+      botToken: "xoxb-real",
+      signingSecret: "signing-real",
+    })).rejects.toThrow("slack.integration.credential_encryption_key_invalid");
+
+    expect(mockCreateExternalIntegrationSync).not.toHaveBeenCalled();
+  });
+
   it("requires an app-level token for Socket Mode integrations", async () => {
     await expect(createSlackIntegrationAction({
       displayName: "Slack",
