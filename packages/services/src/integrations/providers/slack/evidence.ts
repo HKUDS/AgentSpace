@@ -71,6 +71,7 @@ export interface SlackLiveSmokeEvidenceVerification {
     appMentionMessageRefs: string[];
     appMentionMessageRefsByIntegration: Record<string, string[]>;
     appMentionProofsByIntegration: Record<string, SlackLiveAppMentionProof[]>;
+    fileUploadChannelReferencesByIntegration: Record<string, string[]>;
     unsafeRawValueCount: number;
     malformedReferenceCount: number;
   };
@@ -133,6 +134,8 @@ export interface SlackEvidenceIntegrationItem {
     storedInboundFileMappings: number;
     outboundUploadEvidence: number;
     threadCorrelatedOutboundUploadEvidence: number;
+    liveFileUploadChannelCorrelationRequired: boolean;
+    liveFileUploadChannelCorrelatedEvidence: number;
     unsafeFileMetadataRows: number;
   };
   freshness: {
@@ -212,6 +215,7 @@ export function buildSlackEvidenceReport(input: {
     required,
     requireFreshEvidence: Boolean(input.strict),
     liveAppMentionProofs: liveSmokeEvidence?.summary?.appMentionProofsByIntegration?.[integration.id] ?? [],
+    liveFileUploadChannelReferences: liveSmokeEvidence?.summary?.fileUploadChannelReferencesByIntegration?.[integration.id] ?? [],
     dependencies,
   }));
   const liveSatisfiedIntegrationIds = liveSmokeEvidence?.summary?.satisfiedIntegrationIds;
@@ -379,6 +383,21 @@ export function verifySlackLiveSmokeEvidence(input: {
       }),
     ]),
   );
+  const fileUploadChannelReferencesByIntegration = Object.fromEntries(
+    expectedContext.integrations.map((integration) => [
+      integration.integrationId,
+      collectSlackLiveSmokeResultRefs({
+        artifact,
+        runs,
+        expectedContext: {
+          workspaceId: expectedContext.workspaceId,
+          integrations: [integration],
+        },
+        mode: "file_upload",
+        refKey: "channelReference",
+      }),
+    ]),
+  );
   const appMentionMessageRefs = Array.from(new Set(Object.values(appMentionMessageRefsByIntegration).flat()));
   const unsafeRawValueCount = countUnsafeSlackLiveSmokeEvidenceValues(artifact);
   const malformedReferenceCount = countMalformedSlackLiveSmokeResultReferences(runs);
@@ -417,6 +436,7 @@ export function verifySlackLiveSmokeEvidence(input: {
       appMentionMessageRefs,
       appMentionMessageRefsByIntegration,
       appMentionProofsByIntegration,
+      fileUploadChannelReferencesByIntegration,
       unsafeRawValueCount,
       malformedReferenceCount,
     },
@@ -463,6 +483,7 @@ function buildSlackEvidenceIntegrationItem(input: {
   required: SlackEvidenceRequirement;
   requireFreshEvidence: boolean;
   liveAppMentionProofs: SlackLiveAppMentionProof[];
+  liveFileUploadChannelReferences: string[];
   dependencies: SlackEvidenceDependencies;
 }): SlackEvidenceIntegrationItem {
   const { integration } = input;
@@ -499,11 +520,11 @@ function buildSlackEvidenceIntegrationItem(input: {
   const rawMessage = buildMessageEvidence(events, mappings, outbox, channelBindings, userBindings, integration, input.liveAppMentionProofs);
   const rawNativeExperience = buildNativeEvidence(events, mappings, outbox);
   const rawApprovals = buildApprovalEvidence(events, outbox);
-  const rawFiles = buildFileEvidence(events, mappings, outbox, channelBindings);
+  const rawFiles = buildFileEvidence(events, mappings, outbox, channelBindings, input.liveFileUploadChannelReferences);
   const message = buildMessageEvidence(freshEvents, freshMappings, freshOutbox, channelBindings, userBindings, integration, input.liveAppMentionProofs);
   const nativeExperience = buildNativeEvidence(freshEvents, freshMappings, freshOutbox);
   const approvals = buildApprovalEvidence(freshEvents, freshOutbox);
-  const files = buildFileEvidence(freshEvents, freshMappings, freshOutbox, channelBindings);
+  const files = buildFileEvidence(freshEvents, freshMappings, freshOutbox, channelBindings, input.liveFileUploadChannelReferences);
   const failures = {
     failedEvents: events.filter((event) => event.status === "failed").length,
     failedOutbox: outbox.filter((item) => item.status === "failed").length,
@@ -839,8 +860,12 @@ function buildFileEvidence(
   mappings: ExternalMessageMappingRecord[],
   outbox: ExternalMessageOutboxRecord[],
   channelBindings: ExternalChannelBindingRecord[],
+  liveFileUploadChannelReferences: string[],
 ): SlackEvidenceIntegrationItem["files"] {
   const channelBindingById = new Map(channelBindings.map((binding) => [binding.id, binding]));
+  const liveFileUploadChannelReferenceSet = new Set(liveFileUploadChannelReferences.filter((reference) =>
+    isSafeSlackLiveSmokeResultReference("channelReference", reference)
+  ));
   const inboundFileMetadataEvents = events.filter((event) =>
     event.status === "processed" && hasSlackFileMetadataEvidence(event.payloadJson)
   ).length;
@@ -861,10 +886,15 @@ function buildFileEvidence(
     (hasSlackOutboundFileUploadEvidence(item.metadataJson) || hasSlackOutboundFileUploadEvidence(item.payloadJson))
   );
   const outboundUploadEvidence = outboundUploadItems.length;
-  const threadCorrelatedOutboundUploadEvidence = outboundUploadItems.filter((item) =>
+  const threadCorrelatedOutboundUploadItems = outboundUploadItems.filter((item) =>
     storedInboundFileMappingItems.some((mapping) =>
       slackFileUploadOutboxCorrelatesWithStoredInboundMapping(item, mapping, channelBindingById)
     )
+  );
+  const threadCorrelatedOutboundUploadEvidence = threadCorrelatedOutboundUploadItems.length;
+  const liveFileUploadChannelCorrelationRequired = liveFileUploadChannelReferenceSet.size > 0;
+  const liveFileUploadChannelCorrelatedEvidence = threadCorrelatedOutboundUploadItems.filter((item) =>
+    liveFileUploadChannelReferenceSet.has(buildSlackTypedReference("channel", item.targetExternalChatId))
   ).length;
   const unsafeFileMetadataRows = [
     ...events.map((event) => event.payloadJson),
@@ -877,6 +907,7 @@ function buildFileEvidence(
       storedInboundFileMappings > 0 &&
       outboundUploadEvidence > 0 &&
       threadCorrelatedOutboundUploadEvidence > 0 &&
+      (!liveFileUploadChannelCorrelationRequired || liveFileUploadChannelCorrelatedEvidence > 0) &&
       unsafeFileMetadataRows === 0,
     inboundFileMetadataEvents,
     inboundFileMetadataMappings,
@@ -884,6 +915,8 @@ function buildFileEvidence(
     storedInboundFileMappings,
     outboundUploadEvidence,
     threadCorrelatedOutboundUploadEvidence,
+    liveFileUploadChannelCorrelationRequired,
+    liveFileUploadChannelCorrelatedEvidence,
     unsafeFileMetadataRows,
   };
 }
@@ -1016,6 +1049,13 @@ function buildSlackFileEvidenceBlockers(files: SlackEvidenceIntegrationItem["fil
     files.threadCorrelatedOutboundUploadEvidence === 0
   ) {
     blockers.push("slack_file_upload_thread_correlation_missing");
+  }
+  if (
+    files.liveFileUploadChannelCorrelationRequired &&
+    files.threadCorrelatedOutboundUploadEvidence > 0 &&
+    files.liveFileUploadChannelCorrelatedEvidence === 0
+  ) {
+    blockers.push("slack_live_file_upload_channel_correlation_missing");
   }
   if (files.unsafeFileMetadataRows > 0) {
     blockers.push("slack_file_metadata_unsafe");

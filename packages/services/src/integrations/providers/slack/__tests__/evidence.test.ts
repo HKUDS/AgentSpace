@@ -1315,11 +1315,16 @@ test("Slack evidence can gate strict all on redacted live smoke evidence", () =>
   assert.deepEqual(report.liveSmokeEvidence?.summary?.appMentionMessageRefsByIntegration?.["slack-1"], [
     buildSlackReference(SLACK_SMOKE_APP_MENTION_MESSAGE_ID),
   ]);
+  assert.deepEqual(report.liveSmokeEvidence?.summary?.fileUploadChannelReferencesByIntegration?.["slack-1"], [
+    `channel ${buildSlackReference("C123LIVE")}`,
+  ]);
   assert.equal(report.integrations[0]?.message.liveAppMentionCorrelationRequired, true);
   assert.equal(report.integrations[0]?.message.liveAppMentionInboundMappings, 1);
   assert.equal(report.integrations[0]?.message.liveAppMentionOutboundReplies, 2);
   assert.equal(report.integrations[0]?.message.liveAppMentionChannelCorrelatedInboundMappings, 1);
   assert.equal(report.integrations[0]?.message.liveAppMentionChannelCorrelatedOutboundReplies, 2);
+  assert.equal(report.integrations[0]?.files.liveFileUploadChannelCorrelationRequired, true);
+  assert.equal(report.integrations[0]?.files.liveFileUploadChannelCorrelatedEvidence, 1);
   assert.equal(report.liveSmokeEvidence?.summary?.unsafeRawValueCount, 0);
   assert.doesNotMatch(JSON.stringify(report), /xoxb|xoxp|C123LIVE|UBOTLIVE|FSMOKEFILE123|1783400001\.000200/);
 
@@ -1437,6 +1442,31 @@ test("Slack evidence correlates live app mention local proof by channel and thre
   assert.ok(report.integrations[0]?.blockers.includes("slack_live_app_mention_channel_correlation_missing"));
   assert.ok(report.blockers.includes("slack_live_app_mention_channel_correlation_missing"));
   assert.doesNotMatch(JSON.stringify(report), /CWRONGLIVE|C123LIVE|1783400001/);
+});
+
+test("Slack evidence correlates live file upload proof by channel", () => {
+  const report = buildSlackEvidenceReport({
+    workspaceId: "workspace-1",
+    strict: true,
+    required: "all",
+    requireLiveSmokeEvidence: true,
+    liveSmokeEvidence: makeLiveSmokeEvidence(),
+    dependencies: makeCompleteSlackEvidenceDependencies({
+      fileUploadExternalChatId: "CWRONGFILELIVE",
+      storedFileExternalChatId: "CWRONGFILELIVE",
+    }),
+  });
+
+  assert.equal(report.liveSmokeEvidence?.valid, true);
+  assert.equal(report.integrations[0]?.message.liveAppMentionChannelCorrelatedInboundMappings, 1);
+  assert.equal(report.integrations[0]?.message.liveAppMentionChannelCorrelatedOutboundReplies, 2);
+  assert.equal(report.integrations[0]?.files.threadCorrelatedOutboundUploadEvidence, 1);
+  assert.equal(report.integrations[0]?.files.liveFileUploadChannelCorrelationRequired, true);
+  assert.equal(report.integrations[0]?.files.liveFileUploadChannelCorrelatedEvidence, 0);
+  assert.equal(report.strictSatisfied, false);
+  assert.ok(report.integrations[0]?.blockers.includes("slack_live_file_upload_channel_correlation_missing"));
+  assert.ok(report.blockers.includes("slack_live_file_upload_channel_correlation_missing"));
+  assert.doesNotMatch(JSON.stringify(report), /CWRONGFILELIVE|C123LIVE|1783400001/);
 });
 
 test("Slack evidence strict all correlates live app mentions with local inbound and reply proof", () => {
@@ -2117,10 +2147,14 @@ function makeCompleteSlackEvidenceDependencies(input: {
   integration?: ExternalIntegrationRecord;
   channelExternalChatId?: string;
   replyExternalChatId?: string;
+  fileUploadExternalChatId?: string;
+  storedFileExternalChatId?: string;
 } = {}): Parameters<typeof buildSlackEvidenceReport>[0]["dependencies"] {
   const timestamp = input.timestamp ?? freshTimestamp();
   const channelExternalChatId = input.channelExternalChatId ?? "C123LIVE";
   const replyExternalChatId = input.replyExternalChatId ?? channelExternalChatId;
+  const fileUploadExternalChatId = input.fileUploadExternalChatId ?? channelExternalChatId;
+  const storedFileExternalChatId = input.storedFileExternalChatId ?? channelExternalChatId;
   return {
     listIntegrations: () => [input.integration ?? makeIntegration()],
     listChannelBindings: () => [makeChannelBinding({ externalChatId: channelExternalChatId })],
@@ -2165,7 +2199,7 @@ function makeCompleteSlackEvidenceDependencies(input: {
           slackFileCount: 1,
           slackStoredAttachmentCount: 1,
           slackFileDownloadStatus: "stored_attachment",
-          externalChatReference: buildSlackReference(channelExternalChatId),
+          externalChatReference: buildSlackReference(storedFileExternalChatId),
           agentContext: {
             entities: [{ type: "slack#/types/channel_id", valueRef: "ref_safechan" }],
           },
@@ -2243,13 +2277,13 @@ function makeCompleteSlackEvidenceDependencies(input: {
         updatedAt: timestamp,
         sentAt: timestamp,
         status: "sent",
-        targetExternalChatId: channelExternalChatId,
+        targetExternalChatId: fileUploadExternalChatId,
         targetExternalThreadId: SLACK_SMOKE_APP_MENTION_MESSAGE_ID,
         metadataJson: {
           provider: "slack",
           outboxSource: "slack_file_upload",
           slackUploadFlow: "external_upload",
-          externalChatReference: buildSlackReference(channelExternalChatId),
+          externalChatReference: buildSlackReference(fileUploadExternalChatId),
           externalThreadReference: buildSlackReference(SLACK_SMOKE_APP_MENTION_MESSAGE_ID),
         },
       }),
