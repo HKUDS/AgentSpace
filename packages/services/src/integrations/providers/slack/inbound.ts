@@ -78,6 +78,12 @@ export interface SlackInboundProcessDependencies {
   readMessageMappingByExternalMessage?: typeof readExternalMessageMappingByExternalMessageSync;
   readChannelBindingByExternalChat?: typeof readExternalChannelBindingByExternalChatSync;
   readUserBindingByExternalUser?: typeof readExternalUserBindingByExternalUserSync;
+  readUser?: typeof readUserSync;
+  readWorkspaceMembership?: typeof readWorkspaceMembershipSync;
+  canWriteChannelForActor?: typeof canWriteChannelForActorSync;
+  sendChannelHumanMessage?: typeof sendChannelHumanMessageSync;
+  createMessageMapping?: typeof createExternalMessageMappingSync;
+  createNoticeOutbox?: typeof createExternalMessageOutboxSync;
 }
 
 interface SlackInboundPreparedDispatch {
@@ -101,6 +107,12 @@ interface ResolvedSlackInboundProcessDependencies {
   readMessageMappingByExternalMessage: typeof readExternalMessageMappingByExternalMessageSync;
   readChannelBindingByExternalChat: typeof readExternalChannelBindingByExternalChatSync;
   readUserBindingByExternalUser: typeof readExternalUserBindingByExternalUserSync;
+  readUser: typeof readUserSync;
+  readWorkspaceMembership: typeof readWorkspaceMembershipSync;
+  canWriteChannelForActor: typeof canWriteChannelForActorSync;
+  sendChannelHumanMessage: typeof sendChannelHumanMessageSync;
+  createMessageMapping: typeof createExternalMessageMappingSync;
+  createNoticeOutbox: typeof createExternalMessageOutboxSync;
 }
 
 type SlackInboundPrepareResult =
@@ -300,15 +312,15 @@ function prepareSlackInboundDispatchSync(input: ProcessSlackInboundEventInput): 
     };
   }
 
-  const user = readUserSync(userBinding.userId);
-  const membership = readWorkspaceMembershipSync(input.context.workspaceId, userBinding.userId);
+  const user = dependencies.readUser(userBinding.userId);
+  const membership = dependencies.readWorkspaceMembership(input.context.workspaceId, userBinding.userId);
   const displayName = user?.displayName ?? userBinding.displayName ?? `Slack ${message.externalSenderId}`;
   const text = ensureSlackAgentMentionText({
     text: message.text ?? "",
     agentId: input.integration?.agentId,
   });
   const agentContext = summarizeSlackAgentContextPayload(input.payload);
-  if (!membership || !canWriteChannelForActorSync({
+  if (!membership || !dependencies.canWriteChannelForActor({
     workspaceId: input.context.workspaceId,
     channelName: channelBinding.channelName,
     actor: {
@@ -326,12 +338,14 @@ function prepareSlackInboundDispatchSync(input: ProcessSlackInboundEventInput): 
       agentContext,
       reasonCode: "slack.channel_access_denied",
       dispatchStatus: "ignored",
+      dependencies,
     });
     const noticeOutbox = queueSlackInboundNoticeSync({
       context: input.context,
       message,
       channelBindingId: channelBinding.id,
       text: "Your Slack identity is linked, but your AgentSpace account cannot access this channel. Ask an AgentSpace admin to add you to the channel before retrying.",
+      dependencies,
     });
     return {
       ready: false,
@@ -368,12 +382,14 @@ function prepareSlackInboundDispatchSync(input: ProcessSlackInboundEventInput): 
       agentContext,
       reasonCode: routeGuard.reasonCode,
       dispatchStatus: "ignored",
+      dependencies,
     });
     const noticeOutbox = queueSlackInboundNoticeSync({
       context: input.context,
       message,
       channelBindingId: channelBinding.id,
       text: "Your AgentSpace account cannot use this Slack agent in the mapped channel. Ask an AgentSpace admin to review agent and runtime access.",
+      dependencies,
     });
     return {
       ready: false,
@@ -419,7 +435,7 @@ function dispatchPreparedSlackInboundEventSync(input: SlackInboundPreparedDispat
   });
   let state: AgentSpaceState;
   try {
-    state = sendChannelHumanMessageSync(
+    state = input.dependencies.sendChannelHumanMessage(
       input.channelBinding.channelName,
       input.displayName,
       input.text,
@@ -486,7 +502,7 @@ function dispatchPreparedSlackInboundEventSync(input: SlackInboundPreparedDispat
     attachments: input.message.attachments,
     downloadedAttachments: input.attachments,
   });
-  const mapping = createExternalMessageMappingSync({
+  const mapping = input.dependencies.createMessageMapping({
     workspaceId: input.context.workspaceId,
     integrationId: input.context.integrationId,
     channelBindingId: input.channelBinding.id,
@@ -578,8 +594,9 @@ function createSlackInboundMapping(input: {
   agentContext: ReturnType<typeof summarizeSlackAgentContextPayload>;
   dispatchStatus: SlackInboundProcessResult["dispatchStatus"] | "dispatching";
   reasonCode?: string;
+  dependencies: Pick<ResolvedSlackInboundProcessDependencies, "createMessageMapping">;
 }): ExternalMessageMappingRecord {
-  return createExternalMessageMappingSync({
+  return input.dependencies.createMessageMapping({
     workspaceId: input.context.workspaceId,
     integrationId: input.context.integrationId,
     channelBindingId: input.channelBinding.id,
@@ -608,12 +625,13 @@ function queueSlackInboundNoticeSync(input: {
   message: ExternalMessageEnvelope;
   channelBindingId?: string;
   text: string;
+  dependencies: Pick<ResolvedSlackInboundProcessDependencies, "createNoticeOutbox">;
 }): ExternalMessageOutboxRecord {
   const notice = buildSlackInboundPermissionNoticeOutbox({
     message: input.message,
     text: input.text,
   });
-  return createExternalMessageOutboxSync({
+  return input.dependencies.createNoticeOutbox({
     workspaceId: input.context.workspaceId,
     integrationId: input.context.integrationId,
     channelBindingId: input.channelBindingId,
@@ -714,7 +732,7 @@ function finishFailedDispatch(input: SlackInboundPreparedDispatch & {
     downloadedAttachments: [],
     failed: true,
   });
-  const mapping = createExternalMessageMappingSync({
+  const mapping = input.dependencies.createMessageMapping({
     workspaceId: input.context.workspaceId,
     integrationId: input.context.integrationId,
     channelBindingId: input.channelBinding.id,
@@ -753,6 +771,12 @@ function resolveSlackInboundProcessDependencies(
       ?? readExternalChannelBindingByExternalChatSync,
     readUserBindingByExternalUser: dependencies?.readUserBindingByExternalUser
       ?? readExternalUserBindingByExternalUserSync,
+    readUser: dependencies?.readUser ?? readUserSync,
+    readWorkspaceMembership: dependencies?.readWorkspaceMembership ?? readWorkspaceMembershipSync,
+    canWriteChannelForActor: dependencies?.canWriteChannelForActor ?? canWriteChannelForActorSync,
+    sendChannelHumanMessage: dependencies?.sendChannelHumanMessage ?? sendChannelHumanMessageSync,
+    createMessageMapping: dependencies?.createMessageMapping ?? createExternalMessageMappingSync,
+    createNoticeOutbox: dependencies?.createNoticeOutbox ?? createExternalMessageOutboxSync,
   };
 }
 

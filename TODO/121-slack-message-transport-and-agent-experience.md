@@ -805,26 +805,28 @@ rawPayload = summarized payload or original safe subset
 
 - [x] 新增 `inbound.ts`。
 - [ ] 复用 Feishu inbound 的处理结构，但抽出 provider neutral helper 的候选点。
-- [ ] 读取 channel binding：
-  - [ ] Slack channel id -> AgentSpace channel。
-  - [ ] 未绑定 channel -> 记录 ignored / queue setup notice。
-- [ ] 读取 user binding：
-  - [ ] Slack user id -> AgentSpace user。
-  - [ ] 未绑定 user -> 记录 ignored / queue identity notice。
-- [ ] 校验 channel write / runtime access / agent usage。
-- [ ] 调 `sendChannelHumanMessageSync(...)`。
-- [ ] 写 `external_message_mapping`。
+- [x] 读取 channel binding：
+  - [x] Slack channel id -> AgentSpace channel。
+  - [x] 未绑定 channel -> 记录 ignored。
+  - [ ] 未绑定 channel -> queue setup notice。
+- [x] 读取 user binding：
+  - [x] Slack user id -> AgentSpace user。
+  - [x] 未绑定 user -> 记录 ignored。
+  - [ ] 未绑定 user -> queue identity notice。
+- [x] 校验 channel write / runtime access / agent usage。
+- [x] 调 `sendChannelHumanMessageSync(...)`。
+- [x] 写 `external_message_mapping`。
 - [x] 写 thread binding。
-- [ ] 支持 `externalInput.provider = "slack"`。
-- [ ] 入站失败写 `external_integration_event.status = failed`。
+- [x] 支持 `externalInput.provider = "slack"`。
+- [x] 入站失败写 `external_integration_event.status = failed`。
 
 验收：
 
 - [ ] 绑定用户在绑定 channel @agent 可创建 task。
 - [x] 未绑定用户不会创建 task。
 - [x] 未绑定 channel 不会创建 task。
-- [ ] 权限不足不会创建 task。
-- [ ] duplicate event 不会重复创建 task。
+- [x] 权限不足不会创建 task。
+- [x] duplicate event 不会重复创建 task。
 
 ### Phase 6：出站和 outbox drain
 

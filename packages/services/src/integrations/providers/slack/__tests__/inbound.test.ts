@@ -4,6 +4,10 @@ import type {
   ExternalChannelBindingRecord,
   ExternalIntegrationEventRecord,
   ExternalMessageMappingRecord,
+  ExternalMessageOutboxRecord,
+  ExternalUserBindingRecord,
+  StoredUserRecord,
+  StoredWorkspaceMembershipRecord,
 } from "@agent-space/db";
 import {
   buildSlackInboundPermissionNoticeOutbox,
@@ -223,6 +227,295 @@ test("ignores Slack messages when the sender is not bound", () => {
   ]);
 });
 
+test("dispatches bound Slack messages through AgentSpace and records inbound mappings", () => {
+  const event = buildExternalIntegrationEvent({
+    externalEventId: "EvDispatch",
+  });
+  const channelBinding = buildExternalChannelBinding();
+  const userBinding = buildExternalUserBinding();
+  const sentMessages: Array<{
+    channelName: string;
+    speaker: string;
+    summary: string;
+    workspaceId?: string;
+    requesterUserId?: string;
+    externalInput?: Record<string, unknown>;
+  }> = [];
+  const mappingInputs: Record<string, unknown>[] = [];
+  const calls: string[] = [];
+
+  const result = processSlackInboundEventSync({
+    context,
+    payload: buildSlackMentionPayload({
+      eventId: "EvDispatch",
+      messageTs: "1783400007.000100",
+    }),
+    dependencies: {
+      recordEvent: () => {
+        calls.push("record-event");
+        return event;
+      },
+      readMessageMappingByExternalMessage: () => {
+        calls.push("read-existing-mapping");
+        return null;
+      },
+      readChannelBindingByExternalChat: (input) => {
+        calls.push("read-channel-binding");
+        assert.equal(input.externalChatId, "C123");
+        return channelBinding;
+      },
+      readUserBindingByExternalUser: (input) => {
+        calls.push("read-user-binding");
+        assert.equal(input.externalUserId, "U456");
+        return userBinding;
+      },
+      readUser: (userId) => {
+        calls.push("read-user");
+        assert.equal(userId, "user-1");
+        return buildStoredUser();
+      },
+      readWorkspaceMembership: (workspaceId, userId) => {
+        calls.push("read-membership");
+        assert.equal(workspaceId, "workspace-1");
+        assert.equal(userId, "user-1");
+        return buildWorkspaceMembership();
+      },
+      canWriteChannelForActor: (input) => {
+        calls.push("check-channel-write");
+        assert.equal(input.channelName, "general");
+        assert.equal(input.actor.userId, "user-1");
+        assert.equal(input.actor.role, "member");
+        return true;
+      },
+      sendChannelHumanMessage: (
+        channelName,
+        speaker,
+        summary,
+        _attachments,
+        _replyToMessageId,
+        workspaceId,
+        requesterUserId,
+        externalInput,
+      ) => {
+        calls.push("send-human-message");
+        sentMessages.push({
+          channelName,
+          speaker,
+          summary,
+          workspaceId,
+          requesterUserId,
+          externalInput: externalInput as Record<string, unknown>,
+        });
+        return {
+          messages: [{
+            id: "agent-space-message-1",
+            data: {
+              external_provider: SLACK_PROVIDER_ID,
+              external_message_id: "1783400007.000100",
+            },
+          }],
+        } as never;
+      },
+      createMessageMapping: (input) => {
+        calls.push("create-message-mapping");
+        mappingInputs.push(input as Record<string, unknown>);
+        return buildExternalMessageMapping({
+          externalMessageId: String(input.externalMessageId),
+          externalThreadId: String(input.externalThreadId),
+          externalEventId: String(input.externalEventId),
+          agentSpaceMessageId: input.agentSpaceMessageId,
+          metadataJson: JSON.stringify(input.metadataJson),
+        });
+      },
+      updateEventStatus: (input) => {
+        calls.push("mark-processed");
+        assert.equal(input.status, "processed");
+        return {
+          ...event,
+          status: "processed",
+        };
+      },
+    },
+  });
+
+  assert.equal(result.dispatchStatus, "sent");
+  assert.equal(result.event.status, "processed");
+  assert.equal(result.mappedChannelName, "general");
+  assert.equal(result.agentSpaceMessageId, "agent-space-message-1");
+  assert.equal(sentMessages.length, 1);
+  assert.deepEqual(sentMessages[0], {
+    channelName: "general",
+    speaker: "Mina",
+    summary: "dispatch safely",
+    workspaceId: "workspace-1",
+    requesterUserId: "user-1",
+    externalInput: {
+      provider: SLACK_PROVIDER_ID,
+      providerLabel: "Slack",
+      externalEventId: "EvDispatch",
+      externalMessageId: "1783400007.000100",
+      externalChatId: "C123",
+      externalContext: undefined,
+      trust: "untrusted_user_message",
+      actor: {
+        actorType: "user",
+        userId: "user-1",
+        externalActorReference: "slack:U456",
+        agentId: undefined,
+        botBindingId: undefined,
+      },
+    },
+  });
+  assert.equal(mappingInputs.length, 1);
+  assert.deepEqual(mappingInputs[0], {
+    workspaceId: "workspace-1",
+    integrationId: "slack-1",
+    channelBindingId: "channel-binding-1",
+    direction: "inbound",
+    externalMessageId: "1783400007.000100",
+    externalThreadId: "1783400007.000100",
+    externalSenderId: "U456",
+    externalEventId: "EvDispatch",
+    agentSpaceMessageId: "agent-space-message-1",
+    metadataJson: {
+      provider: SLACK_PROVIDER_ID,
+      channelName: "general",
+      slackChannelType: "channel",
+      agentContext: undefined,
+      agentId: undefined,
+      botBindingId: undefined,
+      taskQueueId: undefined,
+      routerSessionId: undefined,
+      threadBindingId: undefined,
+    },
+  });
+  assert.deepEqual(calls, [
+    "record-event",
+    "read-existing-mapping",
+    "read-channel-binding",
+    "read-user-binding",
+    "read-user",
+    "read-membership",
+    "check-channel-write",
+    "send-human-message",
+    "create-message-mapping",
+    "mark-processed",
+  ]);
+});
+
+test("marks Slack inbound events failed when AgentSpace dispatch throws", () => {
+  const event = buildExternalIntegrationEvent({
+    externalEventId: "EvDispatchFailed",
+  });
+  let createMappingCalled = false;
+
+  const result = processSlackInboundEventSync({
+    context,
+    payload: buildSlackMentionPayload({
+      eventId: "EvDispatchFailed",
+      messageTs: "1783400008.000100",
+    }),
+    dependencies: {
+      recordEvent: () => event,
+      readMessageMappingByExternalMessage: () => null,
+      readChannelBindingByExternalChat: () => buildExternalChannelBinding(),
+      readUserBindingByExternalUser: () => buildExternalUserBinding(),
+      readUser: () => buildStoredUser(),
+      readWorkspaceMembership: () => buildWorkspaceMembership(),
+      canWriteChannelForActor: () => true,
+      sendChannelHumanMessage: () => {
+        throw new Error("workspace dispatch exploded");
+      },
+      createMessageMapping: () => {
+        createMappingCalled = true;
+        return buildExternalMessageMapping();
+      },
+      updateEventStatus: (input) => {
+        assert.equal(input.status, "failed");
+        assert.equal(input.errorMessage, "workspace dispatch exploded");
+        return {
+          ...event,
+          status: "failed",
+          errorMessage: input.errorMessage,
+        };
+      },
+    },
+  });
+
+  assert.equal(result.dispatchStatus, "failed");
+  assert.equal(result.reasonCode, "slack.dispatch_failed");
+  assert.equal(result.event.status, "failed");
+  assert.equal(result.event.errorMessage, "workspace dispatch exploded");
+  assert.equal(result.mapping, undefined);
+  assert.equal(createMappingCalled, false);
+});
+
+test("ignores permission-denied Slack inbound messages without dispatching tasks", () => {
+  const event = buildExternalIntegrationEvent({
+    externalEventId: "EvPermissionDenied",
+  });
+  let sendCalled = false;
+  let noticeInput: Record<string, unknown> | undefined;
+  let ignoredMappingMetadata: Record<string, unknown> | undefined;
+
+  const result = processSlackInboundEventSync({
+    context,
+    payload: buildSlackMentionPayload({
+      eventId: "EvPermissionDenied",
+      messageTs: "1783400009.000100",
+    }),
+    dependencies: {
+      recordEvent: () => event,
+      readMessageMappingByExternalMessage: () => null,
+      readChannelBindingByExternalChat: () => buildExternalChannelBinding(),
+      readUserBindingByExternalUser: () => buildExternalUserBinding(),
+      readUser: () => buildStoredUser(),
+      readWorkspaceMembership: () => buildWorkspaceMembership(),
+      canWriteChannelForActor: () => false,
+      sendChannelHumanMessage: () => {
+        sendCalled = true;
+        throw new Error("send should not run for denied users");
+      },
+      createMessageMapping: (input) => {
+        ignoredMappingMetadata = input.metadataJson as Record<string, unknown>;
+        return buildExternalMessageMapping({
+          externalMessageId: String(input.externalMessageId),
+          externalThreadId: String(input.externalThreadId),
+          externalEventId: String(input.externalEventId),
+          metadataJson: JSON.stringify(input.metadataJson),
+        });
+      },
+      createNoticeOutbox: (input) => {
+        noticeInput = input as Record<string, unknown>;
+        return buildExternalMessageOutbox(input as Partial<ExternalMessageOutboxRecord>);
+      },
+      updateEventStatus: (input) => {
+        assert.equal(input.status, "ignored");
+        assert.equal(input.errorMessage, "slack.channel_access_denied");
+        return {
+          ...event,
+          status: "ignored",
+          errorMessage: input.errorMessage,
+        };
+      },
+    },
+  });
+
+  assert.equal(result.dispatchStatus, "ignored");
+  assert.equal(result.reasonCode, "slack.channel_access_denied");
+  assert.equal(result.event.status, "ignored");
+  assert.equal(result.noticeOutbox?.targetExternalChatId, "C123");
+  assert.equal(result.noticeOutbox?.targetExternalThreadId, "1783400009.000100");
+  assert.equal(sendCalled, false);
+  assert.equal(ignoredMappingMetadata?.dispatchStatus, "ignored");
+  assert.equal(ignoredMappingMetadata?.reasonCode, "slack.channel_access_denied");
+  assert.equal(ignoredMappingMetadata?.userId, "user-1");
+  assert.equal(noticeInput?.channelBindingId, "channel-binding-1");
+  assert.equal(noticeInput?.targetExternalChatId, "C123");
+  assert.equal(noticeInput?.targetExternalThreadId, "1783400009.000100");
+  assert.doesNotMatch(JSON.stringify(noticeInput?.metadataJson), /C123|U456|1783400009\.000100/);
+});
+
 function buildSlackMentionPayload(input: {
   eventId: string;
   messageTs: string;
@@ -240,6 +533,77 @@ function buildSlackMentionPayload(input: {
       text: "<@UBOT> dispatch safely",
       ts: input.messageTs,
     },
+  };
+}
+
+function buildExternalUserBinding(
+  overrides: Partial<ExternalUserBindingRecord> = {},
+): ExternalUserBindingRecord {
+  return {
+    id: "user-binding-1",
+    workspaceId: "workspace-1",
+    integrationId: "slack-1",
+    userId: "user-1",
+    externalUserId: "U456",
+    displayName: "Mina Slack",
+    status: "active",
+    metadataJson: "{}",
+    createdAt: "2026-07-07T04:53:20.000Z",
+    updatedAt: "2026-07-07T04:53:20.000Z",
+    ...overrides,
+  };
+}
+
+function buildStoredUser(overrides: Partial<StoredUserRecord> = {}): StoredUserRecord {
+  return {
+    id: "user-1",
+    displayName: "Mina",
+    primaryEmail: "mina@example.com",
+    createdAt: "2026-07-07T04:53:20.000Z",
+    updatedAt: "2026-07-07T04:53:20.000Z",
+    ...overrides,
+  };
+}
+
+function buildWorkspaceMembership(
+  overrides: Partial<StoredWorkspaceMembershipRecord> = {},
+): StoredWorkspaceMembershipRecord {
+  return {
+    id: "membership-1",
+    workspaceId: "workspace-1",
+    userId: "user-1",
+    role: "member",
+    status: "active",
+    joinedAt: "2026-07-07T04:53:20.000Z",
+    ...overrides,
+  };
+}
+
+function buildExternalMessageOutbox(
+  overrides: Partial<ExternalMessageOutboxRecord> = {},
+): ExternalMessageOutboxRecord {
+  const payloadJson = typeof overrides.payloadJson === "string"
+    ? overrides.payloadJson
+    : JSON.stringify(overrides.payloadJson ?? {});
+  const metadataJson = typeof overrides.metadataJson === "string"
+    ? overrides.metadataJson
+    : JSON.stringify(overrides.metadataJson ?? {});
+  return {
+    id: "outbox-1",
+    workspaceId: "workspace-1",
+    integrationId: "slack-1",
+    channelBindingId: "channel-binding-1",
+    targetExternalChatId: "C123",
+    targetExternalThreadId: "1783400009.000100",
+    payloadJson,
+    metadataJson,
+    status: "pending",
+    attempts: 0,
+    createdAt: "2026-07-07T04:53:20.000Z",
+    updatedAt: "2026-07-07T04:53:20.000Z",
+    ...overrides,
+    payloadJson,
+    metadataJson,
   };
 }
 
