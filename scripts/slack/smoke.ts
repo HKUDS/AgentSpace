@@ -1296,7 +1296,7 @@ function buildSlackSmokeEvidenceVerificationNextCommands(input: {
     }
   }
   if (!input.valid) {
-    commands.push("npm run smoke:slack:verify -- --env-file scripts/slack/.env --json");
+    commands.push(`npm run smoke:slack:verify -- --verify-evidence ${input.evidencePath} --env-file scripts/slack/.env --json`);
   }
   commands.push("agent-space integrations slack outbox drain --workspace-id $AGENT_SPACE_WORKSPACE_ID --integration $AGENT_SPACE_SLACK_INTEGRATION_ID --json");
   commands.push(`agent-space integrations slack evidence --workspace-id $AGENT_SPACE_WORKSPACE_ID --integration $AGENT_SPACE_SLACK_INTEGRATION_ID --live-smoke-evidence ${input.evidencePath} --strict --require all --json`);

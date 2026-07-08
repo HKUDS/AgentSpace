@@ -84,6 +84,44 @@ test("Slack smoke evidence verifier reports missing env file as structured JSON"
   }
 });
 
+test("Slack smoke evidence verifier lets later evidence path override package default", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "agentspace-slack-smoke-"));
+  try {
+    const defaultEvidencePath = join(directory, "default-live.json");
+    const customEvidencePath = join(directory, "custom-live.json");
+    writeFileSync(defaultEvidencePath, JSON.stringify({
+      schemaVersion: 1,
+      provider: "slack",
+      runs: [],
+    }));
+    writeFileSync(customEvidencePath, JSON.stringify({
+      schemaVersion: 1,
+      provider: "slack",
+      runs: [],
+    }));
+
+    const result = await runSmokeScript([
+      "--verify-evidence",
+      defaultEvidencePath,
+      "--verify-evidence",
+      customEvidencePath,
+      "--json",
+    ]);
+
+    assert.equal(result.status, 1, result.stderr);
+    const output = JSON.parse(result.stdout) as {
+      evidencePath?: string;
+      nextCommands?: string[];
+    };
+    assert.equal(output.evidencePath, customEvidencePath);
+    assert.ok(output.nextCommands?.includes(
+      `npm run smoke:slack:verify -- --verify-evidence ${customEvidencePath} --env-file scripts/slack/.env --json`,
+    ));
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test("Slack smoke dry-run rejects placeholder env without leaking ids", () => {
   const directory = mkdtempSync(join(tmpdir(), "agentspace-slack-smoke-"));
   try {
@@ -1110,7 +1148,7 @@ test("Slack smoke evidence verifier rejects live runs from different channels", 
       `SLACK_SMOKE_LIVE_MODE=app_mention npm run smoke:slack -- --env-file scripts/slack/.env --live --evidence ${evidencePath} --json`,
       "agent-space integrations slack outbox drain --workspace-id $AGENT_SPACE_WORKSPACE_ID --integration $AGENT_SPACE_SLACK_INTEGRATION_ID --json",
       `SLACK_SMOKE_LIVE_MODE=file_upload npm run smoke:slack -- --env-file scripts/slack/.env --live --evidence ${evidencePath} --json`,
-      "npm run smoke:slack:verify -- --env-file scripts/slack/.env --json",
+      `npm run smoke:slack:verify -- --verify-evidence ${evidencePath} --env-file scripts/slack/.env --json`,
       `agent-space integrations slack evidence --workspace-id $AGENT_SPACE_WORKSPACE_ID --integration $AGENT_SPACE_SLACK_INTEGRATION_ID --live-smoke-evidence ${evidencePath} --strict --require all --json`,
     ];
     assert.deepEqual(output.nextCommands, expectedCommands);
