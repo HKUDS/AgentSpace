@@ -134,6 +134,12 @@ interface SlackEvidenceDependencies {
   listOutbox?: typeof listExternalMessageOutboxSync;
 }
 
+interface SlackLiveSmokeExpectedIntegrationContext {
+  integrationId: string;
+  appReference?: string;
+  teamReference?: string;
+}
+
 export function buildSlackEvidenceReport(input: {
   workspaceId: string;
   integrationId?: string;
@@ -169,6 +175,11 @@ export function buildSlackEvidenceReport(input: {
       requireFileUploadEvidence: required === "files" || required === "all",
       expectedWorkspaceId: input.workspaceId,
       expectedIntegrationIds: integrations.map((integration) => integration.id),
+      expectedIntegrations: integrations.map((integration) => ({
+        integrationId: integration.id,
+        ...(integration.appId ? { appReference: buildSlackReference(integration.appId) } : {}),
+        ...(integration.tenantKey ? { teamReference: buildSlackReference(integration.tenantKey) } : {}),
+      })),
     })
     : undefined;
   const liveSatisfiedIntegrationIds = liveSmokeEvidence?.summary?.satisfiedIntegrationIds;
@@ -208,6 +219,7 @@ export function verifySlackLiveSmokeEvidence(input: {
   requireFileUploadEvidence?: boolean;
   expectedWorkspaceId?: string;
   expectedIntegrationIds?: string[];
+  expectedIntegrations?: SlackLiveSmokeExpectedIntegrationContext[];
 }): SlackLiveSmokeEvidenceVerification {
   const artifact = parseJsonRecord(input.evidence);
   if (!artifact) {
@@ -224,7 +236,8 @@ export function verifySlackLiveSmokeEvidence(input: {
   const runs = readSlackLiveSmokeEvidenceRuns(artifact);
   const expectedContext = {
     workspaceId: input.expectedWorkspaceId,
-    integrationIds: input.expectedIntegrationIds ?? [],
+    integrations: input.expectedIntegrations ??
+      (input.expectedIntegrationIds ?? []).map((integrationId) => ({ integrationId })),
   };
   const postMessageLiveOk = runs.some((run) => {
     const liveResult = parseJsonRecord(run.liveResult);
@@ -270,7 +283,7 @@ export function verifySlackLiveSmokeEvidence(input: {
     ...(generatedAt ? [] : ["slack_live_smoke_generated_at_missing"]),
     ...(generatedAtFresh ? [] : ["slack_live_smoke_evidence_stale"]),
     ...(contextMatched ? [] : ["slack_live_smoke_context_mismatch"]),
-    ...(input.expectedIntegrationIds?.length && satisfiedIntegrationIds.length === 0 ? ["slack_live_smoke_integration_evidence_missing"] : []),
+    ...(expectedContext.integrations.length > 0 && satisfiedIntegrationIds.length === 0 ? ["slack_live_smoke_integration_evidence_missing"] : []),
     ...(postMessageLiveOk ? [] : ["slack_live_post_message_evidence_missing"]),
     ...(appMentionLiveOk ? [] : ["slack_live_app_mention_evidence_missing"]),
     ...(!input.requireFileUploadEvidence || fileUploadLiveOk ? [] : ["slack_live_file_upload_evidence_missing"]),
@@ -805,18 +818,18 @@ function buildSlackLiveSmokeSatisfiedIntegrationIds(input: {
   runs: Record<string, unknown>[];
   expectedContext: {
     workspaceId?: string;
-    integrationIds: string[];
+    integrations: SlackLiveSmokeExpectedIntegrationContext[];
   };
   requireFileUploadEvidence: boolean;
 }): string[] {
-  if (input.expectedContext.integrationIds.length === 0) {
+  if (input.expectedContext.integrations.length === 0) {
     return [];
   }
-  const satisfied = input.expectedContext.integrationIds.filter((integrationId) => {
+  const satisfied = input.expectedContext.integrations.filter((expectedIntegration) => {
     const runMatchesIntegration = (run: Record<string, unknown>): boolean => {
       const context = readSlackLiveSmokeRunContext(run, input.artifact);
       return (!input.expectedContext.workspaceId || context.workspaceId === input.expectedContext.workspaceId) &&
-        context.integrationId === integrationId;
+        slackLiveSmokeIntegrationContextMatches(context, expectedIntegration);
     };
     const postMessageLiveOk = input.runs.some((run) => {
       const liveResult = parseJsonRecord(run.liveResult);
@@ -842,7 +855,7 @@ function buildSlackLiveSmokeSatisfiedIntegrationIds(input: {
       appMentionLiveOk &&
       (!input.requireFileUploadEvidence || fileUploadLiveOk);
   });
-  return satisfied;
+  return satisfied.map((integration) => integration.integrationId);
 }
 
 function slackLiveSmokeContextMatches(
@@ -850,17 +863,39 @@ function slackLiveSmokeContextMatches(
   artifact: Record<string, unknown>,
   expected: {
     workspaceId?: string;
-    integrationIds: string[];
+    integrations: SlackLiveSmokeExpectedIntegrationContext[];
   },
 ): boolean {
-  if (!expected.workspaceId && expected.integrationIds.length === 0) {
+  if (!expected.workspaceId && expected.integrations.length === 0) {
     return true;
   }
   const context = readSlackLiveSmokeRunContext(run, artifact);
   if (expected.workspaceId && context.workspaceId !== expected.workspaceId) {
     return false;
   }
-  if (expected.integrationIds.length > 0 && (!context.integrationId || !expected.integrationIds.includes(context.integrationId))) {
+  if (expected.integrations.length > 0 && !expected.integrations.some((integration) =>
+    slackLiveSmokeIntegrationContextMatches(context, integration)
+  )) {
+    return false;
+  }
+  return true;
+}
+
+function slackLiveSmokeIntegrationContextMatches(
+  context: {
+    integrationId?: string;
+    appReference?: string;
+    teamReference?: string;
+  },
+  expected: SlackLiveSmokeExpectedIntegrationContext,
+): boolean {
+  if (context.integrationId !== expected.integrationId) {
+    return false;
+  }
+  if (expected.appReference && context.appReference !== expected.appReference) {
+    return false;
+  }
+  if (expected.teamReference && context.teamReference !== expected.teamReference) {
     return false;
   }
   return true;
@@ -872,11 +907,15 @@ function readSlackLiveSmokeRunContext(
 ): {
   workspaceId?: string;
   integrationId?: string;
+  appReference?: string;
+  teamReference?: string;
 } {
   const context = parseJsonRecord(run.context) ?? parseJsonRecord(artifact.context);
   return {
     workspaceId: context ? readJsonStringFieldFromRecord(context, "workspaceId") : undefined,
     integrationId: context ? readJsonStringFieldFromRecord(context, "integrationId") : undefined,
+    appReference: context ? readJsonStringFieldFromRecord(context, "appReference") : undefined,
+    teamReference: context ? readJsonStringFieldFromRecord(context, "teamReference") : undefined,
   };
 }
 

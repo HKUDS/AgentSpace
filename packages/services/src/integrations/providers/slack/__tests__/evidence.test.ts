@@ -490,6 +490,23 @@ test("Slack evidence can gate strict all on redacted live smoke evidence", () =>
   assert.equal(wrongContext.liveSmokeEvidence?.valid, false);
   assert.equal(wrongContext.liveSmokeEvidence?.summary?.contextMatched, false);
   assert.ok(wrongContext.liveSmokeEvidence?.issues.includes("slack_live_smoke_context_mismatch"));
+
+  const wrongAppTeam = buildSlackEvidenceReport({
+    workspaceId: "workspace-1",
+    strict: true,
+    required: "all",
+    requireLiveSmokeEvidence: true,
+    liveSmokeEvidence: makeLiveSmokeEvidence({
+      appReference: "ref_fa77895c",
+      teamReference: "ref_e18a0086",
+    }),
+    dependencies: makeCompleteSlackEvidenceDependencies(),
+  });
+
+  assert.equal(wrongAppTeam.strictSatisfied, false);
+  assert.equal(wrongAppTeam.liveSmokeEvidence?.valid, false);
+  assert.equal(wrongAppTeam.liveSmokeEvidence?.summary?.contextMatched, false);
+  assert.ok(wrongAppTeam.liveSmokeEvidence?.issues.includes("slack_live_smoke_context_mismatch"));
 });
 
 test("Slack evidence strict all rejects stale local evidence rows", () => {
@@ -860,12 +877,16 @@ function makeLiveSmokeEvidence(input: {
   includeFileUpload?: boolean;
   workspaceId?: string;
   integrationId?: string;
+  appReference?: string;
+  teamReference?: string;
 } = {}): Record<string, unknown> {
   const includeAppMention = input.includeAppMention !== false;
   const includeFileUpload = input.includeFileUpload !== false;
   const context = {
     workspaceId: input.workspaceId ?? "workspace-1",
     integrationId: input.integrationId ?? "slack-1",
+    appReference: input.appReference ?? "ref_47ac6cdf",
+    teamReference: input.teamReference ?? "ref_cc475e71",
   };
   return {
     schemaVersion: 1,

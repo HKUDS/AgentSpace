@@ -1,4 +1,4 @@
-import { createHmac } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
@@ -1012,10 +1012,15 @@ function buildSlackSmokeContext(env: Record<string, string | undefined>): SlackS
   const context: SlackSmokeContext = {
     ...(workspaceId && !isPlaceholderValue(workspaceId) ? { workspaceId } : {}),
     ...(integrationId && !isPlaceholderValue(integrationId) ? { integrationId } : {}),
-    ...(appId && !isPlaceholderValue(appId) ? { appReference: buildSafeReference("app", appId) } : {}),
-    ...(teamId && !isPlaceholderValue(teamId) ? { teamReference: buildSafeReference("team", teamId) } : {}),
+    ...(appId && !isPlaceholderValue(appId) ? { appReference: buildSlackSmokeExternalReference(appId) } : {}),
+    ...(teamId && !isPlaceholderValue(teamId) ? { teamReference: buildSlackSmokeExternalReference(teamId) } : {}),
   };
   return Object.keys(context).length > 0 ? context : undefined;
+}
+
+function buildSlackSmokeExternalReference(value: string): string {
+  const hash = createHash("sha256").update(value, "utf8").digest("hex").slice(0, 8);
+  return `ref_${hash}`;
 }
 
 function readChallengeValue(body: string): string | undefined {

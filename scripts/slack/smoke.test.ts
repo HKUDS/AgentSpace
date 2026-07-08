@@ -505,8 +505,8 @@ test("Slack smoke live evidence artifact accumulates redacted post, app mention,
     assert.deepEqual(artifact.context, {
       workspaceId: "default",
       integrationId: "slack-1",
-      appReference: "app AEVI...E123",
-      teamReference: "team TEVI...E123",
+      appReference: "ref_3acb74de",
+      teamReference: "ref_6db9d37d",
     });
     assert.deepEqual(artifact.runs?.map((run) => run.context?.integrationId), ["slack-1", "slack-1", "slack-1"]);
     assert.deepEqual(artifact.runs?.map((run) => run.liveResult?.mode), ["post_message", "app_mention", "file_upload"]);
