@@ -98,6 +98,8 @@ interface SlackSmokeEvidenceVerificationOutput {
     satisfiedModes: SlackSmokeLiveMode[];
     missingModes: SlackSmokeLiveMode[];
     contextMatched: boolean;
+    channelMatched: boolean;
+    channelReferences: string[];
     malformedReferenceCount: number;
   };
   expectedContext?: SlackSmokeContext;
@@ -1169,15 +1171,28 @@ function verifySlackSmokeEvidenceFile(path: string, input: {
     return Boolean(runGeneratedAt && isFreshIsoTimestamp(runGeneratedAt, checkedAt));
   });
   const satisfiedModes: SlackSmokeLiveMode[] = [];
+  const satisfiedRunsByMode: Partial<Record<SlackSmokeLiveMode, Record<string, unknown>>> = {};
   for (const requiredMode of SLACK_SMOKE_REQUIRED_LIVE_MODES) {
     const run = freshRuns.find((candidate) =>
       slackSmokeEvidenceRunSatisfiesMode(candidate, requiredMode, context, issues)
     );
     if (run) {
       satisfiedModes.push(requiredMode);
+      satisfiedRunsByMode[requiredMode] = run;
     } else if (artifact) {
       issues.push(`missing_live_mode_${requiredMode}`);
     }
+  }
+  const channelReferences = Array.from(new Set(SLACK_SMOKE_REQUIRED_LIVE_MODES.flatMap((mode) => {
+    const run = satisfiedRunsByMode[mode];
+    const liveResult = readRecord(run?.liveResult);
+    const channelReference = readString(liveResult?.channelReference);
+    return channelReference ? [channelReference] : [];
+  })));
+  const channelMatched = satisfiedModes.length === SLACK_SMOKE_REQUIRED_LIVE_MODES.length &&
+    channelReferences.length === 1;
+  if (satisfiedModes.length === SLACK_SMOKE_REQUIRED_LIVE_MODES.length && channelReferences.length > 1) {
+    issues.push("slack_live_smoke_channel_mismatch");
   }
 
   if (artifactText) {
@@ -1204,6 +1219,8 @@ function verifySlackSmokeEvidenceFile(path: string, input: {
       satisfiedModes,
       missingModes,
       contextMatched,
+      channelMatched,
+      channelReferences,
       malformedReferenceCount,
     },
     issues: uniqueIssues,

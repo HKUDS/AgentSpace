@@ -1231,6 +1231,10 @@ test("Slack evidence can gate strict all on redacted live smoke evidence", () =>
   assert.equal(report.liveSmokeEvidence?.summary?.freshRunCount, 3);
   assert.equal(report.liveSmokeEvidence?.summary?.staleRunCount, 0);
   assert.equal(report.liveSmokeEvidence?.summary?.contextMatched, true);
+  assert.equal(report.liveSmokeEvidence?.summary?.liveChannelMatched, true);
+  assert.deepEqual(report.liveSmokeEvidence?.summary?.liveChannelReferences, [
+    `channel ${buildSlackReference("C123LIVE")}`,
+  ]);
   assert.deepEqual(report.liveSmokeEvidence?.summary?.appMentionMessageRefs, [
     buildSlackReference(SLACK_SMOKE_APP_MENTION_MESSAGE_ID),
   ]);
@@ -1299,6 +1303,39 @@ test("Slack evidence can gate strict all on redacted live smoke evidence", () =>
   assert.equal(wrongAppTeam.liveSmokeEvidence?.valid, false);
   assert.equal(wrongAppTeam.liveSmokeEvidence?.summary?.contextMatched, false);
   assert.ok(wrongAppTeam.liveSmokeEvidence?.issues.includes("slack_live_smoke_context_mismatch"));
+});
+
+test("Slack live smoke evidence requires all live modes to use the same channel", () => {
+  const mismatchedChannelEvidence = makeLiveSmokeEvidence();
+  const fileUploadResult = (
+    (mismatchedChannelEvidence.runs as Array<Record<string, unknown>>)[2]?.liveResult ?? {}
+  ) as Record<string, unknown>;
+  fileUploadResult.channelReference = `channel ${buildSlackReference("CDIFFERENTLIVE")}`;
+  fileUploadResult.channelRef = buildSlackReference("CDIFFERENTLIVE");
+
+  const report = buildSlackEvidenceReport({
+    workspaceId: "workspace-1",
+    strict: true,
+    required: "all",
+    requireLiveSmokeEvidence: true,
+    liveSmokeEvidence: mismatchedChannelEvidence,
+    dependencies: makeCompleteSlackEvidenceDependencies(),
+  });
+
+  assert.equal(report.strictSatisfied, false);
+  assert.equal(report.liveSmokeEvidence?.summary?.postMessageLiveOk, true);
+  assert.equal(report.liveSmokeEvidence?.summary?.appMentionLiveOk, true);
+  assert.equal(report.liveSmokeEvidence?.summary?.fileUploadLiveOk, true);
+  assert.equal(report.liveSmokeEvidence?.summary?.liveChannelMatched, false);
+  assert.deepEqual(report.liveSmokeEvidence?.summary?.liveChannelReferences, [
+    `channel ${buildSlackReference("C123LIVE")}`,
+    `channel ${buildSlackReference("CDIFFERENTLIVE")}`,
+  ]);
+  assert.deepEqual(report.liveSmokeEvidence?.summary?.satisfiedIntegrationIds, []);
+  assert.ok(report.liveSmokeEvidence?.issues.includes("slack_live_smoke_channel_mismatch"));
+  assert.ok(report.liveSmokeEvidence?.issues.includes("slack_live_smoke_integration_evidence_missing"));
+  assert.ok(report.blockers.includes("slack_live_smoke_channel_mismatch"));
+  assert.doesNotMatch(JSON.stringify(report), /C123LIVE|CDIFFERENTLIVE/);
 });
 
 test("Slack evidence strict all correlates live app mentions with local inbound and reply proof", () => {
@@ -2157,8 +2194,8 @@ function makeLiveSmokeEvidence(input: {
           attempted: true,
           ok: true,
           mode: "app_mention",
-          channelReference: `channel ${buildSlackReference("CAPPMENTION")}`,
-          channelRef: buildSlackReference("CAPPMENTION"),
+          channelReference: `channel ${buildSlackReference("C123LIVE")}`,
+          channelRef: buildSlackReference("C123LIVE"),
           botUserReference: `user ${buildSlackReference("UBOTLIVE")}`,
           botUserRef: buildSlackReference("UBOTLIVE"),
           messageReference: `message ${buildSlackReference(SLACK_SMOKE_APP_MENTION_MESSAGE_ID)}`,
@@ -2176,8 +2213,8 @@ function makeLiveSmokeEvidence(input: {
           attempted: true,
           ok: true,
           mode: "file_upload",
-          channelReference: `channel ${buildSlackReference("CFILELIVE")}`,
-          channelRef: buildSlackReference("CFILELIVE"),
+          channelReference: `channel ${buildSlackReference("C123LIVE")}`,
+          channelRef: buildSlackReference("C123LIVE"),
           fileReference: `file ${buildSlackReference("FSMOKEFILE123")}`,
           fileRef: buildSlackReference("FSMOKEFILE123"),
           fileUpload: true,

@@ -921,6 +921,8 @@ test("Slack smoke live evidence artifact accumulates redacted post, app mention,
         satisfiedModes?: string[];
         missingModes?: string[];
         contextMatched?: boolean;
+        channelMatched?: boolean;
+        channelReferences?: string[];
       };
       issues?: string[];
     };
@@ -928,6 +930,8 @@ test("Slack smoke live evidence artifact accumulates redacted post, app mention,
     assert.deepEqual(verificationOutput.summary?.satisfiedModes, ["post_message", "app_mention", "file_upload"]);
     assert.deepEqual(verificationOutput.summary?.missingModes, []);
     assert.equal(verificationOutput.summary?.contextMatched, true);
+    assert.equal(verificationOutput.summary?.channelMatched, true);
+    assert.deepEqual(verificationOutput.summary?.channelReferences, [`channel ${slackRef("CEVIDENCE")}`]);
     assert.deepEqual(verificationOutput.issues, []);
 
     const wrongEnvPath = join(directory, ".wrong.env");
@@ -960,6 +964,107 @@ test("Slack smoke live evidence artifact accumulates redacted post, app mention,
     await new Promise<void>((resolve) => {
       server.close(() => resolve());
     });
+  }
+});
+
+test("Slack smoke evidence verifier rejects live runs from different channels", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "agentspace-slack-smoke-"));
+  try {
+    const evidencePath = join(directory, "live.json");
+    const envPath = join(directory, ".env");
+    const context = {
+      workspaceId: "default",
+      integrationId: "slack-1",
+      appReference: slackRef("ACHANNELMATCH"),
+      teamReference: slackRef("TCHANNELMATCH"),
+    };
+    writeFileSync(envPath, [
+      "AGENT_SPACE_WORKSPACE_ID=default",
+      "AGENT_SPACE_SLACK_INTEGRATION_ID=slack-1",
+      "SLACK_SMOKE_APP_ID=ACHANNELMATCH",
+      "SLACK_SMOKE_TEAM_ID=TCHANNELMATCH",
+    ].join("\n"));
+    writeFileSync(evidencePath, JSON.stringify({
+      schemaVersion: 1,
+      provider: "slack",
+      generatedAt: new Date().toISOString(),
+      context,
+      runs: [{
+        generatedAt: new Date().toISOString(),
+        mode: "live",
+        live: true,
+        ready: true,
+        context,
+        liveResult: {
+          attempted: true,
+          ok: true,
+          mode: "post_message",
+          channelReference: `channel ${slackRef("CONE")}`,
+          messageReference: `message ${slackRef("1783400100.000100")}`,
+        },
+      }, {
+        generatedAt: new Date().toISOString(),
+        mode: "live",
+        live: true,
+        ready: true,
+        context,
+        liveResult: {
+          attempted: true,
+          ok: true,
+          mode: "app_mention",
+          channelReference: `channel ${slackRef("CTWO")}`,
+          botUserReference: `user ${slackRef("UBOTCHANNEL")}`,
+          messageReference: `message ${slackRef("1783400101.000100")}`,
+          messageRef: slackRef("1783400101.000100"),
+          appMentionText: true,
+        },
+      }, {
+        generatedAt: new Date().toISOString(),
+        mode: "live",
+        live: true,
+        ready: true,
+        context,
+        liveResult: {
+          attempted: true,
+          ok: true,
+          mode: "file_upload",
+          channelReference: `channel ${slackRef("CONE")}`,
+          fileReference: `file ${slackRef("FCHANNELMATCH")}`,
+          fileUpload: true,
+          uploadCompleted: true,
+        },
+      }],
+    }, null, 2));
+
+    const result = await runSmokeScript([
+      "--verify-evidence",
+      evidencePath,
+      "--env-file",
+      envPath,
+      "--json",
+    ]);
+
+    assert.equal(result.status, 1, result.stderr);
+    const output = JSON.parse(result.stdout) as {
+      valid?: boolean;
+      summary?: {
+        satisfiedModes?: string[];
+        channelMatched?: boolean;
+        channelReferences?: string[];
+      };
+      issues?: string[];
+    };
+    assert.equal(output.valid, false);
+    assert.deepEqual(output.summary?.satisfiedModes, ["post_message", "app_mention", "file_upload"]);
+    assert.equal(output.summary?.channelMatched, false);
+    assert.deepEqual(output.summary?.channelReferences, [
+      `channel ${slackRef("CONE")}`,
+      `channel ${slackRef("CTWO")}`,
+    ]);
+    assert.ok(output.issues?.includes("slack_live_smoke_channel_mismatch"));
+    assert.doesNotMatch(result.stdout, /ACHANNELMATCH|TCHANNELMATCH|CONE|CTWO|UBOTCHANNEL|FCHANNELMATCH|178340010/);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
   }
 });
 

@@ -19,6 +19,7 @@ export type SlackEvidenceRequirement = "message" | "native" | "approval" | "file
 export type SlackLiveSmokeEvidenceReadError =
   | "slack_live_smoke_evidence_read_failed"
   | "slack_live_smoke_evidence_json_invalid";
+type SlackLiveSmokeMode = "post_message" | "app_mention" | "file_upload";
 const SLACK_LOCAL_EVIDENCE_FRESHNESS_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 export interface SlackEvidenceReport {
@@ -59,6 +60,9 @@ export interface SlackLiveSmokeEvidenceVerification {
     appMentionLiveOk: boolean;
     fileUploadLiveOk: boolean;
     contextMatched: boolean;
+    liveChannelMatched: boolean;
+    liveChannelReferences: string[];
+    liveChannelReferencesByMode: Record<SlackLiveSmokeMode, string[]>;
     satisfiedIntegrationIds: string[];
     appMentionMessageRefs: string[];
     appMentionMessageRefsByIntegration: Record<string, string[]>;
@@ -290,6 +294,7 @@ export function verifySlackLiveSmokeEvidence(input: {
     integrations: input.expectedIntegrations ??
       (input.expectedIntegrationIds ?? []).map((integrationId) => ({ integrationId })),
   };
+  const requiredLiveModes = selectSlackRequiredLiveSmokeModes(Boolean(input.requireFileUploadEvidence));
   const postMessageLiveOk = runs.some((run) => {
     const liveResult = parseJsonRecord(run.liveResult);
     return isSlackLiveSmokeRunOk(run, artifact, liveResult, "post_message") &&
@@ -319,6 +324,19 @@ export function verifySlackLiveSmokeEvidence(input: {
   });
   const contextMatched = freshRelevantLiveRuns.length > 0 &&
     freshRelevantLiveRuns.every((run) => slackLiveSmokeContextMatches(run, artifact, expectedContext));
+  const liveChannelReferencesByMode = collectSlackLiveSmokeChannelReferencesByMode({
+    artifact,
+    runs,
+    expectedContext,
+  });
+  const liveChannelReferences = Array.from(new Set(requiredLiveModes.flatMap((mode) =>
+    liveChannelReferencesByMode[mode]
+  )));
+  const allRequiredLiveModesHaveChannel = requiredLiveModes.every((mode) =>
+    liveChannelReferencesByMode[mode].length > 0
+  );
+  const liveChannelMatched = allRequiredLiveModesHaveChannel && liveChannelReferences.length === 1;
+  const liveChannelMismatch = allRequiredLiveModesHaveChannel && liveChannelReferences.length > 1;
   const satisfiedIntegrationIds = buildSlackLiveSmokeSatisfiedIntegrationIds({
     artifact,
     runs,
@@ -351,6 +369,7 @@ export function verifySlackLiveSmokeEvidence(input: {
     ...(postMessageLiveOk ? [] : ["slack_live_post_message_evidence_missing"]),
     ...(appMentionLiveOk ? [] : ["slack_live_app_mention_evidence_missing"]),
     ...(!input.requireFileUploadEvidence || fileUploadLiveOk ? [] : ["slack_live_file_upload_evidence_missing"]),
+    ...(liveChannelMismatch ? ["slack_live_smoke_channel_mismatch"] : []),
     ...(unsafeRawValueCount === 0 ? [] : ["slack_live_smoke_evidence_unsafe"]),
     ...(malformedReferenceCount === 0 ? [] : ["slack_live_smoke_reference_malformed"]),
   ];
@@ -370,6 +389,9 @@ export function verifySlackLiveSmokeEvidence(input: {
       appMentionLiveOk,
       fileUploadLiveOk,
       contextMatched,
+      liveChannelMatched,
+      liveChannelReferences,
+      liveChannelReferencesByMode,
       satisfiedIntegrationIds,
       appMentionMessageRefs,
       appMentionMessageRefsByIntegration,
@@ -1191,11 +1213,60 @@ function buildSlackLiveSmokeSatisfiedIntegrationIds(input: {
         liveResult?.fileUpload === true &&
         liveResult?.uploadCompleted === true;
     });
+    const requiredLiveModes = selectSlackRequiredLiveSmokeModes(input.requireFileUploadEvidence);
+    const liveChannelReferencesByMode = collectSlackLiveSmokeChannelReferencesByMode({
+      artifact: input.artifact,
+      runs: input.runs,
+      expectedContext: {
+        workspaceId: input.expectedContext.workspaceId,
+        integrations: [expectedIntegration],
+      },
+    });
+    const liveChannelReferences = Array.from(new Set(requiredLiveModes.flatMap((mode) =>
+      liveChannelReferencesByMode[mode]
+    )));
+    const liveChannelMatched = requiredLiveModes.every((mode) =>
+      liveChannelReferencesByMode[mode].length > 0
+    ) && liveChannelReferences.length === 1;
     return postMessageLiveOk &&
       appMentionLiveOk &&
-      (!input.requireFileUploadEvidence || fileUploadLiveOk);
+      (!input.requireFileUploadEvidence || fileUploadLiveOk) &&
+      liveChannelMatched;
   });
   return satisfied.map((integration) => integration.integrationId);
+}
+
+function selectSlackRequiredLiveSmokeModes(requireFileUploadEvidence: boolean): SlackLiveSmokeMode[] {
+  return requireFileUploadEvidence
+    ? ["post_message", "app_mention", "file_upload"]
+    : ["post_message", "app_mention"];
+}
+
+function collectSlackLiveSmokeChannelReferencesByMode(input: {
+  artifact: Record<string, unknown>;
+  runs: Record<string, unknown>[];
+  expectedContext: {
+    workspaceId?: string;
+    integrations: SlackLiveSmokeExpectedIntegrationContext[];
+  };
+}): Record<SlackLiveSmokeMode, string[]> {
+  return {
+    post_message: collectSlackLiveSmokeResultRefs({
+      ...input,
+      mode: "post_message",
+      refKey: "channelReference",
+    }),
+    app_mention: collectSlackLiveSmokeResultRefs({
+      ...input,
+      mode: "app_mention",
+      refKey: "channelReference",
+    }),
+    file_upload: collectSlackLiveSmokeResultRefs({
+      ...input,
+      mode: "file_upload",
+      refKey: "channelReference",
+    }),
+  };
 }
 
 function collectSlackLiveSmokeResultRefs(input: {
