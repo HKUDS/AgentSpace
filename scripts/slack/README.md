@@ -51,7 +51,15 @@ Slack Block Kit buttons handle AgentSpace `runtime_tool` approvals and Feishu `e
 Send one disposable live Slack message after readiness passes:
 
 ```bash
-SLACK_BOT_TOKEN=xoxb-... npm run smoke:slack -- --env-file scripts/slack/.env --live --json
+SLACK_BOT_TOKEN=xoxb-... npm run smoke:slack -- --env-file scripts/slack/.env --live --evidence runtime-output/slack-smoke/live.json --json
 ```
 
-The live command calls `chat.postMessage` for `SLACK_SMOKE_CHANNEL_ID`, optionally in `SLACK_SMOKE_THREAD_TS`. Its JSON output redacts the bot token and returns only short channel/message references. `SLACK_API_BASE_URL` can point at a fake Slack API server for tests; otherwise it defaults to `https://slack.com/api`.
+Then trigger a real app mention and a disposable file upload into the same evidence artifact:
+
+```bash
+SLACK_SMOKE_LIVE_MODE=app_mention npm run smoke:slack -- --env-file scripts/slack/.env --live --evidence runtime-output/slack-smoke/live.json --json
+SLACK_SMOKE_LIVE_MODE=file_upload npm run smoke:slack -- --env-file scripts/slack/.env --live --evidence runtime-output/slack-smoke/live.json --json
+npm run cli -- integrations slack evidence --workspace-id default --integration CHANGE_ME_SLACK_INTEGRATION_ID --live-smoke-evidence runtime-output/slack-smoke/live.json --strict --require all --json
+```
+
+The live commands call `chat.postMessage` for `SLACK_SMOKE_CHANNEL_ID`, optionally in `SLACK_SMOKE_THREAD_TS`; `app_mention` posts `<@SLACK_SMOKE_BOT_USER_ID> ...` from `SLACK_SMOKE_POST_TOKEN`; `file_upload` uses `files.getUploadURLExternal` plus `files.completeUploadExternal`. JSON output redacts tokens and raw Slack ids, returning only short channel/message/file references. `SLACK_API_BASE_URL` can point at a fake Slack API server for tests; otherwise it defaults to `https://slack.com/api`.

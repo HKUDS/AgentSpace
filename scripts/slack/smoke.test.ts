@@ -254,21 +254,47 @@ test("Slack smoke live app_mention mode posts a bot mention from the configured 
   }
 });
 
-test("Slack smoke live evidence artifact accumulates redacted post and app mention runs", async () => {
-  const requests: Array<Record<string, unknown>> = [];
+test("Slack smoke live file_upload mode uses the external upload flow", async () => {
+  const requests: Array<{
+    path?: string;
+    authorization?: string;
+    contentType?: string;
+    bodyText: string;
+  }> = [];
+  let baseUrl = "";
   const server = createServer((request, response) => {
     const chunks: Buffer[] = [];
     request.on("data", (chunk: Buffer) => {
       chunks.push(chunk);
     });
     request.on("end", () => {
-      requests.push(JSON.parse(Buffer.concat(chunks).toString("utf8")) as Record<string, unknown>);
+      const path = request.url ?? "";
+      const bodyText = Buffer.concat(chunks).toString("utf8");
+      requests.push({
+        path,
+        authorization: request.headers.authorization,
+        contentType: request.headers["content-type"],
+        bodyText,
+      });
       response.setHeader("content-type", "application/json");
-      response.end(JSON.stringify({
-        ok: true,
-        channel: "CEVIDENCE",
-        ts: `178340000${requests.length}.000100`,
-      }));
+      if (path.endsWith("/files.getUploadURLExternal")) {
+        response.end(JSON.stringify({
+          ok: true,
+          upload_url: `${baseUrl}/upload/FSMOKEFILE123`,
+          file_id: "FSMOKEFILE123",
+        }));
+        return;
+      }
+      if (path === "/upload/FSMOKEFILE123") {
+        response.end(JSON.stringify({ ok: true }));
+        return;
+      }
+      if (path.endsWith("/files.completeUploadExternal")) {
+        response.end(JSON.stringify({ ok: true }));
+        return;
+      }
+      response.statusCode = 404;
+      response.end(JSON.stringify({ ok: false, error: "not_found" }));
     });
   });
   await new Promise<void>((resolve) => {
@@ -276,6 +302,135 @@ test("Slack smoke live evidence artifact accumulates redacted post and app menti
   });
   const address = server.address();
   assert.ok(address && typeof address === "object");
+  baseUrl = `http://127.0.0.1:${address.port}`;
+  const directory = mkdtempSync(join(tmpdir(), "agentspace-slack-smoke-"));
+  try {
+    const envPath = join(directory, ".env");
+    writeFileSync(envPath, [
+      "AGENT_SPACE_WORKSPACE_ID=default",
+      "AGENT_SPACE_SLACK_INTEGRATION_ID=slack-1",
+      "AGENT_SPACE_PUBLIC_APP_URL=https://agentspace.test",
+      "SLACK_SMOKE_CALLBACK_URL=https://agentspace.test/api/integrations/slack/events",
+      "SLACK_SMOKE_CHANNEL_ID=CFILELIVE",
+      "SLACK_SMOKE_USER_ID=UFILELIVE",
+      "SLACK_SMOKE_MESSAGE_TEXT=AgentSpace Slack file smoke",
+      "SLACK_SMOKE_LIVE_MODE=file_upload",
+      "SLACK_SMOKE_FILE_NAME=agentspace-smoke.txt",
+      "SLACK_SMOKE_FILE_TITLE=AgentSpace smoke file",
+      "SLACK_SMOKE_FILE_CONTENT=hello from AgentSpace",
+      "SLACK_SMOKE_FILE_MIME=text/plain",
+      "SLACK_BOT_TOKEN=xoxb-file-secret",
+      `SLACK_API_BASE_URL=${baseUrl}`,
+    ].join("\n"));
+
+    const result = await runSmokeScript([
+      "--env-file",
+      envPath,
+      "--live",
+      "--json",
+    ]);
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(requests.map((request) => request.path), [
+      "/files.getUploadURLExternal",
+      "/upload/FSMOKEFILE123",
+      "/files.completeUploadExternal",
+    ]);
+    assert.equal(requests[0]?.authorization, "Bearer xoxb-file-secret");
+    assert.deepEqual(JSON.parse(requests[0]?.bodyText ?? "{}"), {
+      filename: "agentspace-smoke.txt",
+      length: Buffer.byteLength("hello from AgentSpace"),
+    });
+    assert.equal(requests[1]?.contentType, "text/plain");
+    assert.equal(requests[1]?.bodyText, "hello from AgentSpace");
+    assert.deepEqual(JSON.parse(requests[2]?.bodyText ?? "{}"), {
+      channel_id: "CFILELIVE",
+      files: [{
+        id: "FSMOKEFILE123",
+        title: "AgentSpace smoke file",
+      }],
+      initial_comment: "AgentSpace Slack file smoke",
+    });
+    const output = JSON.parse(result.stdout) as {
+      ready: boolean;
+      liveResult?: {
+        ok: boolean;
+        mode?: string;
+        fileUpload?: boolean;
+        uploadCompleted?: boolean;
+        channelReference?: string;
+        fileReference?: string;
+      };
+    };
+    assert.equal(output.ready, true);
+    assert.equal(output.liveResult?.ok, true);
+    assert.equal(output.liveResult?.mode, "file_upload");
+    assert.equal(output.liveResult?.fileUpload, true);
+    assert.equal(output.liveResult?.uploadCompleted, true);
+    assert.equal(output.liveResult?.channelReference, "channel CFIL...LIVE");
+    assert.equal(output.liveResult?.fileReference, "file FSMO...E123");
+    assert.doesNotMatch(result.stdout, /xoxb-file-secret|CFILELIVE|UFILELIVE|FSMOKEFILE123|upload\/F/);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+    await new Promise<void>((resolve) => {
+      server.close(() => resolve());
+    });
+  }
+});
+
+test("Slack smoke live evidence artifact accumulates redacted post, app mention, and file runs", async () => {
+  const requests: Array<Record<string, unknown>> = [];
+  let baseUrl = "";
+  const server = createServer((request, response) => {
+    const chunks: Buffer[] = [];
+    request.on("data", (chunk: Buffer) => {
+      chunks.push(chunk);
+    });
+    request.on("end", () => {
+      const path = request.url ?? "";
+      if (path.endsWith("/chat.postMessage")) {
+        requests.push(JSON.parse(Buffer.concat(chunks).toString("utf8")) as Record<string, unknown>);
+        response.setHeader("content-type", "application/json");
+        response.end(JSON.stringify({
+          ok: true,
+          channel: "CEVIDENCE",
+          ts: `178340000${requests.length}.000100`,
+        }));
+        return;
+      }
+      if (path.endsWith("/files.getUploadURLExternal")) {
+        requests.push({ method: "files.getUploadURLExternal" });
+        response.setHeader("content-type", "application/json");
+        response.end(JSON.stringify({
+          ok: true,
+          upload_url: `${baseUrl}/upload/FEVIDENCEFILE`,
+          file_id: "FEVIDENCEFILE",
+        }));
+        return;
+      }
+      if (path === "/upload/FEVIDENCEFILE") {
+        requests.push({ method: "file_upload_url" });
+        response.setHeader("content-type", "application/json");
+        response.end(JSON.stringify({ ok: true }));
+        return;
+      }
+      if (path.endsWith("/files.completeUploadExternal")) {
+        requests.push({ method: "files.completeUploadExternal" });
+        response.setHeader("content-type", "application/json");
+        response.end(JSON.stringify({ ok: true }));
+        return;
+      }
+      response.statusCode = 404;
+      response.setHeader("content-type", "application/json");
+      response.end(JSON.stringify({ ok: false, error: "not_found" }));
+    });
+  });
+  await new Promise<void>((resolve) => {
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  const address = server.address();
+  assert.ok(address && typeof address === "object");
+  baseUrl = `http://127.0.0.1:${address.port}`;
   const directory = mkdtempSync(join(tmpdir(), "agentspace-slack-smoke-"));
   try {
     const evidencePath = join(directory, "live.json");
@@ -291,7 +446,7 @@ test("Slack smoke live evidence artifact accumulates redacted post and app menti
       "SLACK_SMOKE_BOT_USER_ID=UBOTEVIDENCE",
       "SLACK_BOT_TOKEN=xoxb-bot-secret",
       "SLACK_SMOKE_POST_TOKEN=xoxp-user-secret",
-      `SLACK_API_BASE_URL=http://127.0.0.1:${address.port}`,
+      `SLACK_API_BASE_URL=${baseUrl}`,
     ].join("\n"));
 
     const postMessage = await runSmokeScript([
@@ -312,21 +467,34 @@ test("Slack smoke live evidence artifact accumulates redacted post and app menti
     ], {
       SLACK_SMOKE_LIVE_MODE: "app_mention",
     });
+    const fileUpload = await runSmokeScript([
+      "--env-file",
+      envPath,
+      "--live",
+      "--evidence",
+      evidencePath,
+      "--json",
+    ], {
+      SLACK_SMOKE_LIVE_MODE: "file_upload",
+    });
 
     assert.equal(postMessage.status, 0, postMessage.stderr);
     assert.equal(appMention.status, 0, appMention.stderr);
+    assert.equal(fileUpload.status, 0, fileUpload.stderr);
     const artifactText = readFileSync(evidencePath, "utf8");
     const artifact = JSON.parse(artifactText) as {
       provider?: string;
       runs?: Array<{
         mode?: string;
-        liveResult?: { mode?: string; appMentionText?: boolean };
+        liveResult?: { mode?: string; appMentionText?: boolean; fileUpload?: boolean; uploadCompleted?: boolean };
       }>;
     };
     assert.equal(artifact.provider, "slack");
-    assert.deepEqual(artifact.runs?.map((run) => run.liveResult?.mode), ["post_message", "app_mention"]);
+    assert.deepEqual(artifact.runs?.map((run) => run.liveResult?.mode), ["post_message", "app_mention", "file_upload"]);
     assert.equal(artifact.runs?.[1]?.liveResult?.appMentionText, true);
-    assert.doesNotMatch(artifactText, /xoxb-bot-secret|xoxp-user-secret|CEVIDENCE|UEVIDENCE|UBOTEVIDENCE|1783400001\.000100/);
+    assert.equal(artifact.runs?.[2]?.liveResult?.fileUpload, true);
+    assert.equal(artifact.runs?.[2]?.liveResult?.uploadCompleted, true);
+    assert.doesNotMatch(artifactText, /xoxb-bot-secret|xoxp-user-secret|CEVIDENCE|UEVIDENCE|UBOTEVIDENCE|FEVIDENCEFILE|1783400001\.000100/);
   } finally {
     rmSync(directory, { recursive: true, force: true });
     await new Promise<void>((resolve) => {

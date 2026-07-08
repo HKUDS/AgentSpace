@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
 type SmokeStatus = "pass" | "fail";
-type SlackSmokeLiveMode = "post_message" | "app_mention";
+type SlackSmokeLiveMode = "post_message" | "app_mention" | "file_upload";
 
 interface SlackSmokeEnvItem {
   key: string;
@@ -36,7 +36,10 @@ interface SlackSmokeLiveResult {
   channelReference?: string;
   messageReference?: string;
   botUserReference?: string;
+  fileReference?: string;
   appMentionText?: boolean;
+  fileUpload?: boolean;
+  uploadCompleted?: boolean;
   retryAfterSeconds?: number;
   errorCode?: string;
   errorMessage?: string;
@@ -128,6 +131,7 @@ export function buildSlackSmokeDryRunOutput(env: Record<string, string | undefin
       "npm run smoke:slack -- --env-file scripts/slack/.env --replay-webhook --json",
       "npm run smoke:slack -- --env-file scripts/slack/.env --live --evidence runtime-output/slack-smoke/live.json --json",
       "SLACK_SMOKE_LIVE_MODE=app_mention npm run smoke:slack -- --env-file scripts/slack/.env --live --evidence runtime-output/slack-smoke/live.json --json",
+      "SLACK_SMOKE_LIVE_MODE=file_upload npm run smoke:slack -- --env-file scripts/slack/.env --live --evidence runtime-output/slack-smoke/live.json --json",
       "agent-space integrations slack evidence --workspace-id $AGENT_SPACE_WORKSPACE_ID --integration $AGENT_SPACE_SLACK_INTEGRATION_ID --strict --require message --json",
       "agent-space integrations slack evidence --workspace-id $AGENT_SPACE_WORKSPACE_ID --integration $AGENT_SPACE_SLACK_INTEGRATION_ID --strict --require all --json",
       "agent-space integrations slack outbox drain --workspace-id $AGENT_SPACE_WORKSPACE_ID --integration $AGENT_SPACE_SLACK_INTEGRATION_ID --json",
@@ -144,8 +148,12 @@ export async function buildSlackSmokeLiveOutput(env: Record<string, string | und
   const messageText = env.SLACK_SMOKE_MESSAGE_TEXT?.trim() || "AgentSpace Slack smoke";
   const threadTs = env.SLACK_SMOKE_THREAD_TS?.trim();
   const botUserId = env.SLACK_SMOKE_BOT_USER_ID?.trim();
+  const fileName = env.SLACK_SMOKE_FILE_NAME?.trim() || "agentspace-slack-smoke.txt";
+  const fileTitle = env.SLACK_SMOKE_FILE_TITLE?.trim() || "AgentSpace Slack smoke file";
+  const fileContent = env.SLACK_SMOKE_FILE_CONTENT?.trim() || "AgentSpace Slack file smoke\n";
+  const fileMime = env.SLACK_SMOKE_FILE_MIME?.trim() || "text/plain";
   const missingLive = [
-    ...(liveMode === "post_message" && botToken && !isPlaceholderValue(botToken) ? [] : liveMode === "post_message" ? ["SLACK_BOT_TOKEN"] : []),
+    ...((liveMode === "post_message" || liveMode === "file_upload") && botToken && !isPlaceholderValue(botToken) ? [] : liveMode === "post_message" || liveMode === "file_upload" ? ["SLACK_BOT_TOKEN"] : []),
     ...(liveMode === "app_mention" && postToken && !isPlaceholderValue(postToken) ? [] : liveMode === "app_mention" ? ["SLACK_SMOKE_POST_TOKEN"] : []),
     ...(liveMode === "app_mention" && botUserId && !isPlaceholderValue(botUserId) ? [] : liveMode === "app_mention" ? ["SLACK_SMOKE_BOT_USER_ID"] : []),
     ...(channelId && !isPlaceholderValue(channelId) ? [] : ["SLACK_SMOKE_CHANNEL_ID"]),
@@ -160,9 +168,9 @@ export async function buildSlackSmokeLiveOutput(env: Record<string, string | und
     } satisfies SlackSmokeEnvItem,
     {
       key: "SLACK_BOT_TOKEN",
-      required: liveMode === "post_message",
+      required: liveMode === "post_message" || liveMode === "file_upload",
       status: missingLive.includes("SLACK_BOT_TOKEN") ? "fail" : "pass",
-      note: liveMode === "post_message"
+      note: liveMode === "post_message" || liveMode === "file_upload"
         ? missingLive.includes("SLACK_BOT_TOKEN") ? "missing_or_placeholder" : "configured"
         : "not_required_for_app_mention_mode",
     } satisfies SlackSmokeEnvItem,
@@ -180,6 +188,26 @@ export async function buildSlackSmokeLiveOutput(env: Record<string, string | und
         note: missingLive.includes("SLACK_SMOKE_BOT_USER_ID") ? "missing_or_placeholder" : "configured",
       } satisfies SlackSmokeEnvItem,
     ] : []),
+    ...(liveMode === "file_upload" ? [
+      {
+        key: "SLACK_SMOKE_FILE_NAME",
+        required: false,
+        status: "pass",
+        note: fileName === "agentspace-slack-smoke.txt" ? "default" : "configured",
+      } satisfies SlackSmokeEnvItem,
+      {
+        key: "SLACK_SMOKE_FILE_TITLE",
+        required: false,
+        status: "pass",
+        note: fileTitle === "AgentSpace Slack smoke file" ? "default" : "configured",
+      } satisfies SlackSmokeEnvItem,
+      {
+        key: "SLACK_SMOKE_FILE_MIME",
+        required: false,
+        status: "pass",
+        note: fileMime === "text/plain" ? "default" : "configured",
+      } satisfies SlackSmokeEnvItem,
+    ] : []),
   ];
   if (dryRunOutput.missingRequired.length > 0 || missingLive.length > 0) {
     const missingRequired = [...new Set([...dryRunOutput.missingRequired, ...missingLive])];
@@ -195,6 +223,8 @@ export async function buildSlackSmokeLiveOutput(env: Record<string, string | und
         errorCode: "slack.smoke.live_env_incomplete",
         errorMessage: liveMode === "app_mention"
           ? "Slack app mention live smoke requires a complete env, SLACK_SMOKE_POST_TOKEN, and SLACK_SMOKE_BOT_USER_ID."
+          : liveMode === "file_upload"
+          ? "Slack file upload live smoke requires a complete env and SLACK_BOT_TOKEN."
           : "Slack live smoke requires a complete env and SLACK_BOT_TOKEN.",
       },
       summary: {
@@ -207,16 +237,29 @@ export async function buildSlackSmokeLiveOutput(env: Record<string, string | und
     };
   }
 
-  const liveResult = await sendSlackSmokeMessage({
-    token: liveMode === "app_mention" ? postToken ?? "" : botToken ?? "",
-    channelId: channelId ?? "",
-    text: liveMode === "app_mention" ? `<@${botUserId}> ${messageText}` : messageText,
-    threadTs,
-    baseUrl: env.SLACK_API_BASE_URL?.trim(),
-    mode: liveMode,
-    botUserId,
-    sensitiveValues: [botToken, postToken, channelId, threadTs, botUserId],
-  });
+  const liveResult = liveMode === "file_upload"
+    ? await sendSlackSmokeFileUpload({
+      token: botToken ?? "",
+      channelId: channelId ?? "",
+      initialComment: messageText,
+      threadTs,
+      filename: fileName,
+      title: fileTitle,
+      content: fileContent,
+      mediaType: fileMime,
+      baseUrl: env.SLACK_API_BASE_URL?.trim(),
+      sensitiveValues: [botToken, postToken, channelId, threadTs, botUserId],
+    })
+    : await sendSlackSmokeMessage({
+      token: liveMode === "app_mention" ? postToken ?? "" : botToken ?? "",
+      channelId: channelId ?? "",
+      text: liveMode === "app_mention" ? `<@${botUserId}> ${messageText}` : messageText,
+      threadTs,
+      baseUrl: env.SLACK_API_BASE_URL?.trim(),
+      mode: liveMode,
+      botUserId,
+      sensitiveValues: [botToken, postToken, channelId, threadTs, botUserId],
+    });
   return {
     ...dryRunOutput,
     mode: "live",
@@ -516,6 +559,246 @@ async function sendSlackSmokeMessage(input: {
   }
 }
 
+async function sendSlackSmokeFileUpload(input: {
+  token: string;
+  channelId: string;
+  initialComment: string;
+  threadTs?: string;
+  filename: string;
+  title: string;
+  content: string;
+  mediaType: string;
+  baseUrl?: string;
+  sensitiveValues?: Array<string | undefined>;
+}): Promise<SlackSmokeLiveResult> {
+  const bytes = new TextEncoder().encode(input.content);
+  const sensitiveValues = [
+    input.token,
+    input.channelId,
+    input.threadTs,
+    ...(input.sensitiveValues ?? []),
+  ];
+  try {
+    const ticket = await requestSlackSmokeFileUploadUrl({
+      token: input.token,
+      filename: input.filename,
+      length: bytes.byteLength,
+      baseUrl: input.baseUrl,
+      sensitiveValues,
+    });
+    if (!ticket.ok) {
+      return {
+        attempted: true,
+        ok: false,
+        mode: "file_upload",
+        channelReference: buildSafeReference("channel", input.channelId),
+        fileUpload: true,
+        uploadCompleted: false,
+        retryAfterSeconds: ticket.retryAfterSeconds,
+        errorCode: ticket.errorCode,
+        errorMessage: ticket.errorMessage,
+      };
+    }
+
+    const upload = await uploadSlackSmokeFileBytes({
+      uploadUrl: ticket.uploadUrl,
+      bytes,
+      mediaType: input.mediaType,
+      sensitiveValues: [...sensitiveValues, ticket.uploadUrl, ticket.fileId],
+    });
+    if (!upload.ok) {
+      return {
+        attempted: true,
+        ok: false,
+        mode: "file_upload",
+        channelReference: buildSafeReference("channel", input.channelId),
+        fileReference: buildSafeReference("file", ticket.fileId),
+        fileUpload: true,
+        uploadCompleted: false,
+        retryAfterSeconds: upload.retryAfterSeconds,
+        errorCode: upload.errorCode,
+        errorMessage: upload.errorMessage,
+      };
+    }
+
+    const completed = await completeSlackSmokeFileUpload({
+      token: input.token,
+      channelId: input.channelId,
+      fileId: ticket.fileId,
+      title: input.title,
+      initialComment: input.initialComment,
+      threadTs: input.threadTs,
+      baseUrl: input.baseUrl,
+      sensitiveValues: [...sensitiveValues, ticket.uploadUrl, ticket.fileId],
+    });
+    return {
+      attempted: true,
+      ok: completed.ok,
+      mode: "file_upload",
+      channelReference: buildSafeReference("channel", input.channelId),
+      fileReference: buildSafeReference("file", ticket.fileId),
+      fileUpload: true,
+      uploadCompleted: completed.ok,
+      retryAfterSeconds: completed.retryAfterSeconds,
+      errorCode: completed.errorCode,
+      errorMessage: completed.errorMessage,
+    };
+  } catch (error) {
+    return {
+      attempted: true,
+      ok: false,
+      mode: "file_upload",
+      channelReference: buildSafeReference("channel", input.channelId),
+      fileUpload: true,
+      uploadCompleted: false,
+      errorCode: "slack.smoke.network_failed",
+      errorMessage: sanitizeSlackSmokeMessage(error instanceof Error ? error.message : String(error), sensitiveValues),
+    };
+  }
+}
+
+async function requestSlackSmokeFileUploadUrl(input: {
+  token: string;
+  filename: string;
+  length: number;
+  baseUrl?: string;
+  sensitiveValues: Array<string | undefined>;
+}): Promise<{
+  ok: boolean;
+  uploadUrl: string;
+  fileId: string;
+  retryAfterSeconds?: number;
+  errorCode?: string;
+  errorMessage?: string;
+}> {
+  const response = await fetch(`${input.baseUrl || "https://slack.com/api"}/files.getUploadURLExternal`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${input.token}`,
+      "content-type": "application/json; charset=utf-8",
+    },
+    body: JSON.stringify({
+      filename: input.filename,
+      length: input.length,
+    }),
+  });
+  const data = await readSlackSmokeJsonResponse(response);
+  const retryAfter = Number(response.headers.get("retry-after"));
+  if (response.ok && data.ok === true && typeof data.upload_url === "string" && typeof data.file_id === "string") {
+    return {
+      ok: true,
+      uploadUrl: resolveSlackSmokeUploadUrl(data.upload_url, input.baseUrl),
+      fileId: data.file_id,
+      retryAfterSeconds: Number.isFinite(retryAfter) ? retryAfter : undefined,
+    };
+  }
+  return {
+    ok: false,
+    uploadUrl: "",
+    fileId: "",
+    retryAfterSeconds: Number.isFinite(retryAfter) ? retryAfter : undefined,
+    errorCode: normalizeSlackSmokeErrorCode(data.error, response.status, "files_get_upload_url_external_failed"),
+    errorMessage: sanitizeSlackSmokeMessage(typeof data.error === "string" ? data.error : `Slack files.getUploadURLExternal failed with HTTP ${response.status}.`, input.sensitiveValues),
+  };
+}
+
+async function uploadSlackSmokeFileBytes(input: {
+  uploadUrl: string;
+  bytes: Uint8Array;
+  mediaType: string;
+  sensitiveValues: Array<string | undefined>;
+}): Promise<{
+  ok: boolean;
+  retryAfterSeconds?: number;
+  errorCode?: string;
+  errorMessage?: string;
+}> {
+  const body = input.bytes.buffer.slice(
+    input.bytes.byteOffset,
+    input.bytes.byteOffset + input.bytes.byteLength,
+  ) as ArrayBuffer;
+  const response = await fetch(input.uploadUrl, {
+    method: "POST",
+    headers: {
+      "content-type": input.mediaType,
+      "content-length": String(input.bytes.byteLength),
+    },
+    body,
+  });
+  const retryAfter = Number(response.headers.get("retry-after"));
+  if (response.ok) {
+    return {
+      ok: true,
+      retryAfterSeconds: Number.isFinite(retryAfter) ? retryAfter : undefined,
+    };
+  }
+  return {
+    ok: false,
+    retryAfterSeconds: Number.isFinite(retryAfter) ? retryAfter : undefined,
+    errorCode: response.status === 429 ? "slack.smoke.rate_limited" : `slack.smoke.file_upload_http_${response.status}`,
+    errorMessage: sanitizeSlackSmokeMessage(`Slack file upload URL returned HTTP ${response.status}.`, input.sensitiveValues),
+  };
+}
+
+async function completeSlackSmokeFileUpload(input: {
+  token: string;
+  channelId: string;
+  fileId: string;
+  title: string;
+  initialComment: string;
+  threadTs?: string;
+  baseUrl?: string;
+  sensitiveValues: Array<string | undefined>;
+}): Promise<{
+  ok: boolean;
+  retryAfterSeconds?: number;
+  errorCode?: string;
+  errorMessage?: string;
+}> {
+  const response = await fetch(`${input.baseUrl || "https://slack.com/api"}/files.completeUploadExternal`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${input.token}`,
+      "content-type": "application/json; charset=utf-8",
+    },
+    body: JSON.stringify({
+      channel_id: input.channelId,
+      files: [{
+        id: input.fileId,
+        title: input.title,
+      }],
+      initial_comment: input.initialComment,
+      ...(input.threadTs ? { thread_ts: input.threadTs } : {}),
+    }),
+  });
+  const data = await readSlackSmokeJsonResponse(response);
+  const retryAfter = Number(response.headers.get("retry-after"));
+  if (response.ok && data.ok === true) {
+    return {
+      ok: true,
+      retryAfterSeconds: Number.isFinite(retryAfter) ? retryAfter : undefined,
+    };
+  }
+  return {
+    ok: false,
+    retryAfterSeconds: Number.isFinite(retryAfter) ? retryAfter : undefined,
+    errorCode: normalizeSlackSmokeErrorCode(data.error, response.status, "files_complete_upload_external_failed"),
+    errorMessage: sanitizeSlackSmokeMessage(typeof data.error === "string" ? data.error : `Slack files.completeUploadExternal failed with HTTP ${response.status}.`, input.sensitiveValues),
+  };
+}
+
+async function readSlackSmokeJsonResponse(response: Response): Promise<Record<string, unknown>> {
+  return parseJsonRecord(await response.text()) ?? {};
+}
+
+function resolveSlackSmokeUploadUrl(uploadUrl: string, baseUrl: string | undefined): string {
+  try {
+    return new URL(uploadUrl, baseUrl || "https://slack.com").toString();
+  } catch {
+    return uploadUrl;
+  }
+}
+
 function formatSlackSmokeDryRunOutput(output: SlackSmokeOutput): string {
   const lines = [
     `Slack smoke ${output.mode}: ${output.ready ? "ready" : "blocked"}`,
@@ -534,6 +817,9 @@ function formatSlackSmokeDryRunOutput(output: SlackSmokeOutput): string {
     }
     if (output.liveResult.messageReference) {
       lines.push(`- message: ${output.liveResult.messageReference}`);
+    }
+    if (output.liveResult.fileReference) {
+      lines.push(`- file: ${output.liveResult.fileReference}`);
     }
     if (output.liveResult.errorCode) {
       lines.push(`- error: ${output.liveResult.errorCode}`);
@@ -729,21 +1015,28 @@ function readString(value: unknown): string | undefined {
 
 function readSlackSmokeLiveMode(value: string | undefined): SlackSmokeLiveMode {
   const normalized = value?.trim();
-  return normalized === "app_mention" ? "app_mention" : "post_message";
+  if (normalized === "app_mention" || normalized === "file_upload") {
+    return normalized;
+  }
+  return "post_message";
 }
 
 function isPlaceholderValue(value: string | undefined): boolean {
   return /CHANGE_ME|REPLACE_ME|example\.com|xxx/i.test(value ?? "");
 }
 
-function normalizeSlackSmokeErrorCode(value: unknown, status: number): string {
+function normalizeSlackSmokeErrorCode(
+  value: unknown,
+  status: number,
+  fallback = "post_message_failed",
+): string {
   if (status === 429 || value === "ratelimited") {
     return "slack.smoke.rate_limited";
   }
   if (typeof value === "string" && value.trim()) {
     return `slack.smoke.${value.trim().replace(/[^a-z0-9_]+/gi, "_").toLowerCase()}`;
   }
-  return "slack.smoke.post_message_failed";
+  return `slack.smoke.${fallback}`;
 }
 
 function buildSafeReference(kind: string, value: string | undefined): string | undefined {

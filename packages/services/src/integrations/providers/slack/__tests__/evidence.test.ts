@@ -442,8 +442,9 @@ test("Slack evidence can gate strict all on redacted live smoke evidence", () =>
   assert.equal(report.liveSmokeEvidence?.evidencePath, "runtime-output/slack-smoke/live.json");
   assert.equal(report.liveSmokeEvidence?.summary?.postMessageLiveOk, true);
   assert.equal(report.liveSmokeEvidence?.summary?.appMentionLiveOk, true);
+  assert.equal(report.liveSmokeEvidence?.summary?.fileUploadLiveOk, true);
   assert.equal(report.liveSmokeEvidence?.summary?.unsafeRawValueCount, 0);
-  assert.doesNotMatch(JSON.stringify(report), /xoxb|xoxp|C123LIVE|UBOTLIVE|1783400001\.000200/);
+  assert.doesNotMatch(JSON.stringify(report), /xoxb|xoxp|C123LIVE|UBOTLIVE|FSMOKEFILE123|1783400001\.000200/);
 
   const missingAppMention = buildSlackEvidenceReport({
     workspaceId: "workspace-1",
@@ -457,6 +458,19 @@ test("Slack evidence can gate strict all on redacted live smoke evidence", () =>
   assert.equal(missingAppMention.strictSatisfied, false);
   assert.equal(missingAppMention.liveSmokeEvidence?.valid, false);
   assert.ok(missingAppMention.liveSmokeEvidence?.issues.includes("slack_live_app_mention_evidence_missing"));
+
+  const missingFileUpload = buildSlackEvidenceReport({
+    workspaceId: "workspace-1",
+    strict: true,
+    required: "all",
+    requireLiveSmokeEvidence: true,
+    liveSmokeEvidence: makeLiveSmokeEvidence({ includeFileUpload: false }),
+    dependencies: makeCompleteSlackEvidenceDependencies(),
+  });
+
+  assert.equal(missingFileUpload.strictSatisfied, false);
+  assert.equal(missingFileUpload.liveSmokeEvidence?.valid, false);
+  assert.ok(missingFileUpload.liveSmokeEvidence?.issues.includes("slack_live_file_upload_evidence_missing"));
 });
 
 function makeIntegration(overrides: Partial<ExternalIntegrationRecord> = {}): ExternalIntegrationRecord {
@@ -577,8 +591,10 @@ function makeCompleteSlackEvidenceDependencies(): Parameters<typeof buildSlackEv
 
 function makeLiveSmokeEvidence(input: {
   includeAppMention?: boolean;
+  includeFileUpload?: boolean;
 } = {}): Record<string, unknown> {
   const includeAppMention = input.includeAppMention !== false;
+  const includeFileUpload = input.includeFileUpload !== false;
   return {
     schemaVersion: 1,
     provider: "slack",
@@ -610,6 +626,21 @@ function makeLiveSmokeEvidence(input: {
           botUserReference: "user UB...VE",
           messageReference: "message 1783...0200",
           appMentionText: true,
+        },
+      }] : []),
+      ...(includeFileUpload ? [{
+        generatedAt: new Date().toISOString(),
+        mode: "live",
+        live: true,
+        ready: true,
+        liveResult: {
+          attempted: true,
+          ok: true,
+          mode: "file_upload",
+          channelReference: "channel CFILE...LIVE",
+          fileReference: "file FSMO...E123",
+          fileUpload: true,
+          uploadCompleted: true,
         },
       }] : []),
     ],

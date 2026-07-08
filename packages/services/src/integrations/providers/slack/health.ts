@@ -462,6 +462,7 @@ export function buildSlackSmokePlanReport(input: {
     webhookReplay: "npm run smoke:slack -- --env-file scripts/slack/.env --replay-webhook --json",
     livePostMessage: `npm run smoke:slack -- --env-file scripts/slack/.env --live --evidence ${liveSmokeEvidencePath} --json`,
     liveAppMention: `SLACK_SMOKE_LIVE_MODE=app_mention npm run smoke:slack -- --env-file scripts/slack/.env --live --evidence ${liveSmokeEvidencePath} --json`,
+    liveFileUpload: `SLACK_SMOKE_LIVE_MODE=file_upload npm run smoke:slack -- --env-file scripts/slack/.env --live --evidence ${liveSmokeEvidencePath} --json`,
     finalEvidence: `agent-space integrations slack evidence --workspace-id ${input.workspaceId}${integrationFlag} --live-smoke-evidence ${liveSmokeEvidencePath} --strict --require all --json`,
   };
   return {
@@ -533,6 +534,11 @@ export function buildSlackSmokePlanReport(input: {
         detail: commands.liveAppMention,
       },
       {
+        id: "live_file_upload",
+        status: readiness.readyForMessageSmokeCount > 0 ? "manual" : "blocked",
+        detail: commands.liveFileUpload,
+      },
+      {
         id: "final_evidence",
         status: readiness.strictSatisfied ? "manual" : "blocked",
         detail: commands.finalEvidence,
@@ -576,6 +582,10 @@ export function buildSlackSmokeEnvTemplateReport(input: {
     "SLACK_SMOKE_THREAD_TS=",
     "SLACK_SMOKE_LIVE_MODE=post_message",
     "SLACK_SMOKE_POST_TOKEN=",
+    "SLACK_SMOKE_FILE_NAME=agentspace-slack-smoke.txt",
+    "SLACK_SMOKE_FILE_TITLE=AgentSpace Slack smoke file",
+    "SLACK_SMOKE_FILE_CONTENT=AgentSpace Slack file smoke",
+    "SLACK_SMOKE_FILE_MIME=text/plain",
     "AGENT_SPACE_SMOKE_CALLBACK_BASE_URL=",
   ];
   const liveSmokeEvidencePath = "runtime-output/slack-smoke/live.json";
@@ -586,6 +596,7 @@ export function buildSlackSmokeEnvTemplateReport(input: {
     "npm run smoke:slack -- --env-file scripts/slack/.env --replay-webhook --json",
     `npm run smoke:slack -- --env-file scripts/slack/.env --live --evidence ${liveSmokeEvidencePath} --json`,
     `SLACK_SMOKE_LIVE_MODE=app_mention npm run smoke:slack -- --env-file scripts/slack/.env --live --evidence ${liveSmokeEvidencePath} --json`,
+    `SLACK_SMOKE_LIVE_MODE=file_upload npm run smoke:slack -- --env-file scripts/slack/.env --live --evidence ${liveSmokeEvidencePath} --json`,
     `agent-space integrations slack evidence --workspace-id ${input.workspaceId} --integration ${integrationId} --live-smoke-evidence ${liveSmokeEvidencePath} --strict --require all --json`,
   ];
   return {

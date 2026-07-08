@@ -214,7 +214,9 @@ test("builds Slack smoke plan and env template without raw external ids", () => 
   assert.match(plan.commands.webhookReplay, /--replay-webhook/);
   assert.match(plan.commands.livePostMessage, /--live --evidence runtime-output\/slack-smoke\/live\.json/);
   assert.match(plan.commands.liveAppMention, /SLACK_SMOKE_LIVE_MODE=app_mention/);
+  assert.match(plan.commands.liveFileUpload, /SLACK_SMOKE_LIVE_MODE=file_upload/);
   assert.match(plan.commands.finalEvidence, /--live-smoke-evidence runtime-output\/slack-smoke\/live\.json --strict --require all --json/);
+  assert.equal(plan.checklist.find((item) => item.id === "live_file_upload")?.status, "manual");
   assert.equal(plan.checklist.find((item) => item.id === "final_evidence")?.status, "manual");
   assert.equal(env.ready, true);
   assert.match(env.template, /SLACK_SMOKE_CHANNEL_ID=CHANGE_ME_SLACK_CHANNEL_ID/);
@@ -222,9 +224,14 @@ test("builds Slack smoke plan and env template without raw external ids", () => 
   assert.match(env.template, /SLACK_SMOKE_TEAM_ID=CHANGE_ME_SLACK_TEAM_ID/);
   assert.match(env.template, /SLACK_SMOKE_LIVE_MODE=post_message/);
   assert.match(env.template, /SLACK_SMOKE_POST_TOKEN=/);
+  assert.match(env.template, /SLACK_SMOKE_FILE_NAME=agentspace-slack-smoke\.txt/);
+  assert.match(env.template, /SLACK_SMOKE_FILE_TITLE=AgentSpace Slack smoke file/);
+  assert.match(env.template, /SLACK_SMOKE_FILE_CONTENT=AgentSpace Slack file smoke/);
+  assert.match(env.template, /SLACK_SMOKE_FILE_MIME=text\/plain/);
   assert.match(env.template, /AGENT_SPACE_SMOKE_CALLBACK_BASE_URL=/);
   assert.match(env.nextCommands.join("\n"), /--replay-webhook/);
   assert.match(env.nextCommands.join("\n"), /--live --evidence runtime-output\/slack-smoke\/live\.json/);
+  assert.match(env.nextCommands.join("\n"), /SLACK_SMOKE_LIVE_MODE=file_upload/);
   assert.match(env.nextCommands.join("\n"), /--live-smoke-evidence runtime-output\/slack-smoke\/live\.json --strict --require all/);
   assert.doesNotMatch(JSON.stringify({ plan, env }), /A111|T111|xoxb|xapp/);
 });

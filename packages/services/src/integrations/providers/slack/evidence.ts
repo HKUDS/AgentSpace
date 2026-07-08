@@ -48,6 +48,7 @@ export interface SlackLiveSmokeEvidenceVerification {
     runCount: number;
     postMessageLiveOk: boolean;
     appMentionLiveOk: boolean;
+    fileUploadLiveOk: boolean;
     unsafeRawValueCount: number;
   };
 }
@@ -144,6 +145,7 @@ export function buildSlackEvidenceReport(input: {
     ? verifySlackLiveSmokeEvidence({
       evidencePath: input.liveSmokeEvidencePath,
       evidence: input.liveSmokeEvidence,
+      requireFileUploadEvidence: required === "files" || required === "all",
     })
     : undefined;
   const strictSatisfied = items.some((item) => item.requiredSatisfied) &&
@@ -172,6 +174,7 @@ export function buildSlackEvidenceReport(input: {
 export function verifySlackLiveSmokeEvidence(input: {
   evidencePath?: string;
   evidence?: unknown;
+  requireFileUploadEvidence?: boolean;
 }): SlackLiveSmokeEvidenceVerification {
   const artifact = parseJsonRecord(input.evidence);
   if (!artifact) {
@@ -201,12 +204,22 @@ export function verifySlackLiveSmokeEvidence(input: {
       liveResult.appMentionText === true &&
       readJsonStringFieldFromRecord(liveResult, "mode") === "app_mention";
   });
+  const fileUploadLiveOk = runs.some((run) => {
+    const liveResult = parseJsonRecord(run.liveResult);
+    return readJsonStringFieldFromRecord(run, "mode") === "live" &&
+      run.ready === true &&
+      liveResult?.ok === true &&
+      liveResult.fileUpload === true &&
+      liveResult.uploadCompleted === true &&
+      readJsonStringFieldFromRecord(liveResult, "mode") === "file_upload";
+  });
   const unsafeRawValueCount = countUnsafeSlackLiveSmokeEvidenceValues(artifact);
   const issues = [
     ...(generatedAt ? [] : ["slack_live_smoke_generated_at_missing"]),
     ...(generatedAtFresh ? [] : ["slack_live_smoke_evidence_stale"]),
     ...(postMessageLiveOk ? [] : ["slack_live_post_message_evidence_missing"]),
     ...(appMentionLiveOk ? [] : ["slack_live_app_mention_evidence_missing"]),
+    ...(!input.requireFileUploadEvidence || fileUploadLiveOk ? [] : ["slack_live_file_upload_evidence_missing"]),
     ...(unsafeRawValueCount === 0 ? [] : ["slack_live_smoke_evidence_unsafe"]),
   ];
 
@@ -221,6 +234,7 @@ export function verifySlackLiveSmokeEvidence(input: {
       runCount: runs.length,
       postMessageLiveOk,
       appMentionLiveOk,
+      fileUploadLiveOk,
       unsafeRawValueCount,
     },
   };
@@ -723,6 +737,7 @@ function buildSlackEvidenceNextCommands(
     `agent-space integrations slack smoke-plan --workspace-id ${workspaceId}${integrationFlag} --strict --require message --json`,
     `npm run smoke:slack -- --env-file scripts/slack/.env --live --evidence ${evidencePath} --json`,
     `SLACK_SMOKE_LIVE_MODE=app_mention npm run smoke:slack -- --env-file scripts/slack/.env --live --evidence ${evidencePath} --json`,
+    `SLACK_SMOKE_LIVE_MODE=file_upload npm run smoke:slack -- --env-file scripts/slack/.env --live --evidence ${evidencePath} --json`,
     `agent-space integrations slack evidence --workspace-id ${workspaceId}${integrationFlag} --live-smoke-evidence ${evidencePath} --strict --require ${required} --json`,
   ];
 }
