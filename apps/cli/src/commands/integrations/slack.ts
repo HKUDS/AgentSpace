@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import {
   createExternalIntegrationSync,
   readExternalIntegrationSync,
@@ -28,6 +28,7 @@ import {
   summarizeSlackStoredCredentials,
   type SlackAgentBotBinding,
   type SlackEvidenceRequirement,
+  type SlackLiveSmokeEvidenceReadError,
   type SlackReadinessRequirement,
   type SlackSocketModeWorkerMetrics,
 } from "@agent-space/services";
@@ -116,13 +117,15 @@ export async function runSlackIntegrationCommand(
     const required = readSlackEvidenceRequirement(parsed.flags);
     const liveSmokeEvidencePath = getStringFlag(parsed.flags, "live-smoke-evidence") ??
       (required === "all" && parsed.flags.strict === true ? SLACK_DEFAULT_LIVE_SMOKE_EVIDENCE_PATH : undefined);
+    const liveSmokeEvidenceFile = liveSmokeEvidencePath ? readOptionalJsonFile(liveSmokeEvidencePath) : undefined;
     const result = buildEvidenceReport({
       workspaceId: getStringFlag(parsed.flags, "workspace-id") ?? "default",
       integrationId: getStringFlag(parsed.flags, "integration") ?? getStringFlag(parsed.flags, "integration-id"),
       strict: parsed.flags.strict === true,
       required,
       liveSmokeEvidencePath,
-      liveSmokeEvidence: liveSmokeEvidencePath ? readOptionalJsonFile(liveSmokeEvidencePath) : undefined,
+      liveSmokeEvidence: liveSmokeEvidenceFile?.value,
+      liveSmokeEvidenceReadError: liveSmokeEvidenceFile?.errorCode,
       requireLiveSmokeEvidence: required === "all" && parsed.flags.strict === true,
     });
     writeData(format, result);
@@ -559,11 +562,23 @@ function readSlackCliEnv(envFile: string | undefined): EnvMap {
   };
 }
 
-function readOptionalJsonFile(path: string): unknown {
+function readOptionalJsonFile(path: string): {
+  value?: unknown;
+  errorCode?: SlackLiveSmokeEvidenceReadError;
+} {
+  if (!existsSync(path)) {
+    return {};
+  }
+  let contents = "";
   try {
-    return JSON.parse(readFileSync(path, "utf8")) as unknown;
+    contents = readFileSync(path, "utf8");
   } catch {
-    return undefined;
+    return { errorCode: "slack_live_smoke_evidence_read_failed" };
+  }
+  try {
+    return { value: JSON.parse(contents) as unknown };
+  } catch {
+    return { errorCode: "slack_live_smoke_evidence_json_invalid" };
   }
 }
 

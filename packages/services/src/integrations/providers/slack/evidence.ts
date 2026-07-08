@@ -16,6 +16,9 @@ import { SLACK_PROVIDER_ID } from "./constants.ts";
 import { buildSlackReference } from "./events.ts";
 
 export type SlackEvidenceRequirement = "message" | "native" | "approval" | "files" | "all";
+export type SlackLiveSmokeEvidenceReadError =
+  | "slack_live_smoke_evidence_read_failed"
+  | "slack_live_smoke_evidence_json_invalid";
 const SLACK_LOCAL_EVIDENCE_FRESHNESS_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 export interface SlackEvidenceReport {
@@ -161,6 +164,7 @@ export function buildSlackEvidenceReport(input: {
   required?: SlackEvidenceRequirement;
   liveSmokeEvidencePath?: string;
   liveSmokeEvidence?: unknown;
+  liveSmokeEvidenceReadError?: SlackLiveSmokeEvidenceReadError;
   requireLiveSmokeEvidence?: boolean;
   dependencies?: SlackEvidenceDependencies;
 }): SlackEvidenceReport {
@@ -179,6 +183,7 @@ export function buildSlackEvidenceReport(input: {
     ? verifySlackLiveSmokeEvidence({
       evidencePath: input.liveSmokeEvidencePath,
       evidence: input.liveSmokeEvidence,
+      readError: input.liveSmokeEvidenceReadError,
       requireFileUploadEvidence: required === "files" || required === "all",
       expectedWorkspaceId: input.workspaceId,
       expectedIntegrationIds: integrations.map((integration) => integration.id),
@@ -244,11 +249,21 @@ export function buildSlackEvidenceReport(input: {
 export function verifySlackLiveSmokeEvidence(input: {
   evidencePath?: string;
   evidence?: unknown;
+  readError?: SlackLiveSmokeEvidenceReadError;
   requireFileUploadEvidence?: boolean;
   expectedWorkspaceId?: string;
   expectedIntegrationIds?: string[];
   expectedIntegrations?: SlackLiveSmokeExpectedIntegrationContext[];
 }): SlackLiveSmokeEvidenceVerification {
+  if (input.readError) {
+    return {
+      present: true,
+      valid: false,
+      ...(input.evidencePath ? { evidencePath: input.evidencePath } : {}),
+      issues: [input.readError],
+    };
+  }
+
   const artifact = parseJsonRecord(input.evidence);
   if (!artifact) {
     return {

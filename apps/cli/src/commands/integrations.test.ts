@@ -435,6 +435,63 @@ test("Slack command dispatcher routes subcommands without external services", as
   assert.equal(calls.some((call) => JSON.stringify(call).includes("xoxb-")), false);
 });
 
+test("Slack evidence CLI reports malformed live smoke artifact distinctly", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "agent-space-slack-evidence-"));
+  try {
+    const evidencePath = join(directory, "live.json");
+    writeFileSync(evidencePath, "{not valid json", "utf8");
+    const calls: Record<string, unknown>[] = [];
+    const logs = await captureConsoleLog(async () => {
+      const exitCode = await runSlackIntegrationCommand(
+        [
+          "evidence",
+          "--workspace-id",
+          "workspace-1",
+          "--integration",
+          "slack-1",
+          "--live-smoke-evidence",
+          evidencePath,
+          "--strict",
+          "--require",
+          "all",
+        ],
+        "json",
+        {
+          buildEvidenceReport: (input: Record<string, unknown>) => {
+            calls.push(input);
+            return {
+              provider: "slack",
+              strict: input.strict === true,
+              strictSatisfied: false,
+              blockers: [input.liveSmokeEvidenceReadError],
+              liveSmokeEvidence: {
+                present: true,
+                valid: false,
+                issues: [input.liveSmokeEvidenceReadError],
+              },
+            } as never;
+          },
+        },
+      );
+      assert.equal(exitCode, 1);
+    });
+
+    const output = JSON.parse(logs.join("\n")) as {
+      blockers?: string[];
+      liveSmokeEvidence?: {
+        issues?: string[];
+      };
+    };
+    assert.equal(calls[0]?.liveSmokeEvidencePath, evidencePath);
+    assert.equal(calls[0]?.liveSmokeEvidence, undefined);
+    assert.equal(calls[0]?.liveSmokeEvidenceReadError, "slack_live_smoke_evidence_json_invalid");
+    assert.deepEqual(output.blockers, ["slack_live_smoke_evidence_json_invalid"]);
+    assert.deepEqual(output.liveSmokeEvidence?.issues, ["slack_live_smoke_evidence_json_invalid"]);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test("Slack outbox drain CLI exposes terminal failures without secrets", async () => {
   const logs = await captureConsoleLog(async () => {
     const exitCode = await runSlackIntegrationCommand(

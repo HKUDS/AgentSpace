@@ -559,6 +559,25 @@ test("Slack evidence exposes top-level blockers for final evidence automation", 
   ));
 });
 
+test("Slack evidence reports malformed live artifact read errors distinctly", () => {
+  const report = buildSlackEvidenceReport({
+    workspaceId: "workspace-1",
+    strict: true,
+    required: "all",
+    requireLiveSmokeEvidence: true,
+    liveSmokeEvidencePath: "runtime-output/slack-smoke/live.json",
+    liveSmokeEvidenceReadError: "slack_live_smoke_evidence_json_invalid",
+    dependencies: makeCompleteSlackEvidenceDependencies(),
+  });
+
+  assert.equal(report.strictSatisfied, false);
+  assert.equal(report.liveSmokeEvidence?.present, true);
+  assert.equal(report.liveSmokeEvidence?.valid, false);
+  assert.deepEqual(report.liveSmokeEvidence?.issues, ["slack_live_smoke_evidence_json_invalid"]);
+  assert.ok(report.blockers.includes("slack_live_smoke_evidence_json_invalid"));
+  assert.equal(report.blockers.includes("slack_live_smoke_evidence_missing"), false);
+});
+
 test("Slack evidence omits top-level blockers when any workspace integration satisfies strict gate", () => {
   const timestamp = freshTimestamp();
   const satisfiedIntegration = makeIntegration({ id: "slack-1", displayName: "Slack Atlas" });
