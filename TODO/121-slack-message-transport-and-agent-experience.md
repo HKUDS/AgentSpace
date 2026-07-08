@@ -1150,6 +1150,7 @@ rawPayload = summarized payload or original safe subset
 - live smoke evidence artifact 会记录 AgentSpace workspace / integration context，以及 hashed app/team reference；strict final evidence 只接受与当前 workspace/integration 及其 Slack app/team 匹配的 live proof，且 workspace-wide 检查时 live proof 和本地 evidence 必须指向同一个 integration，避免复用其他 Slack 集成的 artifact 误通过。
 - live smoke 的 `post_message` / `app_mention` / `file_upload` 三种模式现在都会在发请求前要求 `SLACK_SMOKE_APP_ID` 和 `SLACK_SMOKE_TEAM_ID`，避免生成缺少 app/team context、后续 strict evidence 无法接受的 artifact。
 - `--evidence` 只写入 ready 的 live/replay runs；JSON 输出 `evidenceArtifact.written`，dry-run 误带 `--evidence`、env 不完整、Slack API 失败或 webhook replay 失败时都会退出非 0 且不会污染最终 artifact。
+- strict final evidence 要求累积 artifact 的每条 live run 都自带 workspace/integration/app/team context；只有旧版单 run artifact 才允许回退使用顶层 context，避免历史 contextless runs 在追加新 integration 后被误复用。
 - strict Slack evidence 会忽略超过 24 小时的本地 event / mapping / outbox 证据；如果旧记录本可满足门禁但 fresh 证据不足，最终报告会以 `local_evidence_stale` 阻断，避免用历史 smoke 误通过验收。
 - strict Slack evidence 还要求最近 24 小时内的 healthy health-check；如果 credential/scope/socket 状态已退化或 health-check 过期，最终报告会以 `health_check_required_or_unhealthy` / `health_check_stale_or_missing` 阻断。
 - `packages/services/src/integrations/providers/slack/__tests__/evidence.test.ts` 覆盖 strict all 需要 redacted live smoke evidence；`scripts/slack/smoke.test.ts` 覆盖同一 artifact 累积 `post_message` + `app_mention` + `file_upload` 三次 live runs。

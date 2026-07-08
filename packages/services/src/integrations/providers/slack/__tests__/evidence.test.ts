@@ -9,7 +9,7 @@ import type {
   ExternalUserBindingRecord,
 } from "@agent-space/db";
 import { SLACK_PROVIDER_ID } from "../constants.ts";
-import { buildSlackEvidenceReport } from "../evidence.ts";
+import { buildSlackEvidenceReport, verifySlackLiveSmokeEvidence } from "../evidence.ts";
 
 test("builds strict Slack evidence reports without raw external ids", () => {
   const integration = makeIntegration();
@@ -507,6 +507,64 @@ test("Slack evidence can gate strict all on redacted live smoke evidence", () =>
   assert.equal(wrongAppTeam.liveSmokeEvidence?.valid, false);
   assert.equal(wrongAppTeam.liveSmokeEvidence?.summary?.contextMatched, false);
   assert.ok(wrongAppTeam.liveSmokeEvidence?.issues.includes("slack_live_smoke_context_mismatch"));
+});
+
+test("Slack live smoke evidence requires per-run context for accumulated artifacts", () => {
+  const accumulatedWithoutRunContext = makeLiveSmokeEvidence();
+  const runs = accumulatedWithoutRunContext.runs as Array<Record<string, unknown>>;
+  for (const run of runs) {
+    delete run.context;
+  }
+
+  const report = buildSlackEvidenceReport({
+    workspaceId: "workspace-1",
+    strict: true,
+    required: "all",
+    requireLiveSmokeEvidence: true,
+    liveSmokeEvidence: accumulatedWithoutRunContext,
+    dependencies: makeCompleteSlackEvidenceDependencies(),
+  });
+
+  assert.equal(report.strictSatisfied, false);
+  assert.equal(report.liveSmokeEvidence?.valid, false);
+  assert.equal(report.liveSmokeEvidence?.summary?.contextMatched, false);
+  assert.deepEqual(report.liveSmokeEvidence?.summary?.satisfiedIntegrationIds, []);
+  assert.ok(report.liveSmokeEvidence?.issues.includes("slack_live_smoke_context_mismatch"));
+  assert.ok(report.liveSmokeEvidence?.issues.includes("slack_live_smoke_integration_evidence_missing"));
+
+  const legacySingleRun = {
+    schemaVersion: 1,
+    provider: "slack",
+    generatedAt: new Date().toISOString(),
+    context: {
+      workspaceId: "workspace-1",
+      integrationId: "slack-1",
+      appReference: "ref_47ac6cdf",
+      teamReference: "ref_cc475e71",
+    },
+    mode: "live",
+    live: true,
+    ready: true,
+    liveResult: {
+      attempted: true,
+      ok: true,
+      mode: "post_message",
+      channelReference: "channel C123...LIVE",
+      messageReference: "message 1783...0100",
+    },
+  };
+  const legacyVerification = verifySlackLiveSmokeEvidence({
+    evidence: legacySingleRun,
+    expectedWorkspaceId: "workspace-1",
+    expectedIntegrations: [{
+      integrationId: "slack-1",
+      appReference: "ref_47ac6cdf",
+      teamReference: "ref_cc475e71",
+    }],
+  });
+
+  assert.equal(legacyVerification.summary?.contextMatched, true);
+  assert.equal(legacyVerification.summary?.postMessageLiveOk, true);
 });
 
 test("Slack evidence strict all rejects stale local evidence rows", () => {

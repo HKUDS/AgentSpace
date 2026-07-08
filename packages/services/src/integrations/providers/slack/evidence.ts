@@ -910,7 +910,9 @@ function readSlackLiveSmokeRunContext(
   appReference?: string;
   teamReference?: string;
 } {
-  const context = parseJsonRecord(run.context) ?? parseJsonRecord(artifact.context);
+  const runContext = parseJsonRecord(run.context);
+  const allowArtifactContextFallback = !runContext && (run === artifact || readObjectArray(artifact.runs).length === 0);
+  const context = runContext ?? (allowArtifactContextFallback ? parseJsonRecord(artifact.context) : undefined);
   return {
     workspaceId: context ? readJsonStringFieldFromRecord(context, "workspaceId") : undefined,
     integrationId: context ? readJsonStringFieldFromRecord(context, "integrationId") : undefined,
