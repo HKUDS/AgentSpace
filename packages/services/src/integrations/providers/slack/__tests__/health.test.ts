@@ -211,6 +211,8 @@ test("builds Slack smoke plan and env template without raw external ids", () => 
   assert.equal(plan.appSetup.manifest.settings.event_subscriptions.request_url, "https://agentspace.test/api/integrations/slack/events");
   assert.equal(plan.appSetup.manifest.settings.interactivity.request_url, "https://agentspace.test/api/integrations/slack/interactions");
   assert.equal(plan.appSetup.manifest.settings.socket_mode_enabled, true);
+  assert.equal(plan.commands.create, "agent-space integrations slack create --workspace-id workspace-1 --app-id CHANGE_ME_SLACK_APP_ID --team-id CHANGE_ME_SLACK_TEAM_ID --env-file scripts/slack/.env --json");
+  assert.equal(plan.commands.healthCheck, "agent-space integrations slack health-check --workspace-id workspace-1 --integration slack-1 --json");
   assert.match(plan.commands.webhookReplay, /--replay-webhook/);
   assert.match(plan.commands.livePostMessage, /--live --evidence runtime-output\/slack-smoke\/live\.json/);
   assert.match(plan.commands.liveAppMention, /SLACK_SMOKE_LIVE_MODE=app_mention/);
@@ -260,6 +262,36 @@ test("builds Slack smoke plan and env template without raw external ids", () => 
   assert.ok(env.nextCommands.includes("npm run smoke:slack:verify -- --env-file scripts/slack/.env --json"));
   assert.match(env.nextCommands.join("\n"), /--live-smoke-evidence runtime-output\/slack-smoke\/live\.json --strict --require all/);
   assert.doesNotMatch(JSON.stringify({ plan, env }), /A111|T111|xoxb|xapp/);
+});
+
+test("Slack smoke plan setup commands use workspace and integration placeholders before creation", () => {
+  const plan = buildSlackSmokePlanReport({
+    workspaceId: "workspace-2",
+    strict: true,
+    required: "all",
+    dependencies: {
+      listIntegrations() {
+        return [];
+      },
+      listChannelBindings() {
+        return [];
+      },
+      listUserBindings() {
+        return [];
+      },
+      listOutbox() {
+        return [];
+      },
+    },
+  });
+
+  assert.equal(plan.commands.create, "agent-space integrations slack create --workspace-id workspace-2 --app-id CHANGE_ME_SLACK_APP_ID --team-id CHANGE_ME_SLACK_TEAM_ID --env-file scripts/slack/.env --json");
+  assert.equal(plan.commands.healthCheck, "agent-space integrations slack health-check --workspace-id workspace-2 --integration CHANGE_ME_SLACK_INTEGRATION_ID --json");
+  assert.equal(plan.commands.bindChannel, "agent-space integrations slack bind-channel --workspace-id workspace-2 --integration CHANGE_ME_SLACK_INTEGRATION_ID --channel CHANGE_ME_AGENTSPACE_CHANNEL --slack-channel CHANGE_ME_SLACK_CHANNEL_ID --json");
+  assert.equal(plan.commands.bindUser, "agent-space integrations slack bind-user --workspace-id workspace-2 --integration CHANGE_ME_SLACK_INTEGRATION_ID --user-id CHANGE_ME_AGENTSPACE_USER_ID --slack-user CHANGE_ME_SLACK_USER_ID --json");
+  assert.equal(plan.commands.drainOutbox, "agent-space integrations slack outbox drain --workspace-id workspace-2 --integration CHANGE_ME_SLACK_INTEGRATION_ID --json");
+  assert.equal(plan.checklist.find((item) => item.id === "health_check")?.detail, plan.commands.healthCheck);
+  assert.equal(plan.checklist.find((item) => item.id === "drain_outbox_reply")?.detail, plan.commands.drainOutbox);
 });
 
 test("builds Slack agent_view app manifests with normalized prompts and bot names", () => {

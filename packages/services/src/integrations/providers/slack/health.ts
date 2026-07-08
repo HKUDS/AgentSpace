@@ -442,6 +442,7 @@ export function buildSlackSmokePlanReport(input: {
   const callbackUrl = appUrl ? `${appUrl}${SLACK_EVENT_CALLBACK_PATH}` : undefined;
   const interactionCallbackUrl = appUrl ? `${appUrl}${SLACK_INTERACTION_CALLBACK_PATH}` : undefined;
   const integrationFlag = input.integrationId ? ` --integration ${input.integrationId}` : "";
+  const requiredIntegrationFlag = integrationFlag || " --integration CHANGE_ME_SLACK_INTEGRATION_ID";
   const appUrlFlag = appUrl ? ` --app-url ${appUrl}` : " --app-url https://agentspace.example.com";
   const liveSmokeEvidencePath = "runtime-output/slack-smoke/live.json";
   const manifest = buildSlackAgentViewAppManifest({
@@ -451,18 +452,18 @@ export function buildSlackSmokePlanReport(input: {
     socketMode: true,
   });
   const commands = {
-    create: "agent-space integrations slack create --workspace-id default --app-id CHANGE_ME_SLACK_APP_ID --team-id CHANGE_ME_SLACK_TEAM_ID --env-file scripts/slack/.env --json",
-    healthCheck: `agent-space integrations slack health-check --workspace-id ${input.workspaceId}${integrationFlag} --json`,
+    create: `agent-space integrations slack create --workspace-id ${input.workspaceId} --app-id CHANGE_ME_SLACK_APP_ID --team-id CHANGE_ME_SLACK_TEAM_ID --env-file scripts/slack/.env --json`,
+    healthCheck: `agent-space integrations slack health-check --workspace-id ${input.workspaceId}${requiredIntegrationFlag} --json`,
     readiness: `agent-space integrations slack readiness --workspace-id ${input.workspaceId}${integrationFlag} --strict --json`,
     smokeEnv: `agent-space integrations slack smoke-env --workspace-id ${input.workspaceId}${integrationFlag}${appUrlFlag}`,
     workerDryRun: `agent-space integrations slack worker --workspace-id ${input.workspaceId}${integrationFlag} --dry-run --json`,
-    bindChannel: `agent-space integrations slack bind-channel --workspace-id ${input.workspaceId}${integrationFlag || " --integration CHANGE_ME_SLACK_INTEGRATION_ID"} --channel CHANGE_ME_AGENTSPACE_CHANNEL --slack-channel CHANGE_ME_SLACK_CHANNEL_ID --json`,
-    bindUser: `agent-space integrations slack bind-user --workspace-id ${input.workspaceId}${integrationFlag || " --integration CHANGE_ME_SLACK_INTEGRATION_ID"} --user-id CHANGE_ME_AGENTSPACE_USER_ID --slack-user CHANGE_ME_SLACK_USER_ID --json`,
+    bindChannel: `agent-space integrations slack bind-channel --workspace-id ${input.workspaceId}${requiredIntegrationFlag} --channel CHANGE_ME_AGENTSPACE_CHANNEL --slack-channel CHANGE_ME_SLACK_CHANNEL_ID --json`,
+    bindUser: `agent-space integrations slack bind-user --workspace-id ${input.workspaceId}${requiredIntegrationFlag} --user-id CHANGE_ME_AGENTSPACE_USER_ID --slack-user CHANGE_ME_SLACK_USER_ID --json`,
     drySmoke: "npm run smoke:slack -- --env-file scripts/slack/.env --check-env --json",
     webhookReplay: "npm run smoke:slack -- --env-file scripts/slack/.env --replay-webhook --json",
     livePostMessage: `npm run smoke:slack -- --env-file scripts/slack/.env --live --evidence ${liveSmokeEvidencePath} --json`,
     liveAppMention: `SLACK_SMOKE_LIVE_MODE=app_mention npm run smoke:slack -- --env-file scripts/slack/.env --live --evidence ${liveSmokeEvidencePath} --json`,
-    drainOutbox: `agent-space integrations slack outbox drain --workspace-id ${input.workspaceId}${integrationFlag} --json`,
+    drainOutbox: `agent-space integrations slack outbox drain --workspace-id ${input.workspaceId}${requiredIntegrationFlag} --json`,
     liveFileUpload: `SLACK_SMOKE_LIVE_MODE=file_upload npm run smoke:slack -- --env-file scripts/slack/.env --live --evidence ${liveSmokeEvidencePath} --json`,
     verifyLiveEvidence: "npm run smoke:slack:verify -- --env-file scripts/slack/.env --json",
     finalEvidence: `agent-space integrations slack evidence --workspace-id ${input.workspaceId}${integrationFlag} --live-smoke-evidence ${liveSmokeEvidencePath} --strict --require all --json`,
