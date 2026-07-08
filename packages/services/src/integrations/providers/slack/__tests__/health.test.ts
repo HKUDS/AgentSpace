@@ -252,6 +252,12 @@ test("builds Slack smoke plan and env template without raw external ids", () => 
   assert.match(env.template, /SLACK_SMOKE_FILE_CONTENT=AgentSpace Slack file smoke/);
   assert.match(env.template, /SLACK_SMOKE_FILE_MIME=text\/plain/);
   assert.match(env.template, /AGENT_SPACE_SMOKE_CALLBACK_BASE_URL=/);
+  assert.deepEqual(env.manualActions.map((action) => action.id), [
+    "native_agent_experience",
+    "approval_block_actions",
+  ]);
+  assert.equal(env.manualActions.find((action) => action.id === "native_agent_experience")?.status, "manual");
+  assert.match(env.manualActions.find((action) => action.id === "approval_block_actions")?.detail ?? "", /approval status outbox/);
   assert.match(env.nextCommands.join("\n"), /--replay-webhook/);
   assert.match(env.nextCommands.join("\n"), /--live --evidence runtime-output\/slack-smoke\/live\.json/);
   assert.match(env.nextCommands.join("\n"), /SLACK_SMOKE_LIVE_MODE=file_upload/);

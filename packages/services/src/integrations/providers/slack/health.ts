@@ -199,6 +199,7 @@ export interface SlackSmokeEnvTemplateReport {
   callbackUrl?: string;
   missing: string[];
   template: string;
+  manualActions: SlackSmokePlanManualAction[];
   nextCommands: string[];
 }
 
@@ -655,6 +656,7 @@ export function buildSlackSmokeEnvTemplateReport(input: {
     callbackUrl,
     missing,
     template: `${templateLines.join("\n")}\n`,
+    manualActions: buildSlackSmokePlanManualActions(true),
     nextCommands,
   };
 }
