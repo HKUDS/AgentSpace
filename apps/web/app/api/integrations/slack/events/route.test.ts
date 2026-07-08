@@ -3,9 +3,11 @@ import { NextRequest } from "next/server";
 
 const {
   mockListExternalIntegrationsSync,
+  mockRecordExternalIntegrationEventSync,
   mockReadExternalIntegrationSync,
 } = vi.hoisted(() => ({
   mockListExternalIntegrationsSync: vi.fn(),
+  mockRecordExternalIntegrationEventSync: vi.fn(),
   mockReadExternalIntegrationSync: vi.fn(),
 }));
 
@@ -23,6 +25,7 @@ const {
 
 vi.mock("@agent-space/db", () => ({
   listExternalIntegrationsSync: mockListExternalIntegrationsSync,
+  recordExternalIntegrationEventSync: mockRecordExternalIntegrationEventSync,
   readExternalIntegrationSync: mockReadExternalIntegrationSync,
 }));
 
@@ -42,6 +45,7 @@ import { POST } from "./route";
 describe("Slack event route", () => {
   beforeEach(() => {
     mockListExternalIntegrationsSync.mockReset();
+    mockRecordExternalIntegrationEventSync.mockReset();
     mockReadExternalIntegrationSync.mockReset();
     mockDrainSlackOutboxMessages.mockReset();
     mockProcessSlackInboundEvent.mockReset();
@@ -113,14 +117,63 @@ describe("Slack event route", () => {
     mockVerifySlackRequestSignature.mockReturnValue(false);
 
     const response = await POST(buildRequest({
-      type: "url_verification",
-      challenge: "challenge-value",
+      type: "event_callback",
+      api_app_id: "A123",
+      team_id: "T123",
+      event_id: "EvBadSignature",
+      event_time: 1783400000,
+      event: {
+        type: "app_mention",
+        channel: "C123",
+        user: "U123",
+        text: "<@UBOT> ignore this",
+        ts: "1783400000.000100",
+      },
     }));
 
     expect(response.status).toBe(401);
     await expect(response.json()).resolves.toEqual({
       error: "Invalid Slack request signature.",
     });
+    expect(mockRecordExternalIntegrationEventSync).toHaveBeenCalledWith(expect.objectContaining({
+      workspaceId: "workspace-1",
+      integrationId: "external-integration-slack",
+      provider: "slack",
+      externalEventId: "EvBadSignature",
+      eventType: "event_callback.app_mention",
+      status: "ignored",
+      errorMessage: "slack.invalid_signature",
+    }));
+    expect(JSON.stringify(mockRecordExternalIntegrationEventSync.mock.calls[0]?.[0]?.payloadJson)).not.toContain("C123");
+    expect(JSON.stringify(mockRecordExternalIntegrationEventSync.mock.calls[0]?.[0]?.payloadJson)).not.toContain("U123");
+  });
+
+  it("rejects unsigned Slack event callbacks", async () => {
+    mockVerifySlackRequestSignature.mockImplementation(({ signature }) => Boolean(signature));
+
+    const response = await POST(buildRequest({
+      type: "event_callback",
+      api_app_id: "A123",
+      team_id: "T123",
+      event_id: "EvUnsigned",
+      event: {
+        type: "app_mention",
+        channel: "C123",
+        user: "U123",
+        text: "<@UBOT> unsigned",
+        ts: "1783400000.000150",
+      },
+    }, { signature: null }));
+
+    expect(response.status).toBe(401);
+    expect(mockVerifySlackRequestSignature).toHaveBeenCalledWith(expect.objectContaining({
+      signature: null,
+    }));
+    expect(mockRecordExternalIntegrationEventSync).toHaveBeenCalledWith(expect.objectContaining({
+      externalEventId: "EvUnsigned",
+      status: "ignored",
+      errorMessage: "slack.invalid_signature",
+    }));
   });
 
   it("processes signed Slack event callbacks", async () => {
@@ -215,11 +268,48 @@ describe("Slack event route", () => {
       }),
     }));
   });
+
+  it("records safe rejected event summaries for Slack callback context mismatch", async () => {
+    const response = await POST(buildRequest({
+      type: "event_callback",
+      api_app_id: "A_WRONG",
+      team_id: "T123",
+      event_id: "EvWrongApp",
+      event_time: 1783400000,
+      event: {
+        type: "app_mention",
+        channel: "C_SECRET_CHANNEL",
+        user: "U_SECRET_USER",
+        text: "<@UBOT> raw secret text",
+        ts: "1783400000.000300",
+      },
+    }));
+
+    expect(response.status).toBe(401);
+    await expect(response.json()).resolves.toMatchObject({
+      ok: false,
+      errorCode: "slack.callback_app_id_mismatch",
+    });
+    expect(mockProcessSlackInboundEvent).not.toHaveBeenCalled();
+    expect(mockRecordExternalIntegrationEventSync).toHaveBeenCalledWith(expect.objectContaining({
+      workspaceId: "workspace-1",
+      integrationId: "external-integration-slack",
+      provider: "slack",
+      externalEventId: "EvWrongApp",
+      eventType: "event_callback.app_mention",
+      status: "ignored",
+      errorMessage: "slack.callback_app_id_mismatch",
+    }));
+    const serializedRecord = JSON.stringify(mockRecordExternalIntegrationEventSync.mock.calls[0]?.[0]);
+    expect(serializedRecord).not.toContain("C_SECRET_CHANNEL");
+    expect(serializedRecord).not.toContain("U_SECRET_USER");
+    expect(serializedRecord).not.toContain("raw secret text");
+  });
 });
 
 function buildRequest(
   payload: Record<string, unknown>,
-  options: { integrationId?: string | null } = {},
+  options: { integrationId?: string | null; signature?: string | null } = {},
 ): NextRequest {
   const integrationId = options.integrationId === undefined ? "external-integration-slack" : options.integrationId;
   const url = new URL("https://agent.test/api/integrations/slack/events");
@@ -232,7 +322,7 @@ function buildRequest(
     headers: {
       "content-type": "application/json",
       "x-slack-request-timestamp": "1783400000",
-      "x-slack-signature": "v0=signature",
+      ...(options.signature !== null ? { "x-slack-signature": options.signature ?? "v0=signature" } : {}),
     },
     body: JSON.stringify(payload),
   });

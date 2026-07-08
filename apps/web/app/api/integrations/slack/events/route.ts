@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import {
   listExternalIntegrationsSync,
+  recordExternalIntegrationEventSync,
   readExternalIntegrationSync,
   type ExternalIntegrationRecord,
 } from "@agent-space/db";
@@ -14,6 +15,10 @@ import {
   readSlackIntegrationCredentials,
   resolveSlackCallbackAppId,
   resolveSlackCallbackTeamId,
+  resolveSlackEventId,
+  resolveSlackEventReceivedAt,
+  resolveSlackEventType,
+  summarizeSlackInboundEventPayload,
   validateSlackCallbackContext,
   verifySlackRequestSignature,
 } from "@agent-space/services";
@@ -50,6 +55,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     rawBody: requestPayload.rawBody,
     signature: request.headers.get("x-slack-signature"),
   })) {
+    recordRejectedSlackWebhookEvent({
+      workspaceId,
+      integration,
+      payload: requestPayload.payload,
+      reasonCode: "slack.invalid_signature",
+    });
     return NextResponse.json({ error: "Invalid Slack request signature." }, { status: 401 });
   }
 
@@ -63,6 +74,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     expectedTeamId: integration.tenantKey,
   });
   if (!contextValidation.ok) {
+    recordRejectedSlackWebhookEvent({
+      workspaceId,
+      integration,
+      payload: requestPayload.payload,
+      reasonCode: contextValidation.reasonCode,
+    });
     return NextResponse.json({
       ok: false,
       error: contextValidation.errorMessage,
@@ -109,6 +126,29 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     agentSpaceMessageId: result.agentSpaceMessageId,
     outboxDrain,
   });
+}
+
+function recordRejectedSlackWebhookEvent(input: {
+  workspaceId: string;
+  integration: ExternalIntegrationRecord;
+  payload: Record<string, unknown>;
+  reasonCode: string;
+}): void {
+  try {
+    recordExternalIntegrationEventSync({
+      workspaceId: input.workspaceId,
+      integrationId: input.integration.id,
+      provider: SLACK_PROVIDER_ID,
+      externalEventId: resolveSlackEventId(input.payload),
+      eventType: resolveSlackEventType(input.payload),
+      status: "ignored",
+      payloadJson: summarizeSlackInboundEventPayload(input.payload),
+      errorMessage: input.reasonCode,
+      receivedAt: resolveSlackEventReceivedAt(input.payload),
+    });
+  } catch {
+    // Slack still needs the rejection response even if local audit storage is unavailable.
+  }
 }
 
 type SlackWebhookIntegrationResolveResult =

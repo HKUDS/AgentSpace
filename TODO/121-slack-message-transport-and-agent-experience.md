@@ -738,28 +738,28 @@ deploy/slack-worker/slack-worker.env.example
 
 ### Phase 3：HTTP Events API
 
-- [ ] 新增 `events.ts`：
-  - [ ] `isSlackUrlVerificationPayload(...)`
-  - [ ] `buildSlackUrlVerificationResponse(...)`
-  - [ ] `verifySlackRequestSignature(...)`
-  - [ ] `resolveSlackEventId(...)`
-  - [ ] `resolveSlackEventType(...)`
-  - [ ] `resolveSlackCallbackAppId(...)`
-  - [ ] `resolveSlackCallbackTeamId(...)`
-  - [ ] `summarizeSlackInboundEventPayload(...)`
-- [ ] 新增 route `apps/web/app/api/integrations/slack/events/route.ts`。
-- [ ] route 支持 `url_verification` challenge。
-- [ ] route 校验 `api_app_id` / `team_id` 与 integration 匹配。
-- [ ] route 记录 rejected event。
-- [ ] route 返回安全错误，不泄露签名、token、raw body。
+- [x] 新增 `events.ts`：
+  - [x] `isSlackUrlVerificationPayload(...)`
+  - [x] `buildSlackUrlVerificationResponse(...)`
+  - [x] `verifySlackRequestSignature(...)`
+  - [x] `resolveSlackEventId(...)`
+  - [x] `resolveSlackEventType(...)`
+  - [x] `resolveSlackCallbackAppId(...)`
+  - [x] `resolveSlackCallbackTeamId(...)`
+  - [x] `summarizeSlackInboundEventPayload(...)`
+- [x] 新增 route `apps/web/app/api/integrations/slack/events/route.ts`。
+- [x] route 支持 `url_verification` challenge。
+- [x] route 校验 `api_app_id` / `team_id` 与 integration 匹配。
+- [x] route 记录 rejected event。
+- [x] route 返回安全错误，不泄露签名、token、raw body。
 
 验收：
 
-- [ ] 签名正确时通过。
-- [ ] 签名错误返回 401。
-- [ ] timestamp 过旧返回 401。
-- [ ] `url_verification` 返回 Slack challenge。
-- [ ] `api_app_id` / `team_id` mismatch 被拒绝并记录 safe summary。
+- [x] 签名正确时通过。
+- [x] 签名错误返回 401。
+- [x] timestamp 过旧返回 401。
+- [x] `url_verification` 返回 Slack challenge。
+- [x] `api_app_id` / `team_id` mismatch 被拒绝并记录 safe summary。
 
 ### Phase 4：消息归一化
 
@@ -1029,12 +1029,12 @@ rawPayload = summarized payload or original safe subset
 
 ### Web route tests
 
-- [ ] `apps/web/app/api/integrations/slack/events/route.test.ts`
+- [x] `apps/web/app/api/integrations/slack/events/route.test.ts`
 - [x] `apps/web/app/api/integrations/slack/interactions/route.test.ts`
-- [ ] challenge route。
-- [ ] signed event route。
-- [ ] unsigned event rejected。
-- [ ] wrong integration rejected。
+- [x] challenge route。
+- [x] signed event route。
+- [x] unsigned event rejected。
+- [x] wrong integration rejected。
 - [ ] event processing failure safe response。
 
 ### Web UI tests
