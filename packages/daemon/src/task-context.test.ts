@@ -110,6 +110,38 @@ test("buildTaskPrompt redacts Feishu external input identifiers from the agent p
   assert.match(prompt, /外部上下文摘要: \{"slackAgentContext":\{"entities":\[\{"valueRef":"ref_abcd1234"\}\]\}\}/);
 });
 
+test("buildTaskPrompt redacts Slack external input identifiers from the agent prompt", () => {
+  const prompt = buildTaskPrompt(
+    createRuntime(),
+    {
+      channelName: "general",
+      channelMessage: "@Atlas summarize this Slack thread",
+      assignee: "Atlas",
+      externalInput: {
+        provider: "slack",
+        providerLabel: "Slack",
+        externalEventId: "EvSECRET123",
+        externalMessageId: "1783400001.000200",
+        externalChatId: "CSECRET123",
+        externalContext: "{\"slackAgentContext\":{\"entities\":[{\"type\":\"slack#/types/channel_id\",\"valueRef\":\"ref_safechan\"}]}}",
+        trust: "untrusted_user_message",
+        actor: {
+          actorType: "user",
+          externalActorReference: "USECRET123",
+        },
+      },
+    },
+    [],
+  );
+
+  assert.match(prompt, /外部输入来源: Slack \(event ref_[a-f0-9]{8}, message ref_[a-f0-9]{8}, chat ref_[a-f0-9]{8}\)/);
+  assert.equal(prompt.includes("EvSECRET123"), false);
+  assert.equal(prompt.includes("1783400001.000200"), false);
+  assert.equal(prompt.includes("CSECRET123"), false);
+  assert.equal(prompt.includes("USECRET123"), false);
+  assert.match(prompt, /外部上下文摘要: \{"slackAgentContext":\{"entities":\[\{"type":"slack#\/types\/channel_id","valueRef":"ref_safechan"\}\]\}\}/);
+});
+
 test("buildTaskPrompt treats Feishu lark-cli write grants as approval-gated", () => {
   const prompt = buildTaskPrompt(
     createRuntime(),
