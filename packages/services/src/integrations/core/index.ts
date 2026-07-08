@@ -37,6 +37,12 @@ export {
   type ExternalReferenceOptions,
 } from "./references.ts";
 export {
+  createExternalWorkerMetrics,
+  recordExternalWorkerOutboxMetrics,
+  type ExternalWorkerError,
+  type ExternalWorkerMetrics,
+} from "./worker-metrics.ts";
+export {
   createFakeIntegrationProviderAdapter,
   FAKE_INTEGRATION_PROVIDER_ID,
   type FakeIntegrationProviderAdapterOptions,

@@ -5,7 +5,13 @@ import {
   type ExternalIntegrationRecord,
 } from "@agent-space/db";
 import type { WSConnectionStatus } from "@larksuiteoapi/node-sdk";
-import type { IntegrationRuntimeContext } from "../../core/index.ts";
+import {
+  createExternalWorkerMetrics,
+  recordExternalWorkerOutboxMetrics,
+  type ExternalWorkerError,
+  type ExternalWorkerMetrics,
+  type IntegrationRuntimeContext,
+} from "../../core/index.ts";
 import { createFeishuInboundAttachmentDownloader } from "./attachments.ts";
 import { FEISHU_PROVIDER_ID } from "./constants.ts";
 import { readFeishuIntegrationCredentials, type FeishuPlainCredentials } from "./credentials.ts";
@@ -46,25 +52,10 @@ export interface FeishuWebSocketWorkerIntegrationSummary {
   healthStatus?: ExternalIntegrationHealthStatus;
 }
 
-export interface FeishuWebSocketWorkerError {
-  integrationId: string;
-  errorCode: string;
-  errorMessage: string;
-}
+export type FeishuWebSocketWorkerError = ExternalWorkerError;
 
-export interface FeishuWebSocketWorkerMetrics {
-  connectionReadyCount: number;
-  connectionErrorCount: number;
-  receivedCount: number;
-  processedCount: number;
-  ignoredCount: number;
-  failedCount: number;
-  duplicateCount: number;
+export interface FeishuWebSocketWorkerMetrics extends ExternalWorkerMetrics {
   noticeOutboxCount: number;
-  outboxProcessedCount: number;
-  outboxSentCount: number;
-  outboxFailedCount: number;
-  errors: FeishuWebSocketWorkerError[];
 }
 
 export interface FeishuWebSocketWorkerHandle {
@@ -142,20 +133,9 @@ export async function startFeishuWebSocketWorker(input: {
     integrationId: string;
     session: FeishuWebSocketWorkerSession;
   }> = [];
-  const metrics: FeishuWebSocketWorkerMetrics = {
-    connectionReadyCount: 0,
-    connectionErrorCount: 0,
-    receivedCount: 0,
-    processedCount: 0,
-    ignoredCount: 0,
-    failedCount: 0,
-    duplicateCount: 0,
+  const metrics: FeishuWebSocketWorkerMetrics = createExternalWorkerMetrics({
     noticeOutboxCount: 0,
-    outboxProcessedCount: 0,
-    outboxSentCount: 0,
-    outboxFailedCount: 0,
-    errors: [],
-  };
+  });
 
   for (const integration of integrations) {
     if (!input.includeWebhookIntegrations && integration.transportMode !== "websocket_worker") {
@@ -502,16 +482,7 @@ function recordFeishuWorkerOutboxMetrics(
   metrics: FeishuWebSocketWorkerMetrics,
   result: FeishuOutboxDrainResult,
 ): void {
-  metrics.outboxProcessedCount += result.processedCount;
-  metrics.outboxSentCount += result.sentCount;
-  metrics.outboxFailedCount += result.failedCount;
-  for (const error of result.errors) {
-    metrics.errors.push({
-      integrationId: error.integrationId,
-      errorCode: "feishu.websocket_worker.outbox_drain_failed",
-      errorMessage: error.errorMessage,
-    });
-  }
+  recordExternalWorkerOutboxMetrics(metrics, result, "feishu.websocket_worker.outbox_drain_failed");
 }
 
 function updateFeishuWorkerHealth(input: {

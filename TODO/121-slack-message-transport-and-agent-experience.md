@@ -1020,7 +1020,7 @@ rawPayload = summarized payload or original safe subset
 - [ ] 抽出 common integration settings cards。
 - [ ] 抽出 common health/outbox panel。
 - [x] 抽出 common redacted external id reference。
-- [ ] 抽出 common worker metrics shape。
+- [x] 抽出 common worker metrics shape。
 
 证据：
 
@@ -1028,6 +1028,10 @@ rawPayload = summarized payload or original safe subset
 - Slack `buildSlackReference(...)` 现在委托 common helper，保持既有 `ref_<8 hex>` 格式。
 - Feishu inbound/event/thread safe references 现在委托 common helper，保持既有 `event <16 hex>` / `<16 hex>` 格式。
 - `packages/services/src/integrations/core/references.test.ts` 覆盖稳定 hash、可选引用和 labeled reference。
+- `packages/services/src/integrations/core/worker-metrics.ts` 提供 provider-neutral worker metrics 基础字段、初始化 helper 和 outbox metrics 记录 helper。
+- Slack Socket Mode worker 复用 common metrics shape，并只扩展 Slack-specific `ackCount` / `ackFailedCount`。
+- Feishu WebSocket worker 复用 common metrics shape，并只扩展 Feishu-specific `noticeOutboxCount`。
+- `packages/services/src/integrations/core/worker-metrics.test.ts`、Slack socket-worker test、Feishu websocket-worker test 覆盖 common metrics 初始化和 outbox failure 记录。
 
 验收：
 

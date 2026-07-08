@@ -4,7 +4,13 @@ import {
   type ExternalIntegrationHealthStatus,
   type ExternalIntegrationRecord,
 } from "@agent-space/db";
-import type { IntegrationRuntimeContext } from "../../core/index.ts";
+import {
+  createExternalWorkerMetrics,
+  recordExternalWorkerOutboxMetrics,
+  type ExternalWorkerError,
+  type ExternalWorkerMetrics,
+  type IntegrationRuntimeContext,
+} from "../../core/index.ts";
 import { createSlackInboundAttachmentDownloader } from "./attachments.ts";
 import { SLACK_PROVIDER_ID } from "./constants.ts";
 import { readSlackIntegrationCredentials, type SlackPlainCredentials } from "./credentials.ts";
@@ -45,26 +51,11 @@ export interface SlackSocketModeWorkerIntegrationSummary {
   healthStatus?: ExternalIntegrationHealthStatus;
 }
 
-export interface SlackSocketModeWorkerError {
-  integrationId: string;
-  errorCode: string;
-  errorMessage: string;
-}
+export type SlackSocketModeWorkerError = ExternalWorkerError;
 
-export interface SlackSocketModeWorkerMetrics {
-  connectionReadyCount: number;
-  connectionErrorCount: number;
-  receivedCount: number;
+export interface SlackSocketModeWorkerMetrics extends ExternalWorkerMetrics {
   ackCount: number;
   ackFailedCount: number;
-  processedCount: number;
-  ignoredCount: number;
-  failedCount: number;
-  duplicateCount: number;
-  outboxProcessedCount: number;
-  outboxSentCount: number;
-  outboxFailedCount: number;
-  errors: SlackSocketModeWorkerError[];
 }
 
 export interface SlackSocketModeWorkerHandle {
@@ -147,21 +138,10 @@ export async function startSlackSocketModeWorker(input: {
     integrationId: string;
     session: SlackSocketModeWorkerSession;
   }> = [];
-  const metrics: SlackSocketModeWorkerMetrics = {
-    connectionReadyCount: 0,
-    connectionErrorCount: 0,
-    receivedCount: 0,
+  const metrics: SlackSocketModeWorkerMetrics = createExternalWorkerMetrics({
     ackCount: 0,
     ackFailedCount: 0,
-    processedCount: 0,
-    ignoredCount: 0,
-    failedCount: 0,
-    duplicateCount: 0,
-    outboxProcessedCount: 0,
-    outboxSentCount: 0,
-    outboxFailedCount: 0,
-    errors: [],
-  };
+  });
 
   for (const integration of integrations) {
     if (!input.includeWebhookIntegrations && integration.transportMode !== "websocket_worker") {
@@ -569,16 +549,7 @@ function recordSlackSocketWorkerOutboxMetrics(
   metrics: SlackSocketModeWorkerMetrics,
   result: SlackOutboxDrainResult,
 ): void {
-  metrics.outboxProcessedCount += result.processedCount;
-  metrics.outboxSentCount += result.sentCount;
-  metrics.outboxFailedCount += result.failedCount;
-  for (const error of result.errors) {
-    metrics.errors.push({
-      integrationId: error.integrationId,
-      errorCode: "slack.socket_worker.outbox_drain_failed",
-      errorMessage: error.errorMessage,
-    });
-  }
+  recordExternalWorkerOutboxMetrics(metrics, result, "slack.socket_worker.outbox_drain_failed");
 }
 
 function updateSlackSocketWorkerHealth(input: {
