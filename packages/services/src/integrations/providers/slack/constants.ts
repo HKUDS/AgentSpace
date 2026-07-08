@@ -29,7 +29,13 @@ export const SLACK_REQUIRED_EVENTS = [
 ] as const;
 
 export const SLACK_AGENT_VIEW_EVENTS = [
+  "app_home_opened",
   "app_context_changed",
+  "message.im",
+] as const;
+
+export const SLACK_AGENT_VIEW_SCOPES = [
+  "assistant:write",
 ] as const;
 
 export const SLACK_REQUIRED_CREDENTIAL_FIELDS = [

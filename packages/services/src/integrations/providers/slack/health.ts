@@ -7,8 +7,11 @@ import {
   type ExternalIntegrationRecord,
 } from "@agent-space/db";
 import {
+  SLACK_AGENT_VIEW_EVENTS,
+  SLACK_AGENT_VIEW_SCOPES,
   SLACK_BOT_MESSAGE_SCOPES,
   SLACK_EVENT_CALLBACK_PATH,
+  SLACK_INTERACTION_CALLBACK_PATH,
   SLACK_PROVIDER_ID,
   SLACK_REQUIRED_EVENTS,
   SLACK_SOCKET_MODE_SCOPES,
@@ -105,10 +108,18 @@ export interface SlackSmokePlanReport {
   readiness: SlackReadinessReport;
   appSetup: {
     callbackPath: typeof SLACK_EVENT_CALLBACK_PATH;
+    interactionCallbackPath: typeof SLACK_INTERACTION_CALLBACK_PATH;
     requiredEvents: string[];
+    agentViewEvents: string[];
     botScopes: string[];
     socketModeScopes: string[];
     credentialFields: string[];
+    agentView: {
+      enabled: boolean;
+      requiredScope: typeof SLACK_AGENT_VIEW_SCOPES[number];
+      manifestFeature: "features.agent_view";
+    };
+    manifest: SlackAppManifest;
   };
   commands: Record<string, string>;
   checklist: Array<{
@@ -116,6 +127,57 @@ export interface SlackSmokePlanReport {
     status: "ready" | "blocked" | "manual";
     detail: string;
   }>;
+}
+
+export interface SlackAppManifestSuggestedPrompt {
+  title: string;
+  message: string;
+}
+
+export interface SlackAppManifest {
+  _metadata: {
+    major_version: 2;
+    minor_version: 1;
+  };
+  display_information: {
+    name: string;
+    description: string;
+    background_color: string;
+  };
+  features: {
+    app_home: {
+      home_tab_enabled: boolean;
+      messages_tab_enabled: boolean;
+      messages_tab_read_only_enabled: boolean;
+    };
+    agent_view: {
+      agent_description: string;
+      suggested_prompts: SlackAppManifestSuggestedPrompt[];
+    };
+    bot_user: {
+      display_name: string;
+      always_online: boolean;
+    };
+  };
+  oauth_config: {
+    scopes: {
+      bot: string[];
+    };
+  };
+  settings: {
+    event_subscriptions: {
+      request_url: string;
+      bot_events: string[];
+    };
+    interactivity: {
+      is_enabled: true;
+      request_url: string;
+    };
+    socket_mode_enabled: boolean;
+    org_deploy_enabled: false;
+    token_rotation_enabled: false;
+    is_hosted: false;
+  };
 }
 
 export interface SlackSmokeEnvTemplateReport {
@@ -376,8 +438,15 @@ export function buildSlackSmokePlanReport(input: {
   });
   const appUrl = normalizeOptionalUrl(input.appUrl);
   const callbackUrl = appUrl ? `${appUrl}${SLACK_EVENT_CALLBACK_PATH}` : undefined;
+  const interactionCallbackUrl = appUrl ? `${appUrl}${SLACK_INTERACTION_CALLBACK_PATH}` : undefined;
   const integrationFlag = input.integrationId ? ` --integration ${input.integrationId}` : "";
   const appUrlFlag = appUrl ? ` --app-url ${appUrl}` : " --app-url https://agentspace.example.com";
+  const manifest = buildSlackAgentViewAppManifest({
+    appName: "AgentSpace",
+    botDisplayName: "agentspace",
+    appUrl,
+    socketMode: true,
+  });
   const commands = {
     create: "agent-space integrations slack create --workspace-id default --app-id CHANGE_ME_SLACK_APP_ID --team-id CHANGE_ME_SLACK_TEAM_ID --env-file scripts/slack/.env --json",
     healthCheck: `agent-space integrations slack health-check --workspace-id ${input.workspaceId}${integrationFlag} --json`,
@@ -399,10 +468,18 @@ export function buildSlackSmokePlanReport(input: {
     readiness,
     appSetup: {
       callbackPath: SLACK_EVENT_CALLBACK_PATH,
-      requiredEvents: [...SLACK_REQUIRED_EVENTS],
-      botScopes: [...SLACK_BOT_MESSAGE_SCOPES],
+      interactionCallbackPath: SLACK_INTERACTION_CALLBACK_PATH,
+      requiredEvents: uniqueStrings([...SLACK_REQUIRED_EVENTS, ...SLACK_AGENT_VIEW_EVENTS]),
+      agentViewEvents: [...SLACK_AGENT_VIEW_EVENTS],
+      botScopes: uniqueStrings([...SLACK_BOT_MESSAGE_SCOPES, ...SLACK_AGENT_VIEW_SCOPES]),
       socketModeScopes: [...SLACK_SOCKET_MODE_SCOPES],
       credentialFields: ["bot_token", "signing_secret", "app_level_token"],
+      agentView: {
+        enabled: true,
+        requiredScope: "assistant:write",
+        manifestFeature: "features.agent_view",
+      },
+      manifest,
     },
     commands,
     checklist: [
@@ -414,7 +491,9 @@ export function buildSlackSmokePlanReport(input: {
       {
         id: "callback_url",
         status: callbackUrl ? "ready" : "blocked",
-        detail: callbackUrl ?? "Provide --app-url so AgentSpace can build the Slack Events callback URL.",
+        detail: callbackUrl && interactionCallbackUrl
+          ? `${callbackUrl} ; ${interactionCallbackUrl}`
+          : "Provide --app-url so AgentSpace can build the Slack Events and Interactivity callback URLs.",
       },
       {
         id: "health_check",
@@ -482,6 +561,74 @@ export function buildSlackSmokeEnvTemplateReport(input: {
     missing,
     template: `${templateLines.join("\n")}\n`,
     nextCommands,
+  };
+}
+
+export function buildSlackAgentViewAppManifest(input: {
+  appName?: string;
+  botDisplayName?: string;
+  appUrl?: string;
+  socketMode?: boolean;
+  agentDescription?: string;
+  suggestedPrompts?: SlackAppManifestSuggestedPrompt[];
+} = {}): SlackAppManifest {
+  const appName = truncateSlackManifestText(input.appName?.trim() || "AgentSpace", 35);
+  const botDisplayName = normalizeSlackBotDisplayName(input.botDisplayName) || "agentspace";
+  const appUrl = normalizeOptionalUrl(input.appUrl);
+  const callbackUrl = appUrl
+    ? `${appUrl}${SLACK_EVENT_CALLBACK_PATH}`
+    : "https://agentspace.example.com/api/integrations/slack/events";
+  const interactionCallbackUrl = appUrl
+    ? `${appUrl}${SLACK_INTERACTION_CALLBACK_PATH}`
+    : "https://agentspace.example.com/api/integrations/slack/interactions";
+  return {
+    _metadata: {
+      major_version: 2,
+      minor_version: 1,
+    },
+    display_information: {
+      name: appName,
+      description: "Governed AgentSpace agents in Slack.",
+      background_color: "#1D4ED8",
+    },
+    features: {
+      app_home: {
+        home_tab_enabled: false,
+        messages_tab_enabled: true,
+        messages_tab_read_only_enabled: false,
+      },
+      agent_view: {
+        agent_description: truncateSlackManifestText(
+          input.agentDescription?.trim()
+            || "Talk to governed AgentSpace agents from Slack while keeping workspace permissions, approvals, and audit trails in AgentSpace.",
+          300,
+        ),
+        suggested_prompts: normalizeSlackSuggestedPrompts(input.suggestedPrompts),
+      },
+      bot_user: {
+        display_name: botDisplayName,
+        always_online: false,
+      },
+    },
+    oauth_config: {
+      scopes: {
+        bot: uniqueStrings([...SLACK_BOT_MESSAGE_SCOPES, ...SLACK_AGENT_VIEW_SCOPES]),
+      },
+    },
+    settings: {
+      event_subscriptions: {
+        request_url: callbackUrl,
+        bot_events: uniqueStrings([...SLACK_REQUIRED_EVENTS, ...SLACK_AGENT_VIEW_EVENTS]),
+      },
+      interactivity: {
+        is_enabled: true,
+        request_url: interactionCallbackUrl,
+      },
+      socket_mode_enabled: Boolean(input.socketMode),
+      org_deploy_enabled: false,
+      token_rotation_enabled: false,
+      is_hosted: false,
+    },
   };
 }
 
@@ -724,6 +871,45 @@ function normalizeOptionalUrl(value: string | undefined): string | undefined {
     return undefined;
   }
   return trimmed;
+}
+
+function normalizeSlackSuggestedPrompts(
+  prompts: SlackAppManifestSuggestedPrompt[] | undefined,
+): SlackAppManifestSuggestedPrompt[] {
+  const normalized = (prompts && prompts.length > 0
+    ? prompts
+    : [
+        {
+          title: "Plan next steps",
+          message: "Help me turn this request into a concrete plan with owners and next actions.",
+        },
+        {
+          title: "Summarize context",
+          message: "Summarize the relevant AgentSpace context and identify what still needs human approval.",
+        },
+      ]).map((prompt) => ({
+        title: truncateSlackManifestText(prompt.title.trim(), 75),
+        message: truncateSlackManifestText(prompt.message.trim(), 300),
+      })).filter((prompt) => prompt.title && prompt.message);
+  return normalized.slice(0, 4);
+}
+
+function normalizeSlackBotDisplayName(value: string | undefined): string | undefined {
+  const normalized = value
+    ?.trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80);
+  return normalized || undefined;
+}
+
+function truncateSlackManifestText(value: string, maxLength: number): string {
+  return value.length > maxLength ? value.slice(0, maxLength).trimEnd() : value;
+}
+
+function uniqueStrings(values: readonly string[]): string[] {
+  return Array.from(new Set(values));
 }
 
 function sanitizeSlackHealthErrorMessage(

@@ -9,6 +9,7 @@ export {
 } from "./adapter.ts";
 export {
   SLACK_AGENT_VIEW_EVENTS,
+  SLACK_AGENT_VIEW_SCOPES,
   SLACK_BOT_MESSAGE_SCOPES,
   SLACK_DEFAULT_SCOPES,
   SLACK_EVENT_CALLBACK_PATH,
@@ -108,6 +109,7 @@ export {
   type SlackTextOutboundPayload,
 } from "./outbound.ts";
 export {
+  buildSlackAgentViewAppManifest,
   buildSlackReadinessReport,
   buildSlackHealthSnapshotConfigJson,
   buildSlackSmokeEnvTemplateReport,
@@ -115,6 +117,8 @@ export {
   checkSlackIntegrationHealth,
   type SlackHealthCheckResult,
   type SlackHealthCheckItem,
+  type SlackAppManifest,
+  type SlackAppManifestSuggestedPrompt,
   type SlackReadinessIntegrationItem,
   type SlackReadinessReport,
   type SlackReadinessRequirement,

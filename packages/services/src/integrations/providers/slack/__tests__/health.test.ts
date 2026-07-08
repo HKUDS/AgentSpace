@@ -7,6 +7,7 @@ import type {
 } from "@agent-space/db";
 import { SLACK_PROVIDER_ID } from "../constants.ts";
 import {
+  buildSlackAgentViewAppManifest,
   buildSlackReadinessReport,
   buildSlackSmokeEnvTemplateReport,
   buildSlackSmokePlanReport,
@@ -196,9 +197,64 @@ test("builds Slack smoke plan and env template without raw external ids", () => 
 
   assert.equal(plan.callbackUrl, "https://agentspace.test/api/integrations/slack/events");
   assert.equal(plan.readiness.strictSatisfied, true);
+  assert.equal(plan.appSetup.interactionCallbackPath, "/api/integrations/slack/interactions");
+  assert.equal(plan.appSetup.agentView.enabled, true);
+  assert.equal(plan.appSetup.agentView.manifestFeature, "features.agent_view");
+  assert.ok(plan.appSetup.botScopes.includes("assistant:write"));
+  assert.deepEqual(plan.appSetup.agentViewEvents.sort(), [
+    "app_context_changed",
+    "app_home_opened",
+    "message.im",
+  ].sort());
+  assert.ok(plan.appSetup.requiredEvents.includes("app_context_changed"));
+  assert.equal(plan.appSetup.manifest.features.agent_view.agent_description.includes("AgentSpace"), true);
+  assert.equal(plan.appSetup.manifest.settings.event_subscriptions.request_url, "https://agentspace.test/api/integrations/slack/events");
+  assert.equal(plan.appSetup.manifest.settings.interactivity.request_url, "https://agentspace.test/api/integrations/slack/interactions");
+  assert.equal(plan.appSetup.manifest.settings.socket_mode_enabled, true);
   assert.equal(env.ready, true);
   assert.match(env.template, /SLACK_SMOKE_CHANNEL_ID=CHANGE_ME_SLACK_CHANNEL_ID/);
   assert.doesNotMatch(JSON.stringify({ plan, env }), /A111|T111|xoxb|xapp/);
+});
+
+test("builds Slack agent_view app manifests with normalized prompts and bot names", () => {
+  const manifest = buildSlackAgentViewAppManifest({
+    appName: "AgentSpace Enterprise Native Agent Experience",
+    botDisplayName: "Agent Space Bot!",
+    appUrl: "https://agentspace.example.test/",
+    socketMode: false,
+    agentDescription: "Use AgentSpace from Slack.",
+    suggestedPrompts: [{
+      title: "Review approvals",
+      message: "Show pending approvals that need my attention.",
+    }],
+  });
+
+  assert.equal(manifest.display_information.name, "AgentSpace Enterprise Native Agent");
+  assert.equal(manifest.features.bot_user.display_name, "agent-space-bot");
+  assert.equal(manifest.features.app_home.messages_tab_enabled, true);
+  assert.equal(manifest.features.agent_view.agent_description, "Use AgentSpace from Slack.");
+  assert.deepEqual(manifest.features.agent_view.suggested_prompts, [{
+    title: "Review approvals",
+    message: "Show pending approvals that need my attention.",
+  }]);
+  assert.deepEqual(manifest.oauth_config.scopes.bot.sort(), [
+    "app_mentions:read",
+    "assistant:write",
+    "channels:read",
+    "chat:write",
+    "groups:read",
+    "im:history",
+    "im:read",
+    "users:read",
+  ].sort());
+  assert.deepEqual(manifest.settings.event_subscriptions.bot_events.sort(), [
+    "app_context_changed",
+    "app_home_opened",
+    "app_mention",
+    "message.im",
+  ].sort());
+  assert.equal(manifest.settings.interactivity.is_enabled, true);
+  assert.equal(manifest.settings.socket_mode_enabled, false);
 });
 
 function makeIntegration(overrides: Partial<ExternalIntegrationRecord> = {}): ExternalIntegrationRecord {

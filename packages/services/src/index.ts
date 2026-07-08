@@ -683,6 +683,7 @@ export {
 } from "./integrations/providers/feishu/index.ts";
 export {
   SLACK_AGENT_VIEW_EVENTS,
+  SLACK_AGENT_VIEW_SCOPES,
   SLACK_BOT_MESSAGE_SCOPES,
   SLACK_DEFAULT_SCOPES,
   SLACK_EVENT_CALLBACK_PATH,
@@ -698,6 +699,7 @@ export {
   SLACK_SOCKET_MODE_SCOPES,
   SLACK_TEXT_MESSAGE_MAX_CHARS,
   buildEncryptedSlackCredentials,
+  buildSlackAgentViewAppManifest,
   buildSlackHealthSnapshotConfigJson,
   buildSlackReadinessReport,
   buildSlackReference,
@@ -759,6 +761,8 @@ export {
   type DisableSlackAgentBotBindingInput,
   type SlackAgentBotBinding,
   type SlackAgentStatusCardStatus,
+  type SlackAppManifest,
+  type SlackAppManifestSuggestedPrompt,
   type SlackApprovalBlockAction,
   type SlackBlockActionCallbackDependencies,
   type SlackHealthCheckResult,

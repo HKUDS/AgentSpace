@@ -21,6 +21,8 @@ npm run cli -- integrations slack health-check --workspace-id default --integrat
 npm run cli -- integrations slack readiness --workspace-id default --integration CHANGE_ME_SLACK_INTEGRATION_ID --strict --json
 ```
 
+`smoke-plan` includes a Slack app manifest draft for the current Agent messaging experience. It enables `features.agent_view`, subscribes to `app_home_opened`, `app_context_changed`, and `message.im`, includes the `assistant:write` bot scope, and fills the Events / Interactivity callback URLs from `--app-url`.
+
 Bind a Slack app to one AgentSpace agent when testing agent-scoped routing:
 
 ```bash
