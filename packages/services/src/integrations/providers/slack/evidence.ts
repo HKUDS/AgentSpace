@@ -49,6 +49,8 @@ export interface SlackLiveSmokeEvidenceVerification {
     generatedAtPresent: boolean;
     generatedAtFresh: boolean;
     runCount: number;
+    freshRunCount: number;
+    staleRunCount: number;
     postMessageLiveOk: boolean;
     appMentionLiveOk: boolean;
     fileUploadLiveOk: boolean;
@@ -234,6 +236,14 @@ export function verifySlackLiveSmokeEvidence(input: {
   const generatedAt = readJsonStringFieldFromRecord(artifact, "generatedAt");
   const generatedAtFresh = generatedAt ? isFreshIsoTimestamp(generatedAt, 24 * 60 * 60 * 1000) : false;
   const runs = readSlackLiveSmokeEvidenceRuns(artifact);
+  const relevantLiveRuns = runs.filter((run) => {
+    const liveResult = parseJsonRecord(run.liveResult);
+    const mode = readJsonStringFieldFromRecord(liveResult ?? {}, "mode");
+    return mode === "post_message" ||
+      mode === "app_mention" ||
+      mode === "file_upload";
+  });
+  const freshRelevantLiveRuns = relevantLiveRuns.filter((run) => isSlackLiveSmokeRunFresh(run, artifact));
   const expectedContext = {
     workspaceId: input.expectedWorkspaceId,
     integrations: input.expectedIntegrations ??
@@ -241,7 +251,7 @@ export function verifySlackLiveSmokeEvidence(input: {
   };
   const postMessageLiveOk = runs.some((run) => {
     const liveResult = parseJsonRecord(run.liveResult);
-    return isSlackLiveSmokeRunOk(run, liveResult, "post_message") &&
+    return isSlackLiveSmokeRunOk(run, artifact, liveResult, "post_message") &&
       slackLiveSmokeContextMatches(run, artifact, expectedContext);
   });
   const appMentionLiveOk = runs.some((run) => {
@@ -249,7 +259,7 @@ export function verifySlackLiveSmokeEvidence(input: {
     if (!liveResult) {
       return false;
     }
-    return isSlackLiveSmokeRunOk(run, liveResult, "app_mention") &&
+    return isSlackLiveSmokeRunOk(run, artifact, liveResult, "app_mention") &&
       liveResult.appMentionText === true &&
       slackLiveSmokeContextMatches(run, artifact, expectedContext);
   });
@@ -258,20 +268,13 @@ export function verifySlackLiveSmokeEvidence(input: {
     if (!liveResult) {
       return false;
     }
-    return isSlackLiveSmokeRunOk(run, liveResult, "file_upload") &&
+    return isSlackLiveSmokeRunOk(run, artifact, liveResult, "file_upload") &&
       liveResult.fileUpload === true &&
       liveResult.uploadCompleted === true &&
       slackLiveSmokeContextMatches(run, artifact, expectedContext);
   });
-  const relevantLiveRuns = runs.filter((run) => {
-    const liveResult = parseJsonRecord(run.liveResult);
-    const mode = readJsonStringFieldFromRecord(liveResult ?? {}, "mode");
-    return mode === "post_message" ||
-      mode === "app_mention" ||
-      mode === "file_upload";
-  });
-  const contextMatched = relevantLiveRuns.length > 0 &&
-    relevantLiveRuns.every((run) => slackLiveSmokeContextMatches(run, artifact, expectedContext));
+  const contextMatched = freshRelevantLiveRuns.length > 0 &&
+    freshRelevantLiveRuns.every((run) => slackLiveSmokeContextMatches(run, artifact, expectedContext));
   const satisfiedIntegrationIds = buildSlackLiveSmokeSatisfiedIntegrationIds({
     artifact,
     runs,
@@ -299,6 +302,8 @@ export function verifySlackLiveSmokeEvidence(input: {
       generatedAtPresent: Boolean(generatedAt),
       generatedAtFresh,
       runCount: runs.length,
+      freshRunCount: freshRelevantLiveRuns.length,
+      staleRunCount: relevantLiveRuns.length - freshRelevantLiveRuns.length,
       postMessageLiveOk,
       appMentionLiveOk,
       fileUploadLiveOk,
@@ -804,13 +809,22 @@ function readSlackLiveSmokeEvidenceRuns(artifact: Record<string, unknown>): Reco
 
 function isSlackLiveSmokeRunOk(
   run: Record<string, unknown>,
+  artifact: Record<string, unknown>,
   liveResult: Record<string, unknown> | undefined,
   mode: "post_message" | "app_mention" | "file_upload",
 ): boolean {
-  return readJsonStringFieldFromRecord(run, "mode") === "live" &&
+  return isSlackLiveSmokeRunFresh(run, artifact) &&
+    readJsonStringFieldFromRecord(run, "mode") === "live" &&
     run.ready === true &&
     liveResult?.ok === true &&
     readJsonStringFieldFromRecord(liveResult, "mode") === mode;
+}
+
+function isSlackLiveSmokeRunFresh(run: Record<string, unknown>, artifact: Record<string, unknown>): boolean {
+  const hasAccumulatedRuns = readObjectArray(artifact.runs).length > 0;
+  const generatedAt = readJsonStringFieldFromRecord(run, "generatedAt") ??
+    (!hasAccumulatedRuns || run === artifact ? readJsonStringFieldFromRecord(artifact, "generatedAt") : undefined);
+  return generatedAt ? isFreshIsoTimestamp(generatedAt, 24 * 60 * 60 * 1000) : false;
 }
 
 function buildSlackLiveSmokeSatisfiedIntegrationIds(input: {
@@ -834,20 +848,20 @@ function buildSlackLiveSmokeSatisfiedIntegrationIds(input: {
     const postMessageLiveOk = input.runs.some((run) => {
       const liveResult = parseJsonRecord(run.liveResult);
       return runMatchesIntegration(run) &&
-        isSlackLiveSmokeRunOk(run, liveResult, "post_message");
+        isSlackLiveSmokeRunOk(run, input.artifact, liveResult, "post_message");
     });
     const appMentionLiveOk = input.runs.some((run) => {
       const liveResult = parseJsonRecord(run.liveResult);
       return Boolean(liveResult) &&
         runMatchesIntegration(run) &&
-        isSlackLiveSmokeRunOk(run, liveResult, "app_mention") &&
+        isSlackLiveSmokeRunOk(run, input.artifact, liveResult, "app_mention") &&
         liveResult?.appMentionText === true;
     });
     const fileUploadLiveOk = input.runs.some((run) => {
       const liveResult = parseJsonRecord(run.liveResult);
       return Boolean(liveResult) &&
         runMatchesIntegration(run) &&
-        isSlackLiveSmokeRunOk(run, liveResult, "file_upload") &&
+        isSlackLiveSmokeRunOk(run, input.artifact, liveResult, "file_upload") &&
         liveResult?.fileUpload === true &&
         liveResult?.uploadCompleted === true;
     });

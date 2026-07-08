@@ -447,6 +447,8 @@ test("Slack evidence can gate strict all on redacted live smoke evidence", () =>
   assert.equal(report.liveSmokeEvidence?.summary?.postMessageLiveOk, true);
   assert.equal(report.liveSmokeEvidence?.summary?.appMentionLiveOk, true);
   assert.equal(report.liveSmokeEvidence?.summary?.fileUploadLiveOk, true);
+  assert.equal(report.liveSmokeEvidence?.summary?.freshRunCount, 3);
+  assert.equal(report.liveSmokeEvidence?.summary?.staleRunCount, 0);
   assert.equal(report.liveSmokeEvidence?.summary?.contextMatched, true);
   assert.equal(report.liveSmokeEvidence?.summary?.unsafeRawValueCount, 0);
   assert.doesNotMatch(JSON.stringify(report), /xoxb|xoxp|C123LIVE|UBOTLIVE|FSMOKEFILE123|1783400001\.000200/);
@@ -565,6 +567,61 @@ test("Slack live smoke evidence requires per-run context for accumulated artifac
 
   assert.equal(legacyVerification.summary?.contextMatched, true);
   assert.equal(legacyVerification.summary?.postMessageLiveOk, true);
+});
+
+test("Slack live smoke evidence ignores stale accumulated runs", () => {
+  const staleEvidence = makeLiveSmokeEvidence();
+  const staleRuns = staleEvidence.runs as Array<Record<string, unknown>>;
+  for (const run of staleRuns) {
+    run.generatedAt = staleTimestamp();
+  }
+
+  const staleReport = buildSlackEvidenceReport({
+    workspaceId: "workspace-1",
+    strict: true,
+    required: "all",
+    requireLiveSmokeEvidence: true,
+    liveSmokeEvidence: staleEvidence,
+    dependencies: makeCompleteSlackEvidenceDependencies(),
+  });
+
+  assert.equal(staleReport.strictSatisfied, false);
+  assert.equal(staleReport.liveSmokeEvidence?.summary?.freshRunCount, 0);
+  assert.equal(staleReport.liveSmokeEvidence?.summary?.staleRunCount, 3);
+  assert.equal(staleReport.liveSmokeEvidence?.summary?.postMessageLiveOk, false);
+  assert.equal(staleReport.liveSmokeEvidence?.summary?.appMentionLiveOk, false);
+  assert.equal(staleReport.liveSmokeEvidence?.summary?.fileUploadLiveOk, false);
+  assert.ok(staleReport.liveSmokeEvidence?.issues.includes("slack_live_post_message_evidence_missing"));
+  assert.ok(staleReport.liveSmokeEvidence?.issues.includes("slack_live_app_mention_evidence_missing"));
+  assert.ok(staleReport.liveSmokeEvidence?.issues.includes("slack_live_file_upload_evidence_missing"));
+  assert.ok(staleReport.liveSmokeEvidence?.issues.includes("slack_live_smoke_integration_evidence_missing"));
+
+  const mixedEvidence = makeLiveSmokeEvidence();
+  const mixedRuns = mixedEvidence.runs as Array<Record<string, unknown>>;
+  const staleWrongContextRun = JSON.parse(JSON.stringify(mixedRuns[0])) as Record<string, unknown>;
+  staleWrongContextRun.generatedAt = staleTimestamp();
+  staleWrongContextRun.context = {
+    workspaceId: "workspace-1",
+    integrationId: "slack-other",
+    appReference: "ref_fa77895c",
+    teamReference: "ref_e18a0086",
+  };
+  mixedRuns.push(staleWrongContextRun);
+
+  const mixedReport = buildSlackEvidenceReport({
+    workspaceId: "workspace-1",
+    strict: true,
+    required: "all",
+    requireLiveSmokeEvidence: true,
+    liveSmokeEvidence: mixedEvidence,
+    dependencies: makeCompleteSlackEvidenceDependencies(),
+  });
+
+  assert.equal(mixedReport.strictSatisfied, true);
+  assert.equal(mixedReport.liveSmokeEvidence?.summary?.freshRunCount, 3);
+  assert.equal(mixedReport.liveSmokeEvidence?.summary?.staleRunCount, 1);
+  assert.equal(mixedReport.liveSmokeEvidence?.summary?.contextMatched, true);
+  assert.deepEqual(mixedReport.liveSmokeEvidence?.summary?.satisfiedIntegrationIds, ["slack-1"]);
 });
 
 test("Slack evidence strict all rejects stale local evidence rows", () => {
