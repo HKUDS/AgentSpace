@@ -1072,6 +1072,47 @@ test("Slack evidence strict all rejects stale local evidence rows", () => {
   assert.ok(report.integrations[0]?.warnings.includes("stale_local_evidence_ignored"));
 });
 
+test("Slack evidence strict all rejects unresolved failed events", () => {
+  const dependencies = makeCompleteSlackEvidenceDependencies();
+  const baseListEvents = dependencies?.listEvents;
+  const report = buildSlackEvidenceReport({
+    workspaceId: "workspace-1",
+    strict: true,
+    required: "all",
+    requireLiveSmokeEvidence: true,
+    liveSmokeEvidence: makeLiveSmokeEvidence(),
+    dependencies: {
+      ...dependencies,
+      listEvents: (input) => [
+        ...(baseListEvents?.(input) ?? []),
+        makeEvent({
+          id: "event-failed-1",
+          externalEventId: "EvFailed",
+          eventType: "event_callback.app_mention",
+          status: "failed",
+          payloadJson: {
+            reasonCode: "slack.agent_runtime_unavailable",
+            externalEventReference: "ref_failed_event",
+          },
+        }),
+      ],
+    },
+  });
+
+  assert.equal(report.summary.messageSatisfiedCount, 1);
+  assert.equal(report.summary.nativeSatisfiedCount, 1);
+  assert.equal(report.summary.approvalSatisfiedCount, 1);
+  assert.equal(report.summary.filesSatisfiedCount, 1);
+  assert.equal(report.summary.unresolvedFailureCount, 1);
+  assert.equal(report.strictSatisfied, false);
+  assert.equal(report.integrations[0]?.requiredSatisfied, false);
+  assert.equal(report.integrations[0]?.failures.failedEvents, 1);
+  assert.ok(report.integrations[0]?.blockers.includes("failed_events_unresolved"));
+  assert.ok(report.integrations[0]?.warnings.includes("failed_events_visible"));
+  assert.ok(report.blockers.includes("failed_events_unresolved"));
+  assert.doesNotMatch(JSON.stringify(report), /EvFailed/);
+});
+
 test("Slack evidence strict all requires fresh healthy integration health", () => {
   const degraded = buildSlackEvidenceReport({
     workspaceId: "workspace-1",

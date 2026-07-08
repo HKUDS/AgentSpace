@@ -488,6 +488,7 @@ function buildSlackEvidenceIntegrationItem(input: {
       ? files.satisfied ? [] : buildSlackFileEvidenceBlockers(files)
       : []),
     ...(staleEvidenceBlocksRequired ? ["local_evidence_stale"] : []),
+    ...(failures.failedEvents > 0 ? ["failed_events_unresolved"] : []),
   ];
   const warnings = [
     ...(healthCheck.required && (!healthCheck.healthy || !healthCheck.fresh) ? ["health_check_not_ready"] : []),
@@ -497,6 +498,7 @@ function buildSlackEvidenceIntegrationItem(input: {
     ...(failures.failedOutbox > 0 ? ["failed_outbox_visible"] : []),
   ];
   const requiredSatisfied = locallySatisfied &&
+    failures.failedEvents === 0 &&
     failures.failedOutbox === 0 &&
     (!healthCheck.required || (healthCheck.healthy && healthCheck.fresh));
   return {
@@ -703,6 +705,9 @@ function buildSlackMessageEvidenceBlockers(
   }
   if (message.liveAppMentionCorrelationRequired && message.liveAppMentionOutboundReplies === 0) {
     blockers.push("slack_live_app_mention_outbound_reply_missing");
+  }
+  if (failures.failedEvents > 0) {
+    blockers.push("failed_events_unresolved");
   }
   if (failures.failedOutbox > 0) {
     blockers.push("failed_outbox_unresolved");
