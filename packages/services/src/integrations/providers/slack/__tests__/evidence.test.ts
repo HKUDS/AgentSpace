@@ -285,6 +285,98 @@ test("Slack evidence message gate ignores non-reply outbox evidence", () => {
   assert.ok(report.integrations[0]?.blockers.includes("outbound_reply_evidence_missing"));
 });
 
+test("Slack evidence native gate requires sent app-home and suggested prompt outbox proof", () => {
+  const report = buildSlackEvidenceReport({
+    workspaceId: "workspace-1",
+    strict: true,
+    required: "native",
+    dependencies: {
+      listIntegrations: () => [makeIntegration()],
+      listChannelBindings: () => [makeChannelBinding()],
+      listUserBindings: () => [makeUserBinding()],
+      listEvents: () => [
+        makeEvent({
+          eventType: "event_callback.message",
+          status: "processed",
+          payloadJson: {
+            hasAgentContext: true,
+            agentContext: {
+              entities: [{ type: "slack#/types/channel_id", valueRef: "ref_safechan" }],
+            },
+          },
+        }),
+      ],
+      listMessageMappings: () => [
+        makeMapping({
+          direction: "inbound",
+          metadataJson: {
+            provider: "slack",
+            agentId: "Atlas",
+            taskAgentId: "Atlas",
+            taskQueueId: "task-safe-1",
+            agentContext: {
+              entities: [{ type: "slack#/types/channel_id", valueRef: "ref_safechan" }],
+            },
+          },
+        }),
+        makeMapping({
+          direction: "outbound",
+          metadataJson: {
+            provider: "slack",
+            outboxSource: "agent_reply",
+            externalChatReference: "ref_safechat",
+          },
+        }),
+        makeMapping({
+          direction: "outbound",
+          metadataJson: {
+            provider: "slack",
+            mappingSource: "app_home_opened_welcome",
+            externalChatReference: "ref_safeim",
+            externalUserReference: "ref_safeuser",
+          },
+        }),
+      ],
+      listOutbox: () => [
+        makeOutbox({
+          status: "sent",
+          metadataJson: {
+            provider: "slack",
+            outboxSource: "agent_reply",
+            externalChatReference: "ref_safechat",
+          },
+        }),
+        makeOutbox({
+          status: "locked",
+          metadataJson: {
+            provider: "slack",
+            outboxSource: "app_home_opened_welcome",
+            externalChatReference: "ref_safeim",
+            externalUserReference: "ref_safeuser",
+          },
+        }),
+        makeOutbox({
+          status: "locked",
+          metadataJson: {
+            provider: "slack",
+            outboxSource: "assistant_suggested_prompts",
+            assistantMethod: "assistant.threads.setSuggestedPrompts",
+            externalUserReference: "ref_safeuser",
+          },
+        }),
+      ],
+    },
+  });
+
+  assert.equal(report.strictSatisfied, false);
+  assert.equal(report.integrations[0]?.message.satisfied, true);
+  assert.equal(report.integrations[0]?.nativeExperience.agentContextEvidence, 2);
+  assert.equal(report.integrations[0]?.nativeExperience.appHomeWelcomeEvidence, 0);
+  assert.equal(report.integrations[0]?.nativeExperience.suggestedPromptsEvidence, 0);
+  assert.ok(report.integrations[0]?.blockers.includes("app_home_welcome_evidence_missing"));
+  assert.ok(report.integrations[0]?.blockers.includes("suggested_prompts_evidence_missing"));
+});
+
 test("Slack evidence exposes top-level blockers for final evidence automation", () => {
   const report = buildSlackEvidenceReport({
     workspaceId: "workspace-1",
@@ -1179,7 +1271,7 @@ test("Slack evidence strict all rejects unresolved failed events", () => {
   assert.doesNotMatch(JSON.stringify(report), /EvFailed/);
 });
 
-test("Slack evidence strict all rejects pending outbox rows", () => {
+test("Slack evidence strict all rejects pending or locked outbox rows", () => {
   const dependencies = makeCompleteSlackEvidenceDependencies();
   const baseListOutbox = dependencies?.listOutbox;
   const report = buildSlackEvidenceReport({
@@ -1202,6 +1294,17 @@ test("Slack evidence strict all rejects pending outbox rows", () => {
             externalChatReference: "ref_safechat",
           },
         }),
+        makeOutbox({
+          id: "outbox-locked-1",
+          status: "locked",
+          sentAt: undefined,
+          metadataJson: {
+            provider: "slack",
+            outboxSource: "assistant_suggested_prompts",
+            assistantMethod: "assistant.threads.setSuggestedPrompts",
+            externalChatReference: "ref_safechat",
+          },
+        }),
       ],
     },
   });
@@ -1212,7 +1315,7 @@ test("Slack evidence strict all rejects pending outbox rows", () => {
   assert.equal(report.summary.filesSatisfiedCount, 1);
   assert.equal(report.strictSatisfied, false);
   assert.equal(report.integrations[0]?.requiredSatisfied, false);
-  assert.equal(report.integrations[0]?.failures.pendingOutbox, 1);
+  assert.equal(report.integrations[0]?.failures.pendingOutbox, 2);
   assert.ok(report.integrations[0]?.blockers.includes("pending_outbox_unresolved"));
   assert.ok(report.integrations[0]?.warnings.includes("pending_outbox_messages"));
   assert.ok(report.blockers.includes("pending_outbox_unresolved"));

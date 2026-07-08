@@ -439,7 +439,7 @@ function buildSlackEvidenceIntegrationItem(input: {
   const failures = {
     failedEvents: events.filter((event) => event.status === "failed").length,
     failedOutbox: outbox.filter((item) => item.status === "failed").length,
-    pendingOutbox: outbox.filter((item) => item.status === "pending").length,
+    pendingOutbox: outbox.filter((item) => item.status === "pending" || item.status === "locked").length,
   };
   const rawRequiredSatisfied = isSlackEvidenceRequirementSatisfied(input.required, {
     message: rawMessage.satisfied,
@@ -605,11 +605,8 @@ function buildNativeEvidence(
 ): SlackEvidenceIntegrationItem["nativeExperience"] {
   const agentContextEvidence = events.filter((event) => hasSlackAgentContextEvidence(event.payloadJson)).length +
     mappings.filter((mapping) => hasSlackAgentContextEvidence(mapping.metadataJson)).length;
-  const appHomeWelcomeEvidence = mappings.filter(isSlackAppHomeWelcomeMapping).length +
-    outbox.filter((item) => readJsonStringField(item.metadataJson, "outboxSource") === "app_home_opened_welcome").length;
-  const suggestedPromptsEvidence = outbox.filter((item) =>
-    readJsonStringField(item.metadataJson, "assistantMethod") === "assistant.threads.setSuggestedPrompts"
-  ).length;
+  const appHomeWelcomeEvidence = outbox.filter(isSentSlackAppHomeWelcomeOutbox).length;
+  const suggestedPromptsEvidence = outbox.filter(isSentSlackAssistantSuggestedPromptsOutbox).length;
   return {
     satisfied: agentContextEvidence > 0 && appHomeWelcomeEvidence > 0 && suggestedPromptsEvidence > 0,
     agentContextEvidence,
@@ -787,8 +784,14 @@ function isSlackEvidenceRequirementSatisfied(
   return evidence.message && evidence.native && evidence.approval && evidence.files;
 }
 
-function isSlackAppHomeWelcomeMapping(mapping: ExternalMessageMappingRecord): boolean {
-  return readJsonStringField(mapping.metadataJson, "mappingSource") === "app_home_opened_welcome";
+function isSentSlackAppHomeWelcomeOutbox(item: ExternalMessageOutboxRecord): boolean {
+  return item.status === "sent" &&
+    readJsonStringField(item.metadataJson, "outboxSource") === "app_home_opened_welcome";
+}
+
+function isSentSlackAssistantSuggestedPromptsOutbox(item: ExternalMessageOutboxRecord): boolean {
+  return item.status === "sent" &&
+    readJsonStringField(item.metadataJson, "assistantMethod") === "assistant.threads.setSuggestedPrompts";
 }
 
 function isSlackMessageReplyMapping(mapping: ExternalMessageMappingRecord): boolean {
