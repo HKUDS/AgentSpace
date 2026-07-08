@@ -620,6 +620,163 @@ test("dispatches agent-scoped Slack bot mentions as AgentSpace @agent messages",
   assert.equal(JSON.stringify(metadata).includes("U456"), false);
 });
 
+test("routes multiple agent-scoped Slack bots in one Slack channel independently", () => {
+  const atlas = dispatchAgentScopedSlackInbound({
+    integrationId: "slack-atlas",
+    agentId: "Atlas",
+    botUserId: "UATLAS",
+    eventId: "EvAtlasDispatch",
+    appId: "A_ATLAS",
+    messageTs: "1783400011.000100",
+    text: "<@UATLAS> summarize the launch plan",
+    channelId: "C_SHARED",
+  });
+  const nova = dispatchAgentScopedSlackInbound({
+    integrationId: "slack-nova",
+    agentId: "Nova",
+    botUserId: "UNOVA",
+    eventId: "EvNovaDispatch",
+    appId: "A_NOVA",
+    messageTs: "1783400011.000200",
+    text: "<@UNOVA> review the metrics",
+    channelId: "C_SHARED",
+  });
+
+  assert.equal(atlas.result.dispatchStatus, "sent");
+  assert.equal(nova.result.dispatchStatus, "sent");
+  assert.equal(atlas.sentMessages[0]?.summary, "@Atlas summarize the launch plan");
+  assert.equal(nova.sentMessages[0]?.summary, "@Nova review the metrics");
+  assert.equal(atlas.routeGuardInputs[0]?.agentId, "Atlas");
+  assert.equal(nova.routeGuardInputs[0]?.agentId, "Nova");
+  assert.equal(atlas.taskResolutionInputs[0]?.agentId, "Atlas");
+  assert.equal(nova.taskResolutionInputs[0]?.agentId, "Nova");
+  assert.equal(atlas.threadBindingInputs[0]?.taskQueueId, "task-atlas");
+  assert.equal(nova.threadBindingInputs[0]?.taskQueueId, "task-nova");
+
+  const atlasMetadata = atlas.mappingInputs[0]?.metadataJson as Record<string, unknown>;
+  const novaMetadata = nova.mappingInputs[0]?.metadataJson as Record<string, unknown>;
+  assert.equal(atlasMetadata.agentId, "Atlas");
+  assert.equal(novaMetadata.agentId, "Nova");
+  assert.equal(atlasMetadata.botBindingId, "slack-atlas");
+  assert.equal(novaMetadata.botBindingId, "slack-nova");
+  assert.equal(atlasMetadata.threadBindingId, "thread-atlas");
+  assert.equal(novaMetadata.threadBindingId, "thread-nova");
+  assert.equal(JSON.stringify(atlasMetadata).includes("C_SHARED"), false);
+  assert.equal(JSON.stringify(novaMetadata).includes("C_SHARED"), false);
+});
+
+test("ignores agent-scoped Slack bot self-loop messages before dispatch", () => {
+  const integrationId = "slack-self-loop";
+  const event = buildExternalIntegrationEvent({
+    integrationId,
+    externalEventId: "EvSelfLoop",
+  });
+  const calls: string[] = [];
+
+  const result = processSlackInboundEventSync({
+    context: {
+      workspaceId: "workspace-1",
+      integrationId,
+      provider: SLACK_PROVIDER_ID,
+    },
+    integration: buildExternalIntegration({
+      id: integrationId,
+      workspaceId: "workspace-1",
+      agentId: "Atlas",
+      configJson: JSON.stringify({
+        bot: {
+          botUserId: "UBOT",
+        },
+      }),
+    }),
+    payload: buildSlackMentionPayload({
+      eventId: "EvSelfLoop",
+      messageTs: "1783400012.000100",
+      text: "<@UBOT> loop back into AgentSpace",
+      user: "UBOT",
+    }),
+    dependencies: {
+      recordEvent: () => {
+        calls.push("record-event");
+        return event;
+      },
+      readMessageMappingByExternalMessage: () => {
+        assert.fail("self-loop message should not reach duplicate lookup");
+      },
+      readChannelBindingByExternalChat: () => {
+        assert.fail("self-loop message should not reach channel binding lookup");
+      },
+      sendChannelHumanMessage: () => {
+        assert.fail("self-loop message should not dispatch to AgentSpace");
+      },
+      updateEventStatus: (input) => {
+        calls.push("mark-ignored");
+        assert.equal(input.status, "ignored");
+        assert.equal(input.errorMessage, "slack.non_message_event");
+        return {
+          ...event,
+          status: "ignored",
+          errorMessage: input.errorMessage,
+        };
+      },
+    },
+  });
+
+  assert.equal(result.dispatchStatus, "ignored");
+  assert.equal(result.reasonCode, "slack.non_message_event");
+  assert.equal(result.message, null);
+  assert.deepEqual(calls, ["record-event", "mark-ignored"]);
+});
+
+test("dispatches Slack agent_view DMs with governed redacted app context", () => {
+  const dm = dispatchAgentScopedSlackInbound({
+    integrationId: "slack-agent-view-dm",
+    agentId: "Atlas",
+    botUserId: "UATLAS",
+    eventId: "EvAgentViewDm",
+    appId: "A_ATLAS",
+    messageTs: "1783400013.000100",
+    eventType: "message",
+    channelId: "D_ATLAS",
+    channelType: "im",
+    text: "inspect the selected brief",
+    appContext: {
+      entities: [{
+        type: "slack#/types/channel_id",
+        value: "C_SECRET_VIEWED",
+        team_id: "T_SECRET_TEAM",
+        enterprise_id: "E_SECRET_ENTERPRISE",
+      }],
+    },
+  });
+
+  assert.equal(dm.result.dispatchStatus, "sent");
+  assert.equal(dm.sentMessages[0]?.summary, "@Atlas inspect the selected brief");
+  assert.equal(dm.channelWriteInputs.length, 1);
+  assert.equal(dm.routeGuardInputs.length, 1);
+  assert.equal(dm.channelWriteInputs[0]?.channelName, "general");
+  assert.equal(dm.routeGuardInputs[0]?.agentId, "Atlas");
+  const externalInput = dm.sentMessages[0]?.externalInput;
+  const actor = externalInput?.actor as Record<string, unknown> | undefined;
+  assert.equal(externalInput?.trust, "untrusted_user_message");
+  assert.equal(actor?.agentId, "Atlas");
+  assert.equal(actor?.botBindingId, "slack-agent-view-dm");
+
+  const externalContext = String(externalInput?.externalContext);
+  const parsedExternalContext = JSON.parse(externalContext) as Record<string, unknown>;
+  const slackAgentContext = parsedExternalContext.slackAgentContext as Record<string, unknown>;
+  assert.equal(slackAgentContext.source, "app_context");
+  assert.equal(slackAgentContext.hasEntities, true);
+  assert.doesNotMatch(externalContext, /C_SECRET_VIEWED|T_SECRET_TEAM|E_SECRET_ENTERPRISE/);
+  assert.match(externalContext, /ref_[a-f0-9]{8}/);
+
+  const metadata = dm.mappingInputs[0]?.metadataJson as Record<string, unknown>;
+  assert.equal(typeof metadata.agentContext, "object");
+  assert.equal(metadata.agentId, "Atlas");
+  assert.equal(metadata.botBindingId, "slack-agent-view-dm");
+  assert.doesNotMatch(JSON.stringify(metadata), /C_SECRET_VIEWED|T_SECRET_TEAM|E_SECRET_ENTERPRISE|D_ATLAS/);
+});
+
 test("marks Slack inbound events failed when AgentSpace dispatch throws", () => {
   const event = buildExternalIntegrationEvent({
     externalEventId: "EvDispatchFailed",
@@ -736,21 +893,211 @@ test("ignores permission-denied Slack inbound messages without dispatching tasks
 function buildSlackMentionPayload(input: {
   eventId: string;
   messageTs: string;
+  appId?: string;
+  teamId?: string;
+  eventType?: "app_mention" | "message";
+  channelId?: string;
+  channelType?: string;
+  user?: string;
   text?: string;
+  appContext?: Record<string, unknown>;
 }): Record<string, unknown> {
+  const event: Record<string, unknown> = {
+    type: input.eventType ?? "app_mention",
+    channel: input.channelId ?? "C123",
+    user: input.user ?? "U456",
+    text: input.text ?? "<@UBOT> dispatch safely",
+    ts: input.messageTs,
+  };
+  if (input.channelType) {
+    event.channel_type = input.channelType;
+  }
+  if (input.appContext) {
+    event.app_context = input.appContext;
+  }
   return {
     type: "event_callback",
     event_id: input.eventId,
     event_time: 1783400005,
-    api_app_id: "A123",
-    team_id: "T123",
-    event: {
-      type: "app_mention",
-      channel: "C123",
-      user: "U456",
-      text: input.text ?? "<@UBOT> dispatch safely",
-      ts: input.messageTs,
+    api_app_id: input.appId ?? "A123",
+    team_id: input.teamId ?? "T123",
+    event,
+  };
+}
+
+function dispatchAgentScopedSlackInbound(input: {
+  integrationId: string;
+  agentId: string;
+  botUserId: string;
+  eventId: string;
+  appId: string;
+  messageTs: string;
+  text: string;
+  eventType?: "app_mention" | "message";
+  channelId?: string;
+  channelType?: string;
+  appContext?: Record<string, unknown>;
+}) {
+  const channelId = input.channelId ?? "C123";
+  const agentSlug = input.agentId.toLowerCase();
+  const event = buildExternalIntegrationEvent({
+    integrationId: input.integrationId,
+    externalEventId: input.eventId,
+    eventType: input.eventType === "message"
+      ? "event_callback.message"
+      : "event_callback.app_mention",
+  });
+  const sentMessages: Array<{
+    summary: string;
+    externalInput?: Record<string, unknown>;
+  }> = [];
+  const channelWriteInputs: Record<string, unknown>[] = [];
+  const routeGuardInputs: Record<string, unknown>[] = [];
+  const taskResolutionInputs: Record<string, unknown>[] = [];
+  const threadBindingInputs: Record<string, unknown>[] = [];
+  const mappingInputs: Record<string, unknown>[] = [];
+
+  const result = processSlackInboundEventSync({
+    context: {
+      workspaceId: "workspace-1",
+      integrationId: input.integrationId,
+      provider: SLACK_PROVIDER_ID,
     },
+    integration: buildExternalIntegration({
+      id: input.integrationId,
+      workspaceId: "workspace-1",
+      appId: input.appId,
+      tenantKey: "T123",
+      agentId: input.agentId,
+      configJson: JSON.stringify({
+        bot: {
+          botUserId: input.botUserId,
+        },
+      }),
+    }),
+    payload: buildSlackMentionPayload({
+      eventId: input.eventId,
+      appId: input.appId,
+      messageTs: input.messageTs,
+      eventType: input.eventType,
+      channelId,
+      channelType: input.channelType,
+      text: input.text,
+      appContext: input.appContext,
+    }),
+    dependencies: {
+      recordEvent: () => event,
+      readMessageMappingByExternalMessage: () => null,
+      readChannelBindingByExternalChat: (lookup) => {
+        assert.equal(lookup.integrationId, input.integrationId);
+        assert.equal(lookup.externalChatId, channelId);
+        return buildExternalChannelBinding({
+          id: `channel-binding-${agentSlug}`,
+          integrationId: input.integrationId,
+          channelName: "general",
+          externalChatId: channelId,
+          externalChatType: input.channelType === "im" ? "im" : "channel",
+        });
+      },
+      readUserBindingByExternalUser: (lookup) => {
+        assert.equal(lookup.integrationId, input.integrationId);
+        assert.equal(lookup.externalUserId, "U456");
+        return buildExternalUserBinding({
+          id: `user-binding-${agentSlug}`,
+          integrationId: input.integrationId,
+          userId: "user-1",
+          externalUserId: "U456",
+          displayName: "Mina Slack",
+        });
+      },
+      readUser: () => buildStoredUser(),
+      readWorkspaceMembership: () => buildWorkspaceMembership(),
+      canWriteChannelForActor: (guardInput) => {
+        channelWriteInputs.push({
+          channelName: guardInput.channelName,
+          actor: guardInput.actor,
+        });
+        return true;
+      },
+      evaluateAgentRouteGuard: (guardInput) => {
+        routeGuardInputs.push({
+          workspaceId: guardInput.workspaceId,
+          channelName: guardInput.channelName,
+          agentId: guardInput.integration?.agentId,
+          actor: guardInput.actor,
+        });
+        return { allowed: true };
+      },
+      sendChannelHumanMessage: (
+        _channelName,
+        _speaker,
+        summary,
+        _attachments,
+        _replyToMessageId,
+        _workspaceId,
+        _requesterUserId,
+        externalInput,
+      ) => {
+        sentMessages.push({
+          summary,
+          externalInput: externalInput as Record<string, unknown>,
+        });
+        return {
+          messages: [{
+            id: `message-${agentSlug}`,
+            data: {
+              external_provider: SLACK_PROVIDER_ID,
+              external_message_id: input.messageTs,
+            },
+          }],
+        } as never;
+      },
+      resolveDispatchedTask: (taskInput) => {
+        taskResolutionInputs.push(taskInput);
+        return {
+          id: `task-${agentSlug}`,
+          routerSessionId: `router-${agentSlug}`,
+        } as never;
+      },
+      recordThreadBinding: (threadInput) => {
+        threadBindingInputs.push({
+          integrationId: threadInput.integration.id,
+          channelBindingId: threadInput.channelBinding.id,
+          agentId: threadInput.agentId,
+          taskQueueId: threadInput.taskQueueId,
+          routerSessionId: threadInput.routerSessionId,
+          agentSpaceMessageId: threadInput.agentSpaceMessageId,
+        });
+        return { id: `thread-${agentSlug}` } as never;
+      },
+      createMessageMapping: (mappingInput) => {
+        mappingInputs.push(mappingInput as Record<string, unknown>);
+        return buildExternalMessageMapping({
+          integrationId: input.integrationId,
+          channelBindingId: `channel-binding-${agentSlug}`,
+          externalMessageId: String(mappingInput.externalMessageId),
+          externalThreadId: String(mappingInput.externalThreadId),
+          externalEventId: String(mappingInput.externalEventId),
+          agentSpaceMessageId: mappingInput.agentSpaceMessageId,
+          metadataJson: JSON.stringify(mappingInput.metadataJson),
+        });
+      },
+      updateEventStatus: (statusInput) => ({
+        ...event,
+        status: statusInput.status,
+        errorMessage: statusInput.errorMessage,
+      }),
+    },
+  });
+
+  return {
+    result,
+    sentMessages,
+    channelWriteInputs,
+    routeGuardInputs,
+    taskResolutionInputs,
+    threadBindingInputs,
+    mappingInputs,
   };
 }
 

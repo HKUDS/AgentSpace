@@ -933,10 +933,16 @@ rawPayload = summarized payload or original safe subset
 
 验收：
 
-- [ ] 两个 agent bot 在同一 Slack channel 中可独立路由。
-- [ ] bot self-loop guard 生效。
-- [ ] `agent_view` DM 可触发 AgentSpace task。
-- [ ] Slack app context 只作为受治理的 external context，不绕过 AgentSpace 权限。
+- [x] 两个 agent bot 在同一 Slack channel 中可独立路由。
+- [x] bot self-loop guard 生效。
+- [x] `agent_view` DM 可触发 AgentSpace task。
+- [x] Slack app context 只作为受治理的 external context，不绕过 AgentSpace 权限。
+
+证据：
+
+- `packages/services/src/integrations/providers/slack/__tests__/inbound.test.ts` 默认单测覆盖两个 agent-scoped Slack bot 在同一个 Slack channel id 下分别注入自己的 `@agent`、写入独立 `botBindingId` / task / thread metadata，且 metadata 不保存 raw Slack channel id。
+- 同一测试文件覆盖 agent-scoped bot 自己发出的 message 在 duplicate lookup / channel binding / AgentSpace dispatch 之前被忽略，避免 self-loop。
+- 同一测试文件覆盖 Slack `agent_view` / `message.im` DM 带 `app_context` 时仍先经过 channel write guard 和 agent route guard；传给 AgentSpace 的 `externalContext` 与 mapping metadata 只保留 redacted reference，不保存 raw Slack channel/team/enterprise id。
 
 ### Phase 10.5：Slack Block Kit approvals
 
