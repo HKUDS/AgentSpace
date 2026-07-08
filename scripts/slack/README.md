@@ -24,7 +24,7 @@ npm run cli -- integrations slack evidence --workspace-id default --integration 
 
 `smoke-plan` includes a Slack app manifest draft for the current Agent messaging experience. It enables `features.agent_view`, subscribes to `app_home_opened`, `app_context_changed`, and `message.im`, includes the `assistant:write`, `files:read`, and `files:write` bot scopes, and fills the Events / Interactivity callback URLs from `--app-url`.
 
-`evidence` reads local AgentSpace integration events, message mappings, bindings, and outbox state. Use `--require message` for the core message transport gate, `--require native` for app-home/agent-context/suggested-prompt evidence, `--require approval` for Block Kit approval evidence, `--require files` for the Slack files data-plane gate, or `--require all` before final sign-off.
+`evidence` reads local AgentSpace integration events, message mappings, bindings, and outbox state. Use `--require message` for the core message transport gate, `--require native` for app-home/agent-context/suggested-prompt evidence, `--require approval` for Block Kit approval evidence, `--require files` for the Slack files data-plane gate, or `--require all` before final sign-off. Strict evidence ignores local proof older than 24 hours so final sign-off must be backed by fresh Slack activity.
 
 Replay signed Slack webhook calls against the configured AgentSpace callback:
 

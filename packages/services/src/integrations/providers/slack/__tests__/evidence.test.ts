@@ -161,6 +161,7 @@ test("builds strict Slack evidence reports without raw external ids", () => {
   assert.equal(report.summary.nativeSatisfiedCount, 1);
   assert.equal(report.summary.approvalSatisfiedCount, 1);
   assert.equal(report.summary.filesSatisfiedCount, 1);
+  assert.equal(report.summary.staleEvidenceRowCount, 0);
   assert.equal(report.integrations[0]?.message.agentTaskQueueEvidence, 1);
   assert.deepEqual(report.integrations[0]?.blockers, []);
   assert.doesNotMatch(JSON.stringify(report), /A_SECRET|T_SECRET|C_SECRET|D_SECRET|U_SECRET|F_SECRET|url_private|files\.slack\.com|EvMessage|EvApproval|1783400000/);
@@ -473,7 +474,30 @@ test("Slack evidence can gate strict all on redacted live smoke evidence", () =>
   assert.ok(missingFileUpload.liveSmokeEvidence?.issues.includes("slack_live_file_upload_evidence_missing"));
 });
 
+test("Slack evidence strict all rejects stale local evidence rows", () => {
+  const report = buildSlackEvidenceReport({
+    workspaceId: "workspace-1",
+    strict: true,
+    required: "all",
+    requireLiveSmokeEvidence: true,
+    liveSmokeEvidence: makeLiveSmokeEvidence(),
+    dependencies: makeCompleteSlackEvidenceDependencies({
+      timestamp: staleTimestamp(),
+    }),
+  });
+
+  assert.equal(report.strictSatisfied, false);
+  assert.equal(report.summary.staleEvidenceRowCount, 10);
+  assert.equal(report.integrations[0]?.freshness.required, true);
+  assert.equal(report.integrations[0]?.freshness.freshEvents, 0);
+  assert.equal(report.integrations[0]?.freshness.freshMappings, 0);
+  assert.equal(report.integrations[0]?.freshness.freshOutbox, 0);
+  assert.ok(report.integrations[0]?.blockers.includes("local_evidence_stale"));
+  assert.ok(report.integrations[0]?.warnings.includes("stale_local_evidence_ignored"));
+});
+
 function makeIntegration(overrides: Partial<ExternalIntegrationRecord> = {}): ExternalIntegrationRecord {
+  const timestamp = freshTimestamp();
   return {
     id: "slack-1",
     workspaceId: "workspace-1",
@@ -489,13 +513,16 @@ function makeIntegration(overrides: Partial<ExternalIntegrationRecord> = {}): Ex
     capabilitiesJson: "{}",
     scopesJson: "[]",
     lastHealthStatus: "healthy",
-    createdAt: "2026-07-08T00:00:00.000Z",
-    updatedAt: "2026-07-08T00:00:00.000Z",
+    createdAt: timestamp,
+    updatedAt: timestamp,
     ...overrides,
   };
 }
 
-function makeCompleteSlackEvidenceDependencies(): Parameters<typeof buildSlackEvidenceReport>[0]["dependencies"] {
+function makeCompleteSlackEvidenceDependencies(input: {
+  timestamp?: string;
+} = {}): Parameters<typeof buildSlackEvidenceReport>[0]["dependencies"] {
+  const timestamp = input.timestamp ?? freshTimestamp();
   return {
     listIntegrations: () => [makeIntegration()],
     listChannelBindings: () => [makeChannelBinding()],
@@ -504,6 +531,8 @@ function makeCompleteSlackEvidenceDependencies(): Parameters<typeof buildSlackEv
       makeEvent({
         eventType: "event_callback.app_mention",
         status: "processed",
+        receivedAt: timestamp,
+        processedAt: timestamp,
         payloadJson: {
           hasAgentContext: true,
           hasFiles: true,
@@ -513,10 +542,13 @@ function makeCompleteSlackEvidenceDependencies(): Parameters<typeof buildSlackEv
       makeEvent({
         eventType: "block_actions",
         status: "processed",
+        receivedAt: timestamp,
+        processedAt: timestamp,
       }),
     ],
     listMessageMappings: () => [
       makeMapping({
+        createdAt: timestamp,
         direction: "inbound",
         metadataJson: {
           provider: "slack",
@@ -532,6 +564,7 @@ function makeCompleteSlackEvidenceDependencies(): Parameters<typeof buildSlackEv
         },
       }),
       makeMapping({
+        createdAt: timestamp,
         direction: "outbound",
         metadataJson: {
           provider: "slack",
@@ -539,6 +572,7 @@ function makeCompleteSlackEvidenceDependencies(): Parameters<typeof buildSlackEv
         },
       }),
       makeMapping({
+        createdAt: timestamp,
         direction: "outbound",
         metadataJson: {
           provider: "slack",
@@ -549,6 +583,9 @@ function makeCompleteSlackEvidenceDependencies(): Parameters<typeof buildSlackEv
     ],
     listOutbox: () => [
       makeOutbox({
+        createdAt: timestamp,
+        updatedAt: timestamp,
+        sentAt: timestamp,
         status: "sent",
         metadataJson: {
           provider: "slack",
@@ -556,6 +593,9 @@ function makeCompleteSlackEvidenceDependencies(): Parameters<typeof buildSlackEv
         },
       }),
       makeOutbox({
+        createdAt: timestamp,
+        updatedAt: timestamp,
+        sentAt: timestamp,
         status: "sent",
         metadataJson: {
           provider: "slack",
@@ -563,6 +603,9 @@ function makeCompleteSlackEvidenceDependencies(): Parameters<typeof buildSlackEv
         },
       }),
       makeOutbox({
+        createdAt: timestamp,
+        updatedAt: timestamp,
+        sentAt: timestamp,
         status: "sent",
         metadataJson: {
           provider: "slack",
@@ -571,6 +614,9 @@ function makeCompleteSlackEvidenceDependencies(): Parameters<typeof buildSlackEv
         },
       }),
       makeOutbox({
+        createdAt: timestamp,
+        updatedAt: timestamp,
+        sentAt: timestamp,
         status: "sent",
         metadataJson: {
           provider: "slack",
@@ -578,6 +624,9 @@ function makeCompleteSlackEvidenceDependencies(): Parameters<typeof buildSlackEv
         },
       }),
       makeOutbox({
+        createdAt: timestamp,
+        updatedAt: timestamp,
+        sentAt: timestamp,
         status: "sent",
         metadataJson: {
           provider: "slack",
@@ -648,6 +697,7 @@ function makeLiveSmokeEvidence(input: {
 }
 
 function makeChannelBinding(overrides: Partial<ExternalChannelBindingRecord> = {}): ExternalChannelBindingRecord {
+  const timestamp = freshTimestamp();
   return {
     id: "channel-binding-1",
     workspaceId: "workspace-1",
@@ -658,13 +708,14 @@ function makeChannelBinding(overrides: Partial<ExternalChannelBindingRecord> = {
     status: "active",
     syncMode: "mirror",
     metadataJson: "{}",
-    createdAt: "2026-07-08T00:00:00.000Z",
-    updatedAt: "2026-07-08T00:00:00.000Z",
+    createdAt: timestamp,
+    updatedAt: timestamp,
     ...overrides,
   };
 }
 
 function makeUserBinding(overrides: Partial<ExternalUserBindingRecord> = {}): ExternalUserBindingRecord {
+  const timestamp = freshTimestamp();
   return {
     id: "user-binding-1",
     workspaceId: "workspace-1",
@@ -673,13 +724,14 @@ function makeUserBinding(overrides: Partial<ExternalUserBindingRecord> = {}): Ex
     externalUserId: "U_SECRET",
     status: "active",
     metadataJson: "{}",
-    createdAt: "2026-07-08T00:00:00.000Z",
-    updatedAt: "2026-07-08T00:00:00.000Z",
+    createdAt: timestamp,
+    updatedAt: timestamp,
     ...overrides,
   };
 }
 
 function makeEvent(overrides: Partial<ExternalIntegrationEventRecord> = {}): ExternalIntegrationEventRecord {
+  const timestamp = freshTimestamp();
   return {
     id: "event-1",
     workspaceId: "workspace-1",
@@ -689,15 +741,15 @@ function makeEvent(overrides: Partial<ExternalIntegrationEventRecord> = {}): Ext
     eventType: "event_callback.message",
     status: "processed",
     payloadJson: "{}",
-    receivedAt: "2026-07-08T00:00:00.000Z",
-    createdAt: "2026-07-08T00:00:00.000Z",
-    updatedAt: "2026-07-08T00:00:00.000Z",
+    receivedAt: timestamp,
+    processedAt: timestamp,
     ...overrides,
     payloadJson: JSON.stringify(overrides.payloadJson ?? {}),
   } as ExternalIntegrationEventRecord;
 }
 
 function makeMapping(overrides: Partial<ExternalMessageMappingRecord> = {}): ExternalMessageMappingRecord {
+  const timestamp = freshTimestamp();
   return {
     id: "mapping-1",
     workspaceId: "workspace-1",
@@ -706,13 +758,14 @@ function makeMapping(overrides: Partial<ExternalMessageMappingRecord> = {}): Ext
     direction: "inbound",
     externalMessageId: "1783400000.000100",
     metadataJson: "{}",
-    createdAt: "2026-07-08T00:00:00.000Z",
+    createdAt: timestamp,
     ...overrides,
     metadataJson: JSON.stringify(overrides.metadataJson ?? {}),
   } as ExternalMessageMappingRecord;
 }
 
 function makeOutbox(overrides: Partial<ExternalMessageOutboxRecord> = {}): ExternalMessageOutboxRecord {
+  const timestamp = freshTimestamp();
   return {
     id: "outbox-1",
     workspaceId: "workspace-1",
@@ -723,9 +776,18 @@ function makeOutbox(overrides: Partial<ExternalMessageOutboxRecord> = {}): Exter
     metadataJson: "{}",
     status: "sent",
     attempts: 1,
-    createdAt: "2026-07-08T00:00:00.000Z",
-    updatedAt: "2026-07-08T00:00:00.000Z",
+    createdAt: timestamp,
+    updatedAt: timestamp,
+    sentAt: timestamp,
     ...overrides,
     metadataJson: JSON.stringify(overrides.metadataJson ?? {}),
   } as ExternalMessageOutboxRecord;
+}
+
+function freshTimestamp(): string {
+  return new Date().toISOString();
+}
+
+function staleTimestamp(): string {
+  return new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString();
 }

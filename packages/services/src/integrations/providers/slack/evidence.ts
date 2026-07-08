@@ -16,6 +16,7 @@ import { SLACK_PROVIDER_ID } from "./constants.ts";
 import { buildSlackReference } from "./events.ts";
 
 export type SlackEvidenceRequirement = "message" | "native" | "approval" | "files" | "all";
+const SLACK_LOCAL_EVIDENCE_FRESHNESS_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 export interface SlackEvidenceReport {
   workspaceId: string;
@@ -31,6 +32,7 @@ export interface SlackEvidenceReport {
     approvalSatisfiedCount: number;
     filesSatisfiedCount: number;
     unresolvedFailureCount: number;
+    staleEvidenceRowCount: number;
   };
   liveSmokeEvidence?: SlackLiveSmokeEvidenceVerification;
   integrations: SlackEvidenceIntegrationItem[];
@@ -94,6 +96,14 @@ export interface SlackEvidenceIntegrationItem {
     outboundUploadEvidence: number;
     unsafeFileMetadataRows: number;
   };
+  freshness: {
+    required: boolean;
+    maxAgeHours: number;
+    staleEvidenceRows: number;
+    freshEvents: number;
+    freshMappings: number;
+    freshOutbox: number;
+  };
   failures: {
     failedEvents: number;
     failedOutbox: number;
@@ -137,6 +147,7 @@ export function buildSlackEvidenceReport(input: {
     workspaceId: input.workspaceId,
     integration,
     required,
+    requireFreshEvidence: Boolean(input.strict),
     dependencies,
   }));
   const liveSmokeEvidence = input.requireLiveSmokeEvidence ||
@@ -164,6 +175,7 @@ export function buildSlackEvidenceReport(input: {
       approvalSatisfiedCount: items.filter((item) => item.approvals.satisfied).length,
       filesSatisfiedCount: items.filter((item) => item.files.satisfied).length,
       unresolvedFailureCount: items.reduce((count, item) => count + item.failures.failedEvents + item.failures.failedOutbox, 0),
+      staleEvidenceRowCount: items.reduce((count, item) => count + item.freshness.staleEvidenceRows, 0),
     },
     ...(liveSmokeEvidence ? { liveSmokeEvidence } : {}),
     integrations: items,
@@ -244,6 +256,7 @@ function buildSlackEvidenceIntegrationItem(input: {
   workspaceId: string;
   integration: ExternalIntegrationRecord;
   required: SlackEvidenceRequirement;
+  requireFreshEvidence: boolean;
   dependencies: SlackEvidenceDependencies;
 }): SlackEvidenceIntegrationItem {
   const { integration } = input;
@@ -274,15 +287,48 @@ function buildSlackEvidenceIntegrationItem(input: {
     limit: 500,
   });
 
-  const message = buildMessageEvidence(events, mappings, outbox, channelBindings, userBindings, integration);
-  const nativeExperience = buildNativeEvidence(events, mappings, outbox);
-  const approvals = buildApprovalEvidence(events, outbox);
-  const files = buildFileEvidence(events, mappings, outbox);
+  const freshEvents = input.requireFreshEvidence ? events.filter(isFreshSlackEvidenceEvent) : events;
+  const freshMappings = input.requireFreshEvidence ? mappings.filter(isFreshSlackEvidenceMapping) : mappings;
+  const freshOutbox = input.requireFreshEvidence ? outbox.filter(isFreshSlackEvidenceOutbox) : outbox;
+  const rawMessage = buildMessageEvidence(events, mappings, outbox, channelBindings, userBindings, integration);
+  const rawNativeExperience = buildNativeEvidence(events, mappings, outbox);
+  const rawApprovals = buildApprovalEvidence(events, outbox);
+  const rawFiles = buildFileEvidence(events, mappings, outbox);
+  const message = buildMessageEvidence(freshEvents, freshMappings, freshOutbox, channelBindings, userBindings, integration);
+  const nativeExperience = buildNativeEvidence(freshEvents, freshMappings, freshOutbox);
+  const approvals = buildApprovalEvidence(freshEvents, freshOutbox);
+  const files = buildFileEvidence(freshEvents, freshMappings, freshOutbox);
   const failures = {
     failedEvents: events.filter((event) => event.status === "failed").length,
     failedOutbox: outbox.filter((item) => item.status === "failed").length,
     pendingOutbox: outbox.filter((item) => item.status === "pending").length,
   };
+  const rawRequiredSatisfied = isSlackEvidenceRequirementSatisfied(input.required, {
+    message: rawMessage.satisfied,
+    native: rawNativeExperience.satisfied,
+    approval: rawApprovals.satisfied,
+    files: rawFiles.satisfied,
+  });
+  const freshness = {
+    required: input.requireFreshEvidence,
+    maxAgeHours: SLACK_LOCAL_EVIDENCE_FRESHNESS_WINDOW_MS / (60 * 60 * 1000),
+    staleEvidenceRows: input.requireFreshEvidence
+      ? events.length + mappings.length + outbox.length - freshEvents.length - freshMappings.length - freshOutbox.length
+      : 0,
+    freshEvents: freshEvents.length,
+    freshMappings: freshMappings.length,
+    freshOutbox: freshOutbox.length,
+  };
+  const locallySatisfied = isSlackEvidenceRequirementSatisfied(input.required, {
+    message: message.satisfied,
+    native: nativeExperience.satisfied,
+    approval: approvals.satisfied,
+    files: files.satisfied,
+  });
+  const staleEvidenceBlocksRequired = input.requireFreshEvidence &&
+    rawRequiredSatisfied &&
+    !locallySatisfied &&
+    freshness.staleEvidenceRows > 0;
   const blockers = [
     ...(message.satisfied ? [] : buildSlackMessageEvidenceBlockers(message, integration, channelBindings, userBindings, failures)),
     ...(input.required === "native" || input.required === "all"
@@ -294,18 +340,15 @@ function buildSlackEvidenceIntegrationItem(input: {
     ...(input.required === "files" || input.required === "all"
       ? files.satisfied ? [] : buildSlackFileEvidenceBlockers(files)
       : []),
+    ...(staleEvidenceBlocksRequired ? ["local_evidence_stale"] : []),
   ];
   const warnings = [
+    ...(freshness.staleEvidenceRows > 0 ? ["stale_local_evidence_ignored"] : []),
     ...(failures.pendingOutbox > 0 ? ["pending_outbox_messages"] : []),
     ...(failures.failedEvents > 0 ? ["failed_events_visible"] : []),
     ...(failures.failedOutbox > 0 ? ["failed_outbox_visible"] : []),
   ];
-  const requiredSatisfied = isSlackEvidenceRequirementSatisfied(input.required, {
-    message: message.satisfied,
-    native: nativeExperience.satisfied,
-    approval: approvals.satisfied,
-    files: files.satisfied,
-  });
+  const requiredSatisfied = locallySatisfied && failures.failedOutbox === 0;
   return {
     integrationId: integration.id,
     displayName: integration.displayName,
@@ -323,6 +366,7 @@ function buildSlackEvidenceIntegrationItem(input: {
     nativeExperience,
     approvals,
     files,
+    freshness,
     failures,
     blockers: Array.from(new Set(blockers)),
     warnings: Array.from(new Set(warnings)),
@@ -686,6 +730,18 @@ function readSlackLiveSmokeEvidenceRuns(artifact: Record<string, unknown>): Reco
     return runs;
   }
   return artifact.mode === "live" || artifact.liveResult ? [artifact] : [];
+}
+
+function isFreshSlackEvidenceEvent(event: ExternalIntegrationEventRecord): boolean {
+  return isFreshIsoTimestamp(event.processedAt ?? event.receivedAt, SLACK_LOCAL_EVIDENCE_FRESHNESS_WINDOW_MS);
+}
+
+function isFreshSlackEvidenceMapping(mapping: ExternalMessageMappingRecord): boolean {
+  return isFreshIsoTimestamp(mapping.createdAt, SLACK_LOCAL_EVIDENCE_FRESHNESS_WINDOW_MS);
+}
+
+function isFreshSlackEvidenceOutbox(item: ExternalMessageOutboxRecord): boolean {
+  return isFreshIsoTimestamp(item.sentAt ?? item.updatedAt ?? item.createdAt, SLACK_LOCAL_EVIDENCE_FRESHNESS_WINDOW_MS);
 }
 
 function isFreshIsoTimestamp(value: string, maxAgeMs: number): boolean {
