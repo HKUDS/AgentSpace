@@ -91,6 +91,7 @@ export interface SlackEvidenceIntegrationItem {
     agentTaskQueueEvidence: number;
     outboundMappings: number;
     sentOutbox: number;
+    threadCorrelatedOutboundReplies: number;
     liveAppMentionCorrelationRequired: boolean;
     liveAppMentionInboundMappings: number;
     liveAppMentionOutboundReplies: number;
@@ -551,11 +552,27 @@ function buildMessageEvidence(
     (event.eventType === "event_callback.app_mention" || event.eventType === "event_callback.message")
   ).length;
   const inboundMappings = mappings.filter((mapping) => mapping.direction === "inbound").length;
-  const agentTaskQueueEvidence = mappings.filter((mapping) =>
+  const agentTaskMappings = mappings.filter((mapping) =>
     mapping.direction === "inbound" && hasSlackAgentTaskQueueEvidence(mapping, integration)
-  ).length;
+  );
+  const agentTaskQueueEvidence = agentTaskMappings.length;
+  const agentTaskThreadIds = new Set(agentTaskMappings.flatMap((mapping) => {
+    const threadId = readSlackInboundMappingThreadId(mapping);
+    return threadId ? [threadId] : [];
+  }));
   const outboundMappings = mappings.filter(isSlackMessageReplyMapping).length;
   const sentOutbox = outbox.filter(isSlackMessageReplyOutbox).length;
+  const threadCorrelatedOutboundMappings = mappings.filter((mapping) =>
+    isSlackMessageReplyMapping(mapping) &&
+    mapping.externalThreadId &&
+    agentTaskThreadIds.has(mapping.externalThreadId)
+  ).length;
+  const threadCorrelatedOutboxReplies = outbox.filter((item) =>
+    isSlackMessageReplyOutbox(item) &&
+    item.targetExternalThreadId &&
+    agentTaskThreadIds.has(item.targetExternalThreadId)
+  ).length;
+  const threadCorrelatedOutboundReplies = threadCorrelatedOutboundMappings + threadCorrelatedOutboxReplies;
   const liveAppMentionInboundMappings = liveAppMentionCorrelationRequired
     ? mappings.filter((mapping) =>
       mapping.direction === "inbound" &&
@@ -586,7 +603,7 @@ function buildMessageEvidence(
     processedInboundEvents > 0 &&
     inboundMappings > 0 &&
     agentTaskQueueEvidence > 0 &&
-    (outboundMappings > 0 || sentOutbox > 0) &&
+    threadCorrelatedOutboundReplies > 0 &&
     (!liveAppMentionCorrelationRequired || (liveAppMentionInboundMappings > 0 && liveAppMentionOutboundReplies > 0));
   return {
     satisfied,
@@ -595,6 +612,7 @@ function buildMessageEvidence(
     agentTaskQueueEvidence,
     outboundMappings,
     sentOutbox,
+    threadCorrelatedOutboundReplies,
     liveAppMentionCorrelationRequired,
     liveAppMentionInboundMappings,
     liveAppMentionOutboundReplies,
@@ -702,6 +720,9 @@ function buildSlackMessageEvidenceBlockers(
   }
   if (message.outboundMappings === 0 && message.sentOutbox === 0) {
     blockers.push("outbound_reply_evidence_missing");
+  }
+  if ((message.outboundMappings > 0 || message.sentOutbox > 0) && message.threadCorrelatedOutboundReplies === 0) {
+    blockers.push("thread_correlated_outbound_reply_evidence_missing");
   }
   if (message.liveAppMentionCorrelationRequired && message.liveAppMentionInboundMappings === 0) {
     blockers.push("slack_live_app_mention_inbound_mapping_missing");
@@ -812,6 +833,13 @@ function isSlackMessageReplyOutbox(item: ExternalMessageOutboxRecord): boolean {
 
 function isSlackMessageReplyOutboxSource(outboxSource: string | undefined): boolean {
   return outboxSource === "agent_reply" || outboxSource === "direct_outbound_message";
+}
+
+function readSlackInboundMappingThreadId(mapping: ExternalMessageMappingRecord): string | undefined {
+  if (mapping.direction !== "inbound") {
+    return undefined;
+  }
+  return mapping.externalThreadId || mapping.externalMessageId || undefined;
 }
 
 function hasSlackAgentTaskQueueEvidence(

@@ -285,6 +285,67 @@ test("Slack evidence message gate ignores non-reply outbox evidence", () => {
   assert.ok(report.integrations[0]?.blockers.includes("outbound_reply_evidence_missing"));
 });
 
+test("Slack evidence message gate requires replies on the inbound task thread", () => {
+  const report = buildSlackEvidenceReport({
+    workspaceId: "workspace-1",
+    strict: true,
+    required: "message",
+    dependencies: {
+      listIntegrations: () => [makeIntegration()],
+      listChannelBindings: () => [makeChannelBinding()],
+      listUserBindings: () => [makeUserBinding()],
+      listEvents: () => [
+        makeEvent({
+          eventType: "event_callback.app_mention",
+          status: "processed",
+        }),
+      ],
+      listMessageMappings: () => [
+        makeMapping({
+          direction: "inbound",
+          externalMessageId: "1783400000.000100",
+          metadataJson: {
+            provider: "slack",
+            agentId: "Atlas",
+            taskAgentId: "Atlas",
+            taskQueueId: "task-safe-1",
+          },
+        }),
+        makeMapping({
+          direction: "outbound",
+          externalMessageId: "1783400009.000100",
+          externalThreadId: "1783499999.000100",
+          metadataJson: {
+            provider: "slack",
+            outboxSource: "agent_reply",
+            externalChatReference: "ref_safechat",
+          },
+        }),
+      ],
+      listOutbox: () => [
+        makeOutbox({
+          status: "sent",
+          targetExternalThreadId: "1783499999.000100",
+          metadataJson: {
+            provider: "slack",
+            outboxSource: "agent_reply",
+            externalChatReference: "ref_safechat",
+          },
+        }),
+      ],
+    },
+  });
+
+  assert.equal(report.strictSatisfied, false);
+  assert.equal(report.integrations[0]?.message.agentTaskQueueEvidence, 1);
+  assert.equal(report.integrations[0]?.message.outboundMappings, 1);
+  assert.equal(report.integrations[0]?.message.sentOutbox, 1);
+  assert.equal(report.integrations[0]?.message.threadCorrelatedOutboundReplies, 0);
+  assert.ok(report.integrations[0]?.blockers.includes("thread_correlated_outbound_reply_evidence_missing"));
+  assert.equal(report.integrations[0]?.blockers.includes("outbound_reply_evidence_missing"), false);
+  assert.doesNotMatch(JSON.stringify(report), /1783499999|1783400000/);
+});
+
 test("Slack evidence native gate requires sent app-home and suggested prompt outbox proof", () => {
   const report = buildSlackEvidenceReport({
     workspaceId: "workspace-1",
@@ -1896,6 +1957,7 @@ function makeOutbox(overrides: Partial<ExternalMessageOutboxRecord> = {}): Exter
     integrationId: "slack-1",
     channelBindingId: "channel-binding-1",
     targetExternalChatId: "C_SECRET",
+    targetExternalThreadId: "1783400000.000100",
     payloadJson: "{}",
     metadataJson: "{}",
     status: "sent",
