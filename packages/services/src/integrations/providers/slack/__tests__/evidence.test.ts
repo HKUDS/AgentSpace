@@ -568,6 +568,63 @@ test("Slack evidence files gate flags unsafe raw Slack file metadata", () => {
   assert.equal(report.strictSatisfied, false);
 });
 
+test("Slack evidence approval gate requires status outbox proof", () => {
+  const report = buildSlackEvidenceReport({
+    workspaceId: "workspace-1",
+    strict: true,
+    required: "approval",
+    dependencies: {
+      listIntegrations: () => [makeIntegration()],
+      listChannelBindings: () => [makeChannelBinding()],
+      listUserBindings: () => [makeUserBinding()],
+      listEvents: () => [
+        makeEvent({
+          eventType: "event_callback.app_mention",
+          status: "processed",
+        }),
+        makeEvent({
+          eventType: "block_actions",
+          status: "processed",
+        }),
+      ],
+      listMessageMappings: () => [
+        makeMapping({
+          direction: "inbound",
+          metadataJson: {
+            provider: "slack",
+            agentId: "Atlas",
+            taskAgentId: "Atlas",
+            taskQueueId: "task-safe-1",
+          },
+        }),
+        makeMapping({
+          direction: "outbound",
+          metadataJson: {
+            provider: "slack",
+            externalChatReference: "ref_safechat",
+          },
+        }),
+      ],
+      listOutbox: () => [
+        makeOutbox({
+          status: "sent",
+          metadataJson: {
+            provider: "slack",
+            outboxSource: "agent_reply",
+          },
+        }),
+      ],
+    },
+  });
+
+  assert.equal(report.strictSatisfied, false);
+  assert.equal(report.integrations[0]?.approvals.processedBlockActions, 1);
+  assert.equal(report.integrations[0]?.approvals.approvalStatusOutbox, 0);
+  assert.equal(report.integrations[0]?.approvals.satisfied, false);
+  assert.ok(report.integrations[0]?.blockers.includes("slack_approval_status_outbox_evidence_missing"));
+  assert.equal(report.integrations[0]?.blockers.includes("slack_approval_block_action_evidence_missing"), false);
+});
+
 test("Slack evidence can gate strict all on redacted live smoke evidence", () => {
   const report = buildSlackEvidenceReport({
     workspaceId: "workspace-1",

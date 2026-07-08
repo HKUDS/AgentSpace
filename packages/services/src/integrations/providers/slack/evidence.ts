@@ -482,7 +482,7 @@ function buildSlackEvidenceIntegrationItem(input: {
       ? nativeExperience.satisfied ? [] : buildSlackNativeEvidenceBlockers(nativeExperience)
       : []),
     ...(input.required === "approval" || input.required === "all"
-      ? approvals.satisfied ? [] : ["slack_approval_block_action_evidence_missing"]
+      ? approvals.satisfied ? [] : buildSlackApprovalEvidenceBlockers(approvals)
       : []),
     ...(input.required === "files" || input.required === "all"
       ? files.satisfied ? [] : buildSlackFileEvidenceBlockers(files)
@@ -618,13 +618,16 @@ function buildApprovalEvidence(
   outbox: ExternalMessageOutboxRecord[],
 ): SlackEvidenceIntegrationItem["approvals"] {
   const blockActionEvents = events.filter((event) => event.eventType === "block_actions");
+  const processedBlockActions = blockActionEvents.filter((event) => event.status === "processed").length;
+  const failedBlockActions = blockActionEvents.filter((event) => event.status === "failed").length;
+  const approvalStatusOutbox = outbox.filter((item) =>
+    readJsonStringField(item.metadataJson, "outboxSource") === "agent_status_card"
+  ).length;
   return {
-    satisfied: blockActionEvents.some((event) => event.status === "processed"),
-    processedBlockActions: blockActionEvents.filter((event) => event.status === "processed").length,
-    failedBlockActions: blockActionEvents.filter((event) => event.status === "failed").length,
-    approvalStatusOutbox: outbox.filter((item) =>
-      readJsonStringField(item.metadataJson, "outboxSource") === "agent_status_card"
-    ).length,
+    satisfied: processedBlockActions > 0 && approvalStatusOutbox > 0,
+    processedBlockActions,
+    failedBlockActions,
+    approvalStatusOutbox,
   };
 }
 
@@ -716,6 +719,17 @@ function buildSlackNativeEvidenceBlockers(native: SlackEvidenceIntegrationItem["
   }
   if (native.suggestedPromptsEvidence === 0) {
     blockers.push("suggested_prompts_evidence_missing");
+  }
+  return blockers;
+}
+
+function buildSlackApprovalEvidenceBlockers(approvals: SlackEvidenceIntegrationItem["approvals"]): string[] {
+  const blockers: string[] = [];
+  if (approvals.processedBlockActions === 0) {
+    blockers.push("slack_approval_block_action_evidence_missing");
+  }
+  if (approvals.approvalStatusOutbox === 0) {
+    blockers.push("slack_approval_status_outbox_evidence_missing");
   }
   return blockers;
 }
