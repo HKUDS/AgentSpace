@@ -1068,6 +1068,59 @@ test("Slack smoke evidence verifier rejects incomplete or unsafe artifacts", asy
   }
 });
 
+test("Slack smoke evidence verifier reads legacy single-run artifacts", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "agentspace-slack-smoke-"));
+  try {
+    const evidencePath = join(directory, "legacy-live.json");
+    writeFileSync(evidencePath, JSON.stringify({
+      schemaVersion: 1,
+      provider: "slack",
+      generatedAt: new Date().toISOString(),
+      mode: "live",
+      live: true,
+      ready: true,
+      context: {
+        workspaceId: "default",
+        integrationId: "slack-1",
+        appReference: "ref_appsafe",
+        teamReference: "ref_teamsafe",
+      },
+      liveResult: {
+        attempted: true,
+        ok: true,
+        mode: "post_message",
+        channelReference: "channel ref_1234abcd",
+        messageReference: "message ref_5678abcd",
+      },
+    }, null, 2));
+
+    const verification = await runSmokeScript([
+      "--verify-evidence",
+      evidencePath,
+      "--json",
+    ]);
+    assert.equal(verification.status, 1);
+    const output = JSON.parse(verification.stdout) as {
+      valid?: boolean;
+      summary?: {
+        runCount?: number;
+        satisfiedModes?: string[];
+        missingModes?: string[];
+      };
+      issues?: string[];
+    };
+    assert.equal(output.valid, false);
+    assert.equal(output.summary?.runCount, 1);
+    assert.ok(output.summary?.satisfiedModes?.includes("post_message"));
+    assert.ok(output.summary?.missingModes?.includes("app_mention"));
+    assert.ok(output.summary?.missingModes?.includes("file_upload"));
+    assert.equal(output.issues?.includes("runs_missing"), false);
+    assert.equal(output.issues?.includes("missing_live_mode_post_message"), false);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test("Slack webhook replay requires signing and app context env", async () => {
   const directory = mkdtempSync(join(tmpdir(), "agentspace-slack-smoke-"));
   try {

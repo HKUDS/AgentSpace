@@ -1134,11 +1134,7 @@ function verifySlackSmokeEvidenceFile(path: string, input: {
 
   const generatedAt = readString(artifact?.generatedAt);
   const context = readSlackSmokeEvidenceRecordContext(artifact);
-  const runs = Array.isArray(artifact?.runs)
-    ? artifact.runs.filter((run): run is Record<string, unknown> =>
-      typeof run === "object" && run !== null && !Array.isArray(run)
-    )
-    : [];
+  const runs = readSlackSmokeEvidenceRuns(artifact);
   if (artifact && artifact.schemaVersion !== 1) {
     issues.push("schema_version_invalid");
   }
@@ -1266,6 +1262,21 @@ function slackSmokeEvidenceRunSatisfiesMode(
   return liveResult.fileUpload === true &&
     liveResult.uploadCompleted === true &&
     hasSafeSlackSmokeEvidenceResultReference(liveResult, "fileReference", "file", issues, "live_mode_file_upload_file_reference");
+}
+
+function readSlackSmokeEvidenceRuns(artifact: Record<string, unknown> | undefined): Record<string, unknown>[] {
+  if (!artifact) {
+    return [];
+  }
+  const runs = Array.isArray(artifact.runs)
+    ? artifact.runs.filter((run): run is Record<string, unknown> =>
+      typeof run === "object" && run !== null && !Array.isArray(run)
+    )
+    : [];
+  if (runs.length > 0) {
+    return runs;
+  }
+  return artifact.mode === "live" || artifact.liveResult ? [artifact] : [];
 }
 
 function hasSafeSlackSmokeEvidenceResultReference(
