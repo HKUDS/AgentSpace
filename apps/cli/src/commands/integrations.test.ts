@@ -173,6 +173,7 @@ test("integrations help documents Slack message transport commands", async () =>
   assert.match(output, /--signing-secret-env SLACK_SIGNING_SECRET/);
   assert.match(output, /--require message\|worker\|all/);
   assert.match(output, /--require message\|native\|approval\|files\|all/);
+  assert.match(output, /--live-smoke-evidence/);
 });
 
 test("slack --help prints usage without touching external services", async () => {
@@ -196,6 +197,7 @@ test("slack --help prints usage without touching external services", async () =>
   assert.match(output, /agent-space integrations slack outbox drain/);
   assert.match(output, /--dry-run/);
   assert.match(output, /--strict/);
+  assert.match(output, /--live-smoke-evidence/);
 });
 
 test("Slack command dispatcher routes subcommands without external services", async () => {
@@ -293,6 +295,7 @@ test("Slack command dispatcher routes subcommands without external services", as
     { args: ["health-check", "--workspace-id", "workspace-1", "--integration", "slack-1"], action: "health-check" },
     { args: ["readiness", "--workspace-id", "workspace-1", "--integration", "slack-1", "--strict"], action: "readiness" },
     { args: ["evidence", "--workspace-id", "workspace-1", "--integration", "slack-1", "--strict"], action: "evidence" },
+    { args: ["evidence", "--workspace-id", "workspace-1", "--integration", "slack-1", "--strict", "--require", "all"], action: "evidence" },
     { args: ["smoke-plan", "--workspace-id", "workspace-1", "--integration", "slack-1", "--app-url", "https://agent.test"], action: "smoke-plan" },
     { args: ["smoke-env", "--workspace-id", "workspace-1", "--integration", "slack-1", "--app-url", "https://agent.test"], action: "smoke-env" },
     { args: ["worker", "--workspace-id", "workspace-1", "--integration", "slack-1", "--dry-run"], action: "worker" },
@@ -310,6 +313,11 @@ test("Slack command dispatcher routes subcommands without external services", as
 
   assert.deepEqual(calls.map((call) => call.action), cases.map((item) => item.action));
   assert.equal(calls.find((call) => call.action === "worker")?.format, "json");
+  const strictAllEvidence = calls.find((call) =>
+    call.action === "evidence" && call.flags?.required === "all"
+  );
+  assert.equal(strictAllEvidence?.flags?.liveSmokeEvidencePath, "runtime-output/slack-smoke/live.json");
+  assert.equal(strictAllEvidence?.flags?.requireLiveSmokeEvidence, true);
   assert.equal(calls.some((call) => JSON.stringify(call).includes("xoxb-")), false);
 });
 

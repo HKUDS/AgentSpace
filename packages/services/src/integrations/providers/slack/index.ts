@@ -175,7 +175,9 @@ export {
 } from "./health.ts";
 export {
   buildSlackEvidenceReport,
+  verifySlackLiveSmokeEvidence,
   type SlackEvidenceIntegrationItem,
+  type SlackLiveSmokeEvidenceVerification,
   type SlackEvidenceReport,
   type SlackEvidenceRequirement,
 } from "./evidence.ts";

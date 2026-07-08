@@ -1,5 +1,6 @@
 import { createHmac } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 
 type SmokeStatus = "pass" | "fail";
 type SlackSmokeLiveMode = "post_message" | "app_mention";
@@ -83,6 +84,10 @@ async function main(): Promise<void> {
     : parsed.flags.live === true
     ? await buildSlackSmokeLiveOutput(env)
     : buildSlackSmokeDryRunOutput(env);
+  const evidencePath = getStringFlag(parsed.flags, "evidence");
+  if (evidencePath && (output.mode === "live" || output.mode === "webhook-replay")) {
+    writeSlackSmokeEvidenceArtifact(evidencePath, output);
+  }
   if (parsed.flags.json === true) {
     console.log(JSON.stringify(output, null, 2));
   } else {
@@ -121,6 +126,8 @@ export function buildSlackSmokeDryRunOutput(env: Record<string, string | undefin
       "agent-space integrations slack health-check --workspace-id $AGENT_SPACE_WORKSPACE_ID --integration $AGENT_SPACE_SLACK_INTEGRATION_ID --json",
       "agent-space integrations slack readiness --workspace-id $AGENT_SPACE_WORKSPACE_ID --integration $AGENT_SPACE_SLACK_INTEGRATION_ID --strict --json",
       "npm run smoke:slack -- --env-file scripts/slack/.env --replay-webhook --json",
+      "npm run smoke:slack -- --env-file scripts/slack/.env --live --evidence runtime-output/slack-smoke/live.json --json",
+      "SLACK_SMOKE_LIVE_MODE=app_mention npm run smoke:slack -- --env-file scripts/slack/.env --live --evidence runtime-output/slack-smoke/live.json --json",
       "agent-space integrations slack evidence --workspace-id $AGENT_SPACE_WORKSPACE_ID --integration $AGENT_SPACE_SLACK_INTEGRATION_ID --strict --require message --json",
       "agent-space integrations slack evidence --workspace-id $AGENT_SPACE_WORKSPACE_ID --integration $AGENT_SPACE_SLACK_INTEGRATION_ID --strict --require all --json",
       "agent-space integrations slack outbox drain --workspace-id $AGENT_SPACE_WORKSPACE_ID --integration $AGENT_SPACE_SLACK_INTEGRATION_ID --json",
@@ -562,6 +569,41 @@ function readEnv(envFile: string | undefined): Record<string, string | undefined
     ...(envFile ? parseEnvFile(readFileSync(envFile, "utf8")) : {}),
     ...process.env,
   };
+}
+
+function writeSlackSmokeEvidenceArtifact(path: string, output: SlackSmokeOutput): void {
+  const existing = readSlackSmokeEvidenceArtifact(path);
+  const runs = [
+    ...existing,
+    {
+      generatedAt: output.generatedAt,
+      mode: output.mode,
+      live: output.live,
+      ready: output.ready,
+      summary: output.summary,
+      ...(output.liveResult ? { liveResult: output.liveResult } : {}),
+      ...(output.webhookReplay ? { webhookReplay: output.webhookReplay } : {}),
+    },
+  ].slice(-20);
+  const artifact = {
+    schemaVersion: 1,
+    provider: "slack",
+    generatedAt: new Date().toISOString(),
+    runs,
+  };
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, `${JSON.stringify(artifact, null, 2)}\n`, "utf8");
+}
+
+function readSlackSmokeEvidenceArtifact(path: string): Record<string, unknown>[] {
+  if (!existsSync(path)) {
+    return [];
+  }
+  const parsed = parseJsonRecord(readFileSync(path, "utf8"));
+  const runs = Array.isArray(parsed?.runs) ? parsed.runs : [];
+  return runs.filter((run): run is Record<string, unknown> =>
+    typeof run === "object" && run !== null && !Array.isArray(run)
+  );
 }
 
 function parseEnvFile(contents: string): Record<string, string | undefined> {

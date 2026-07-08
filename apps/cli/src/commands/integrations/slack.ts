@@ -35,6 +35,8 @@ import { writeData, type OutputFormat } from "../../lib/format.ts";
 
 type EnvMap = Record<string, string | undefined>;
 
+const SLACK_DEFAULT_LIVE_SMOKE_EVIDENCE_PATH = "runtime-output/slack-smoke/live.json";
+
 interface SlackIntegrationCommandDependencies {
   createIntegration?: typeof createSlackIntegrationForCli;
   createChannelBinding?: typeof createSlackChannelBindingForCli;
@@ -110,11 +112,17 @@ export async function runSlackIntegrationCommand(
   }
   if (subcommand === "evidence") {
     const buildEvidenceReport = deps.buildEvidenceReport ?? buildSlackEvidenceReport;
+    const required = readSlackEvidenceRequirement(parsed.flags);
+    const liveSmokeEvidencePath = getStringFlag(parsed.flags, "live-smoke-evidence") ??
+      (required === "all" && parsed.flags.strict === true ? SLACK_DEFAULT_LIVE_SMOKE_EVIDENCE_PATH : undefined);
     const result = buildEvidenceReport({
       workspaceId: getStringFlag(parsed.flags, "workspace-id") ?? "default",
       integrationId: getStringFlag(parsed.flags, "integration") ?? getStringFlag(parsed.flags, "integration-id"),
       strict: parsed.flags.strict === true,
-      required: readSlackEvidenceRequirement(parsed.flags),
+      required,
+      liveSmokeEvidencePath,
+      liveSmokeEvidence: liveSmokeEvidencePath ? readOptionalJsonFile(liveSmokeEvidencePath) : undefined,
+      requireLiveSmokeEvidence: required === "all" && parsed.flags.strict === true,
     });
     writeData(format, result);
     return result.strict && !result.strictSatisfied ? 1 : 0;
@@ -550,6 +558,14 @@ function readSlackCliEnv(envFile: string | undefined): EnvMap {
   };
 }
 
+function readOptionalJsonFile(path: string): unknown {
+  try {
+    return JSON.parse(readFileSync(path, "utf8")) as unknown;
+  } catch {
+    return undefined;
+  }
+}
+
 function parseEnvFile(contents: string): EnvMap {
   const env: EnvMap = {};
   for (const rawLine of contents.split(/\r?\n/)) {
@@ -699,7 +715,7 @@ function printSlackHelp(): void {
   agent-space integrations slack worker [--workspace-id <id>] [--integration <id>] [--limit <n>] [--base-url <url>] [--feishu-base-url <url>] [--locked-by <id>] [--dry-run] [--include-webhook] [--drain-outbox|--once] [--json]
   agent-space integrations slack health-check --workspace-id <id> --integration <id> [--base-url <url>] [--json]
   agent-space integrations slack readiness [--workspace-id <id>] [--integration <id>] [--strict] [--require message|worker|all] [--json]
-  agent-space integrations slack evidence [--workspace-id <id>] [--integration <id>] [--strict] [--require message|native|approval|files|all] [--json]
+  agent-space integrations slack evidence [--workspace-id <id>] [--integration <id>] [--live-smoke-evidence runtime-output/slack-smoke/live.json] [--strict] [--require message|native|approval|files|all] [--json]
   agent-space integrations slack smoke-plan [--workspace-id <id>] [--integration <id>] [--app-url <url>] [--strict] [--require message|worker|all] [--json]
   agent-space integrations slack smoke-env [--workspace-id <id>] [--integration <id>] [--app-url <url>] [--json]
   agent-space integrations slack outbox drain [--workspace-id <id>] [--integration <id>] [--limit <n>] [--base-url <url>] [--locked-by <id>] [--json]
@@ -716,6 +732,7 @@ Options:
   --feishu-base-url <url>      Feishu OpenAPI base URL for Slack approval execution; defaults to AGENT_SPACE_FEISHU_API_BASE_URL
   --require message|worker|all Readiness/smoke gate to enforce; defaults to message
   --require message|native|approval|files|all Evidence gate to enforce for the evidence command
+  --live-smoke-evidence <path> Redacted Slack live smoke artifact; defaults to runtime-output/slack-smoke/live.json for strict --require all
   --strict                     Exit non-zero unless the requested gate is satisfied
   --dry-run                    Validate Socket Mode worker config without opening live connections
   --include-webhook            Include HTTP webhook integrations in worker diagnostics

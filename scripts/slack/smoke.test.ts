@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { createHmac } from "node:crypto";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -254,6 +254,87 @@ test("Slack smoke live app_mention mode posts a bot mention from the configured 
   }
 });
 
+test("Slack smoke live evidence artifact accumulates redacted post and app mention runs", async () => {
+  const requests: Array<Record<string, unknown>> = [];
+  const server = createServer((request, response) => {
+    const chunks: Buffer[] = [];
+    request.on("data", (chunk: Buffer) => {
+      chunks.push(chunk);
+    });
+    request.on("end", () => {
+      requests.push(JSON.parse(Buffer.concat(chunks).toString("utf8")) as Record<string, unknown>);
+      response.setHeader("content-type", "application/json");
+      response.end(JSON.stringify({
+        ok: true,
+        channel: "CEVIDENCE",
+        ts: `178340000${requests.length}.000100`,
+      }));
+    });
+  });
+  await new Promise<void>((resolve) => {
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  const address = server.address();
+  assert.ok(address && typeof address === "object");
+  const directory = mkdtempSync(join(tmpdir(), "agentspace-slack-smoke-"));
+  try {
+    const evidencePath = join(directory, "live.json");
+    const envPath = join(directory, ".env");
+    writeFileSync(envPath, [
+      "AGENT_SPACE_WORKSPACE_ID=default",
+      "AGENT_SPACE_SLACK_INTEGRATION_ID=slack-1",
+      "AGENT_SPACE_PUBLIC_APP_URL=https://agentspace.test",
+      "SLACK_SMOKE_CALLBACK_URL=https://agentspace.test/api/integrations/slack/events",
+      "SLACK_SMOKE_CHANNEL_ID=CEVIDENCE",
+      "SLACK_SMOKE_USER_ID=UEVIDENCE",
+      "SLACK_SMOKE_MESSAGE_TEXT=AgentSpace Slack smoke",
+      "SLACK_SMOKE_BOT_USER_ID=UBOTEVIDENCE",
+      "SLACK_BOT_TOKEN=xoxb-bot-secret",
+      "SLACK_SMOKE_POST_TOKEN=xoxp-user-secret",
+      `SLACK_API_BASE_URL=http://127.0.0.1:${address.port}`,
+    ].join("\n"));
+
+    const postMessage = await runSmokeScript([
+      "--env-file",
+      envPath,
+      "--live",
+      "--evidence",
+      evidencePath,
+      "--json",
+    ]);
+    const appMention = await runSmokeScript([
+      "--env-file",
+      envPath,
+      "--live",
+      "--evidence",
+      evidencePath,
+      "--json",
+    ], {
+      SLACK_SMOKE_LIVE_MODE: "app_mention",
+    });
+
+    assert.equal(postMessage.status, 0, postMessage.stderr);
+    assert.equal(appMention.status, 0, appMention.stderr);
+    const artifactText = readFileSync(evidencePath, "utf8");
+    const artifact = JSON.parse(artifactText) as {
+      provider?: string;
+      runs?: Array<{
+        mode?: string;
+        liveResult?: { mode?: string; appMentionText?: boolean };
+      }>;
+    };
+    assert.equal(artifact.provider, "slack");
+    assert.deepEqual(artifact.runs?.map((run) => run.liveResult?.mode), ["post_message", "app_mention"]);
+    assert.equal(artifact.runs?.[1]?.liveResult?.appMentionText, true);
+    assert.doesNotMatch(artifactText, /xoxb-bot-secret|xoxp-user-secret|CEVIDENCE|UEVIDENCE|UBOTEVIDENCE|1783400001\.000100/);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+    await new Promise<void>((resolve) => {
+      server.close(() => resolve());
+    });
+  }
+});
+
 test("Slack webhook replay requires signing and app context env", async () => {
   const directory = mkdtempSync(join(tmpdir(), "agentspace-slack-smoke-"));
   try {
@@ -404,7 +485,7 @@ test("Slack webhook replay signs challenge and event requests without leaking id
   }
 });
 
-async function runSmokeScript(args: string[]): Promise<{
+async function runSmokeScript(args: string[], env: Record<string, string> = {}): Promise<{
   status: number | null;
   stdout: string;
   stderr: string;
@@ -415,7 +496,7 @@ async function runSmokeScript(args: string[]): Promise<{
     ...args,
   ], {
     cwd: process.cwd(),
-    env: {},
+    env,
     stdio: ["ignore", "pipe", "pipe"],
   });
   let stdout = "";

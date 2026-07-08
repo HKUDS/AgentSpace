@@ -32,8 +32,24 @@ export interface SlackEvidenceReport {
     filesSatisfiedCount: number;
     unresolvedFailureCount: number;
   };
+  liveSmokeEvidence?: SlackLiveSmokeEvidenceVerification;
   integrations: SlackEvidenceIntegrationItem[];
   nextCommands: string[];
+}
+
+export interface SlackLiveSmokeEvidenceVerification {
+  present: boolean;
+  valid: boolean;
+  evidencePath?: string;
+  issues: string[];
+  summary?: {
+    generatedAtPresent: boolean;
+    generatedAtFresh: boolean;
+    runCount: number;
+    postMessageLiveOk: boolean;
+    appMentionLiveOk: boolean;
+    unsafeRawValueCount: number;
+  };
 }
 
 export interface SlackEvidenceIntegrationItem {
@@ -102,6 +118,9 @@ export function buildSlackEvidenceReport(input: {
   integrationId?: string;
   strict?: boolean;
   required?: SlackEvidenceRequirement;
+  liveSmokeEvidencePath?: string;
+  liveSmokeEvidence?: unknown;
+  requireLiveSmokeEvidence?: boolean;
   dependencies?: SlackEvidenceDependencies;
 }): SlackEvidenceReport {
   const dependencies = input.dependencies ?? {};
@@ -119,7 +138,16 @@ export function buildSlackEvidenceReport(input: {
     required,
     dependencies,
   }));
-  const strictSatisfied = items.some((item) => item.requiredSatisfied);
+  const liveSmokeEvidence = input.requireLiveSmokeEvidence ||
+    input.liveSmokeEvidencePath ||
+    input.liveSmokeEvidence !== undefined
+    ? verifySlackLiveSmokeEvidence({
+      evidencePath: input.liveSmokeEvidencePath,
+      evidence: input.liveSmokeEvidence,
+    })
+    : undefined;
+  const strictSatisfied = items.some((item) => item.requiredSatisfied) &&
+    (!liveSmokeEvidence || liveSmokeEvidence.valid);
   return {
     workspaceId: input.workspaceId,
     provider: SLACK_PROVIDER_ID,
@@ -135,8 +163,66 @@ export function buildSlackEvidenceReport(input: {
       filesSatisfiedCount: items.filter((item) => item.files.satisfied).length,
       unresolvedFailureCount: items.reduce((count, item) => count + item.failures.failedEvents + item.failures.failedOutbox, 0),
     },
+    ...(liveSmokeEvidence ? { liveSmokeEvidence } : {}),
     integrations: items,
     nextCommands: buildSlackEvidenceNextCommands(input.workspaceId, input.integrationId, required),
+  };
+}
+
+export function verifySlackLiveSmokeEvidence(input: {
+  evidencePath?: string;
+  evidence?: unknown;
+}): SlackLiveSmokeEvidenceVerification {
+  const artifact = parseJsonRecord(input.evidence);
+  if (!artifact) {
+    return {
+      present: false,
+      valid: false,
+      ...(input.evidencePath ? { evidencePath: input.evidencePath } : {}),
+      issues: ["slack_live_smoke_evidence_missing"],
+    };
+  }
+
+  const generatedAt = readJsonStringFieldFromRecord(artifact, "generatedAt");
+  const generatedAtFresh = generatedAt ? isFreshIsoTimestamp(generatedAt, 24 * 60 * 60 * 1000) : false;
+  const runs = readSlackLiveSmokeEvidenceRuns(artifact);
+  const postMessageLiveOk = runs.some((run) => {
+    const liveResult = parseJsonRecord(run.liveResult);
+    return readJsonStringFieldFromRecord(run, "mode") === "live" &&
+      run.ready === true &&
+      liveResult?.ok === true &&
+      readJsonStringFieldFromRecord(liveResult, "mode") === "post_message";
+  });
+  const appMentionLiveOk = runs.some((run) => {
+    const liveResult = parseJsonRecord(run.liveResult);
+    return readJsonStringFieldFromRecord(run, "mode") === "live" &&
+      run.ready === true &&
+      liveResult?.ok === true &&
+      liveResult.appMentionText === true &&
+      readJsonStringFieldFromRecord(liveResult, "mode") === "app_mention";
+  });
+  const unsafeRawValueCount = countUnsafeSlackLiveSmokeEvidenceValues(artifact);
+  const issues = [
+    ...(generatedAt ? [] : ["slack_live_smoke_generated_at_missing"]),
+    ...(generatedAtFresh ? [] : ["slack_live_smoke_evidence_stale"]),
+    ...(postMessageLiveOk ? [] : ["slack_live_post_message_evidence_missing"]),
+    ...(appMentionLiveOk ? [] : ["slack_live_app_mention_evidence_missing"]),
+    ...(unsafeRawValueCount === 0 ? [] : ["slack_live_smoke_evidence_unsafe"]),
+  ];
+
+  return {
+    present: true,
+    valid: issues.length === 0,
+    ...(input.evidencePath ? { evidencePath: input.evidencePath } : {}),
+    issues,
+    summary: {
+      generatedAtPresent: Boolean(generatedAt),
+      generatedAtFresh,
+      runCount: runs.length,
+      postMessageLiveOk,
+      appMentionLiveOk,
+      unsafeRawValueCount,
+    },
   };
 }
 
@@ -580,16 +666,64 @@ function parseJsonRecord(value: unknown): Record<string, unknown> | undefined {
   }
 }
 
+function readSlackLiveSmokeEvidenceRuns(artifact: Record<string, unknown>): Record<string, unknown>[] {
+  const runs = readObjectArray(artifact.runs);
+  if (runs.length > 0) {
+    return runs;
+  }
+  return artifact.mode === "live" || artifact.liveResult ? [artifact] : [];
+}
+
+function isFreshIsoTimestamp(value: string, maxAgeMs: number): boolean {
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp)) {
+    return false;
+  }
+  const ageMs = Date.now() - timestamp;
+  return ageMs >= 0 && ageMs <= maxAgeMs;
+}
+
+function countUnsafeSlackLiveSmokeEvidenceValues(value: unknown): number {
+  if (typeof value === "string") {
+    return isUnsafeSlackLiveSmokeEvidenceString(value) ? 1 : 0;
+  }
+  if (Array.isArray(value)) {
+    let count = 0;
+    for (const item of value) {
+      count += countUnsafeSlackLiveSmokeEvidenceValues(item);
+    }
+    return count;
+  }
+  if (typeof value !== "object" || value === null) {
+    return 0;
+  }
+  let count = 0;
+  for (const item of Object.values(value as Record<string, unknown>)) {
+    count += countUnsafeSlackLiveSmokeEvidenceValues(item);
+  }
+  return count;
+}
+
+function isUnsafeSlackLiveSmokeEvidenceString(value: string): boolean {
+  return /\b(xox[abprs]?|xapp)-[A-Za-z0-9-]+\b/i.test(value) ||
+    /\b[ACDGTUWF][A-Z0-9]{7,}\b/.test(value) ||
+    /\b\d{10}\.\d{6}\b/.test(value) ||
+    /files\.slack\.com|slack-files\.com|url_private/i.test(value);
+}
+
 function buildSlackEvidenceNextCommands(
   workspaceId: string,
   integrationId: string | undefined,
   required: SlackEvidenceRequirement,
 ): string[] {
   const integrationFlag = integrationId ? ` --integration ${integrationId}` : "";
+  const evidencePath = "runtime-output/slack-smoke/live.json";
   return [
     `agent-space integrations slack readiness --workspace-id ${workspaceId}${integrationFlag} --strict --json`,
     `agent-space integrations slack smoke-plan --workspace-id ${workspaceId}${integrationFlag} --strict --require message --json`,
-    `agent-space integrations slack evidence --workspace-id ${workspaceId}${integrationFlag} --strict --require ${required} --json`,
+    `npm run smoke:slack -- --env-file scripts/slack/.env --live --evidence ${evidencePath} --json`,
+    `SLACK_SMOKE_LIVE_MODE=app_mention npm run smoke:slack -- --env-file scripts/slack/.env --live --evidence ${evidencePath} --json`,
+    `agent-space integrations slack evidence --workspace-id ${workspaceId}${integrationFlag} --live-smoke-evidence ${evidencePath} --strict --require ${required} --json`,
   ];
 }
 

@@ -425,6 +425,40 @@ test("Slack evidence files gate flags unsafe raw Slack file metadata", () => {
   assert.equal(report.strictSatisfied, false);
 });
 
+test("Slack evidence can gate strict all on redacted live smoke evidence", () => {
+  const report = buildSlackEvidenceReport({
+    workspaceId: "workspace-1",
+    strict: true,
+    required: "all",
+    requireLiveSmokeEvidence: true,
+    liveSmokeEvidencePath: "runtime-output/slack-smoke/live.json",
+    liveSmokeEvidence: makeLiveSmokeEvidence(),
+    dependencies: makeCompleteSlackEvidenceDependencies(),
+  });
+
+  assert.equal(report.strictSatisfied, true);
+  assert.equal(report.liveSmokeEvidence?.present, true);
+  assert.equal(report.liveSmokeEvidence?.valid, true);
+  assert.equal(report.liveSmokeEvidence?.evidencePath, "runtime-output/slack-smoke/live.json");
+  assert.equal(report.liveSmokeEvidence?.summary?.postMessageLiveOk, true);
+  assert.equal(report.liveSmokeEvidence?.summary?.appMentionLiveOk, true);
+  assert.equal(report.liveSmokeEvidence?.summary?.unsafeRawValueCount, 0);
+  assert.doesNotMatch(JSON.stringify(report), /xoxb|xoxp|C123LIVE|UBOTLIVE|1783400001\.000200/);
+
+  const missingAppMention = buildSlackEvidenceReport({
+    workspaceId: "workspace-1",
+    strict: true,
+    required: "all",
+    requireLiveSmokeEvidence: true,
+    liveSmokeEvidence: makeLiveSmokeEvidence({ includeAppMention: false }),
+    dependencies: makeCompleteSlackEvidenceDependencies(),
+  });
+
+  assert.equal(missingAppMention.strictSatisfied, false);
+  assert.equal(missingAppMention.liveSmokeEvidence?.valid, false);
+  assert.ok(missingAppMention.liveSmokeEvidence?.issues.includes("slack_live_app_mention_evidence_missing"));
+});
+
 function makeIntegration(overrides: Partial<ExternalIntegrationRecord> = {}): ExternalIntegrationRecord {
   return {
     id: "slack-1",
@@ -444,6 +478,141 @@ function makeIntegration(overrides: Partial<ExternalIntegrationRecord> = {}): Ex
     createdAt: "2026-07-08T00:00:00.000Z",
     updatedAt: "2026-07-08T00:00:00.000Z",
     ...overrides,
+  };
+}
+
+function makeCompleteSlackEvidenceDependencies(): Parameters<typeof buildSlackEvidenceReport>[0]["dependencies"] {
+  return {
+    listIntegrations: () => [makeIntegration()],
+    listChannelBindings: () => [makeChannelBinding()],
+    listUserBindings: () => [makeUserBinding()],
+    listEvents: () => [
+      makeEvent({
+        eventType: "event_callback.app_mention",
+        status: "processed",
+        payloadJson: {
+          hasAgentContext: true,
+          hasFiles: true,
+          fileCount: 1,
+        },
+      }),
+      makeEvent({
+        eventType: "block_actions",
+        status: "processed",
+      }),
+    ],
+    listMessageMappings: () => [
+      makeMapping({
+        direction: "inbound",
+        metadataJson: {
+          provider: "slack",
+          agentId: "Atlas",
+          taskAgentId: "Atlas",
+          taskQueueId: "task-safe-1",
+          slackFileCount: 1,
+          slackStoredAttachmentCount: 1,
+          slackFileDownloadStatus: "stored_attachment",
+          agentContext: {
+            entities: [{ type: "slack#/types/channel_id", valueRef: "ref_safechan" }],
+          },
+        },
+      }),
+      makeMapping({
+        direction: "outbound",
+        metadataJson: {
+          provider: "slack",
+          externalChatReference: "ref_safechat",
+        },
+      }),
+      makeMapping({
+        direction: "outbound",
+        metadataJson: {
+          provider: "slack",
+          mappingSource: "app_home_opened_welcome",
+          externalChatReference: "ref_safechat",
+        },
+      }),
+    ],
+    listOutbox: () => [
+      makeOutbox({
+        status: "sent",
+        metadataJson: {
+          provider: "slack",
+          outboxSource: "agent_reply",
+        },
+      }),
+      makeOutbox({
+        status: "sent",
+        metadataJson: {
+          provider: "slack",
+          outboxSource: "app_home_opened_welcome",
+        },
+      }),
+      makeOutbox({
+        status: "sent",
+        metadataJson: {
+          provider: "slack",
+          outboxSource: "assistant_suggested_prompts",
+          assistantMethod: "assistant.threads.setSuggestedPrompts",
+        },
+      }),
+      makeOutbox({
+        status: "sent",
+        metadataJson: {
+          provider: "slack",
+          outboxSource: "agent_status_card",
+        },
+      }),
+      makeOutbox({
+        status: "sent",
+        metadataJson: {
+          provider: "slack",
+          outboxSource: "slack_file_upload",
+          slackUploadFlow: "external_upload",
+        },
+      }),
+    ],
+  };
+}
+
+function makeLiveSmokeEvidence(input: {
+  includeAppMention?: boolean;
+} = {}): Record<string, unknown> {
+  const includeAppMention = input.includeAppMention !== false;
+  return {
+    schemaVersion: 1,
+    provider: "slack",
+    generatedAt: new Date().toISOString(),
+    runs: [
+      {
+        generatedAt: new Date().toISOString(),
+        mode: "live",
+        live: true,
+        ready: true,
+        liveResult: {
+          attempted: true,
+          ok: true,
+          mode: "post_message",
+          channelReference: "channel C123...LIVE",
+          messageReference: "message 1783...0100",
+        },
+      },
+      ...(includeAppMention ? [{
+        generatedAt: new Date().toISOString(),
+        mode: "live",
+        live: true,
+        ready: true,
+        liveResult: {
+          attempted: true,
+          ok: true,
+          mode: "app_mention",
+          channelReference: "channel CAPP...TION",
+          botUserReference: "user UB...VE",
+          messageReference: "message 1783...0200",
+          appMentionText: true,
+        },
+      }] : []),
+    ],
   };
 }
 

@@ -40,7 +40,7 @@ function printIntegrationsHelp(): void {
   agent-space integrations slack worker [--workspace-id <id>] [--integration <id>] [--limit <n>] [--base-url <url>] [--feishu-base-url <url>] [--locked-by <id>] [--dry-run] [--include-webhook] [--drain-outbox|--once] [--json]
   agent-space integrations slack health-check --workspace-id <id> --integration <id> [--base-url <url>] [--json]
   agent-space integrations slack readiness [--workspace-id <id>] [--integration <id>] [--strict] [--require message|worker|all] [--json]
-  agent-space integrations slack evidence [--workspace-id <id>] [--integration <id>] [--strict] [--require message|native|approval|files|all] [--json]
+  agent-space integrations slack evidence [--workspace-id <id>] [--integration <id>] [--live-smoke-evidence runtime-output/slack-smoke/live.json] [--strict] [--require message|native|approval|files|all] [--json]
   agent-space integrations slack smoke-plan [--workspace-id <id>] [--integration <id>] [--app-url <url>] [--strict] [--require message|worker|all] [--json]
   agent-space integrations slack smoke-env [--workspace-id <id>] [--integration <id>] [--app-url <url>] [--json]
   agent-space integrations slack outbox drain [--workspace-id <id>] [--integration <id>] [--limit <n>] [--base-url <url>] [--locked-by <id>] [--json]
