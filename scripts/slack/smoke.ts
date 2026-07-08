@@ -28,6 +28,7 @@ interface SlackSmokeOutput {
   missingRequired: string[];
   items: SlackSmokeEnvItem[];
   nextCommands: string[];
+  evidenceArtifact?: SlackSmokeEvidenceArtifactStatus;
 }
 
 interface SlackSmokeContext {
@@ -74,6 +75,12 @@ interface SlackSmokeWebhookReplayStep {
   errorMessage?: string;
 }
 
+interface SlackSmokeEvidenceArtifactStatus {
+  path: string;
+  written: boolean;
+  reasonCode?: "slack.smoke.evidence_requires_live_or_replay" | "slack.smoke.evidence_output_not_ready";
+}
+
 interface ParsedArgs {
   flags: Record<string, string | boolean>;
 }
@@ -96,15 +103,14 @@ async function main(): Promise<void> {
     ? await buildSlackSmokeLiveOutput(env)
     : buildSlackSmokeDryRunOutput(env);
   const evidencePath = getStringFlag(parsed.flags, "evidence");
-  if (evidencePath && output.ready && (output.mode === "live" || output.mode === "webhook-replay")) {
-    writeSlackSmokeEvidenceArtifact(evidencePath, output);
-  }
+  const evidenceArtifact = writeSlackSmokeEvidenceArtifactIfRequested(evidencePath, output);
+  const finalOutput = evidenceArtifact ? { ...output, evidenceArtifact } : output;
   if (parsed.flags.json === true) {
-    console.log(JSON.stringify(output, null, 2));
+    console.log(JSON.stringify(finalOutput, null, 2));
   } else {
-    console.log(formatSlackSmokeDryRunOutput(output));
+    console.log(formatSlackSmokeDryRunOutput(finalOutput));
   }
-  process.exitCode = output.ready ? 0 : 1;
+  process.exitCode = finalOutput.ready && (!evidenceArtifact || evidenceArtifact.written) ? 0 : 1;
 }
 
 export function buildSlackSmokeDryRunOutput(env: Record<string, string | undefined>): SlackSmokeOutput {
@@ -868,6 +874,12 @@ function formatSlackSmokeDryRunOutput(output: SlackSmokeOutput): string {
       lines.push(`- error: ${output.webhookReplay.errorCode}`);
     }
   }
+  if (output.evidenceArtifact) {
+    lines.push(`Evidence artifact: ${output.evidenceArtifact.written ? "written" : "not written"}`);
+    if (output.evidenceArtifact.reasonCode) {
+      lines.push(`- reason: ${output.evidenceArtifact.reasonCode}`);
+    }
+  }
   lines.push("Next commands:");
   for (const command of output.nextCommands) {
     lines.push(`- ${command}`);
@@ -879,6 +891,34 @@ function readEnv(envFile: string | undefined): Record<string, string | undefined
   return {
     ...(envFile ? parseEnvFile(readFileSync(envFile, "utf8")) : {}),
     ...process.env,
+  };
+}
+
+function writeSlackSmokeEvidenceArtifactIfRequested(
+  path: string | undefined,
+  output: SlackSmokeOutput,
+): SlackSmokeEvidenceArtifactStatus | undefined {
+  if (!path) {
+    return undefined;
+  }
+  if (output.mode !== "live" && output.mode !== "webhook-replay") {
+    return {
+      path,
+      written: false,
+      reasonCode: "slack.smoke.evidence_requires_live_or_replay",
+    };
+  }
+  if (!output.ready) {
+    return {
+      path,
+      written: false,
+      reasonCode: "slack.smoke.evidence_output_not_ready",
+    };
+  }
+  writeSlackSmokeEvidenceArtifact(path, output);
+  return {
+    path,
+    written: true,
   };
 }
 

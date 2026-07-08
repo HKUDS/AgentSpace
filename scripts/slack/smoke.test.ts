@@ -87,6 +87,52 @@ test("Slack smoke dry-run accepts filled non-secret env", () => {
   }
 });
 
+test("Slack smoke dry-run refuses evidence artifact writes", () => {
+  const directory = mkdtempSync(join(tmpdir(), "agentspace-slack-smoke-"));
+  try {
+    const envPath = join(directory, ".env");
+    const evidencePath = join(directory, "live.json");
+    writeFileSync(envPath, [
+      "AGENT_SPACE_WORKSPACE_ID=default",
+      "AGENT_SPACE_SLACK_INTEGRATION_ID=slack-1",
+      "AGENT_SPACE_PUBLIC_APP_URL=https://agentspace.test",
+      "SLACK_SMOKE_CALLBACK_URL=https://agentspace.test/api/integrations/slack/events",
+      "SLACK_SMOKE_CHANNEL_ID=C123",
+      "SLACK_SMOKE_USER_ID=U123",
+    ].join("\n"));
+
+    const result = spawnSync(process.execPath, [
+      "--experimental-strip-types",
+      "scripts/slack/smoke.ts",
+      "--env-file",
+      envPath,
+      "--check-env",
+      "--evidence",
+      evidencePath,
+      "--json",
+    ], {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      env: {},
+    });
+
+    assert.equal(result.status, 1, result.stderr);
+    assert.equal(existsSync(evidencePath), false);
+    const output = JSON.parse(result.stdout) as {
+      ready: boolean;
+      evidenceArtifact?: {
+        written: boolean;
+        reasonCode?: string;
+      };
+    };
+    assert.equal(output.ready, true);
+    assert.equal(output.evidenceArtifact?.written, false);
+    assert.equal(output.evidenceArtifact?.reasonCode, "slack.smoke.evidence_requires_live_or_replay");
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test("Slack smoke live requires app and team context before network calls", async () => {
   const requests: string[] = [];
   const server = createServer((request, response) => {
@@ -137,10 +183,16 @@ test("Slack smoke live requires app and team context before network calls", asyn
         errorCode?: string;
       };
       missingRequired: string[];
+      evidenceArtifact?: {
+        written: boolean;
+        reasonCode?: string;
+      };
     };
     assert.equal(output.ready, false);
     assert.equal(output.liveResult?.attempted, false);
     assert.equal(output.liveResult?.errorCode, "slack.smoke.live_env_incomplete");
+    assert.equal(output.evidenceArtifact?.written, false);
+    assert.equal(output.evidenceArtifact?.reasonCode, "slack.smoke.evidence_output_not_ready");
     assert.ok(output.missingRequired.includes("SLACK_SMOKE_APP_ID"));
     assert.ok(output.missingRequired.includes("SLACK_SMOKE_TEAM_ID"));
     assert.doesNotMatch(result.stdout, /xoxb-live-secret|C123LIVE|U123LIVE/);
@@ -554,6 +606,14 @@ test("Slack smoke live evidence artifact accumulates redacted post, app mention,
     assert.equal(postMessage.status, 0, postMessage.stderr);
     assert.equal(appMention.status, 0, appMention.stderr);
     assert.equal(fileUpload.status, 0, fileUpload.stderr);
+    for (const result of [postMessage, appMention, fileUpload]) {
+      const output = JSON.parse(result.stdout) as {
+        evidenceArtifact?: {
+          written: boolean;
+        };
+      };
+      assert.equal(output.evidenceArtifact?.written, true);
+    }
     const artifactText = readFileSync(evidencePath, "utf8");
     const artifact = JSON.parse(artifactText) as {
       provider?: string;
@@ -625,10 +685,16 @@ test("Slack webhook replay requires signing and app context env", async () => {
         errorCode?: string;
       };
       missingRequired: string[];
+      evidenceArtifact?: {
+        written: boolean;
+        reasonCode?: string;
+      };
     };
     assert.equal(output.ready, false);
     assert.equal(output.webhookReplay?.attempted, false);
     assert.equal(output.webhookReplay?.errorCode, "slack.smoke.webhook_replay_env_incomplete");
+    assert.equal(output.evidenceArtifact?.written, false);
+    assert.equal(output.evidenceArtifact?.reasonCode, "slack.smoke.evidence_output_not_ready");
     assert.ok(output.missingRequired.includes("SLACK_SIGNING_SECRET"));
     assert.ok(output.missingRequired.includes("SLACK_SMOKE_APP_ID"));
     assert.ok(output.missingRequired.includes("SLACK_SMOKE_TEAM_ID"));
