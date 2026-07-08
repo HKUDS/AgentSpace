@@ -166,6 +166,44 @@ test("ignores Slack bot and self messages", () => {
   }), null);
 });
 
+test("ignores Slack message subtypes that should not dispatch tasks", () => {
+  for (const subtype of ["bot_message", "message_changed", "message_deleted", "channel_join", "thread_broadcast"]) {
+    assert.equal(normalizeSlackInboundMessage({
+      context,
+      botUserId: "UBOT",
+      payload: {
+        type: "event_callback",
+        event: {
+          type: "message",
+          subtype,
+          channel_type: "channel",
+          channel: "C123",
+          user: "U456",
+          text: "<@UBOT> should stay ignored",
+          ts: "1783400002.000100",
+        },
+      },
+    }), null, subtype);
+  }
+
+  assert.equal(normalizeSlackInboundMessage({
+    context,
+    botUserId: "UBOT",
+    payload: {
+      type: "event_callback",
+      event: {
+        type: "message",
+        hidden: true,
+        channel_type: "channel",
+        channel: "C123",
+        user: "U456",
+        text: "<@UBOT> hidden edit",
+        ts: "1783400002.000200",
+      },
+    },
+  }), null);
+});
+
 test("cleans Slack mrkdwn entities and can inject agent-scoped mentions", () => {
   assert.equal(
     cleanSlackMessageText({ text: "<@U123> see <#C123|general> &amp; <https://example.com|link>" }),

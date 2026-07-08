@@ -767,12 +767,12 @@ deploy/slack-worker/slack-worker.env.example
 - [ ] 支持 `app_mention`。
 - [ ] 支持 `message.im`。
 - [ ] 忽略 bot 自己发的 message。
-- [ ] 忽略 message subtype：
-  - [ ] `bot_message`
-  - [ ] `message_changed`
-  - [ ] `message_deleted`
-  - [ ] `channel_join`
-  - [ ] 其他非用户文本事件
+- [x] 忽略 message subtype：
+  - [x] `bot_message`
+  - [x] `message_changed`
+  - [x] `message_deleted`
+  - [x] `channel_join`
+  - [x] 其他非用户文本事件
 - [ ] text 清理：
   - [ ] 去掉当前 bot mention token。
   - [ ] 保留普通用户输入，不做命令解析。
