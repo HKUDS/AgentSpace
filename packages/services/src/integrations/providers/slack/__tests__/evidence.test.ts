@@ -222,6 +222,86 @@ test("Slack evidence exposes top-level blockers for final evidence automation", 
   assert.equal(report.liveSmokeEvidence?.present, false);
 });
 
+test("Slack evidence omits top-level blockers when any workspace integration satisfies strict gate", () => {
+  const timestamp = freshTimestamp();
+  const satisfiedIntegration = makeIntegration({ id: "slack-1", displayName: "Slack Atlas" });
+  const incompleteIntegration = makeIntegration({ id: "slack-2", displayName: "Slack Nova", agentId: "Nova" });
+
+  const report = buildSlackEvidenceReport({
+    workspaceId: "workspace-1",
+    strict: true,
+    required: "message",
+    dependencies: {
+      listIntegrations: () => [satisfiedIntegration, incompleteIntegration],
+      listChannelBindings: ({ integrationId }) => integrationId === "slack-1"
+        ? [makeChannelBinding({ integrationId: "slack-1" })]
+        : [],
+      listUserBindings: ({ integrationId }) => integrationId === "slack-1"
+        ? [makeUserBinding({ integrationId: "slack-1" })]
+        : [],
+      listEvents: ({ integrationId }) => integrationId === "slack-1"
+        ? [
+          makeEvent({
+            integrationId: "slack-1",
+            eventType: "event_callback.app_mention",
+            status: "processed",
+            receivedAt: timestamp,
+            processedAt: timestamp,
+          }),
+        ]
+        : [],
+      listMessageMappings: ({ integrationId }) => integrationId === "slack-1"
+        ? [
+          makeMapping({
+            integrationId: "slack-1",
+            createdAt: timestamp,
+            direction: "inbound",
+            metadataJson: {
+              provider: "slack",
+              agentId: "Atlas",
+              taskAgentId: "Atlas",
+              taskQueueId: "task-safe-1",
+            },
+          }),
+          makeMapping({
+            id: "mapping-outbound-1",
+            integrationId: "slack-1",
+            createdAt: timestamp,
+            direction: "outbound",
+            metadataJson: {
+              provider: "slack",
+              externalChatReference: "ref_safechat",
+            },
+          }),
+        ]
+        : [],
+      listOutbox: ({ integrationId }) => integrationId === "slack-1"
+        ? [
+          makeOutbox({
+            integrationId: "slack-1",
+            createdAt: timestamp,
+            updatedAt: timestamp,
+            sentAt: timestamp,
+            status: "sent",
+            metadataJson: {
+              provider: "slack",
+              outboxSource: "agent_reply",
+            },
+          }),
+        ]
+        : [],
+    },
+  });
+
+  const incompleteItem = report.integrations.find((item) => item.integrationId === "slack-2");
+
+  assert.equal(report.strictSatisfied, true);
+  assert.deepEqual(report.blockers, []);
+  assert.equal(report.summary.messageSatisfiedCount, 1);
+  assert.ok(incompleteItem?.blockers.includes("channel_binding_missing"));
+  assert.ok(incompleteItem?.blockers.includes("processed_inbound_event_evidence_missing"));
+});
+
 test("Slack evidence blocks message smoke without task queue proof", () => {
   const report = buildSlackEvidenceReport({
     workspaceId: "workspace-1",

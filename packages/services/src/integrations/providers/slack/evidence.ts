@@ -331,6 +331,10 @@ function buildSlackEvidenceReportBlockers(input: {
   liveSmokeEvidence?: SlackLiveSmokeEvidenceVerification;
   strictSatisfied: boolean;
 }): string[] {
+  if (input.strictSatisfied) {
+    return [];
+  }
+
   const blockers: string[] = [];
   if (input.items.length === 0) {
     blockers.push(input.selectedIntegrationId ? "selected_integration_missing" : "active_slack_integration_missing");
