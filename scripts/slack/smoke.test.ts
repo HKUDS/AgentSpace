@@ -777,11 +777,88 @@ test("Slack smoke live evidence artifact accumulates redacted post, app mention,
     assert.equal(artifact.runs?.[2]?.liveResult?.fileUpload, true);
     assert.equal(artifact.runs?.[2]?.liveResult?.uploadCompleted, true);
     assert.doesNotMatch(artifactText, /xoxb-bot-secret|xoxp-user-secret|CEVIDENCE|UEVIDENCE|UBOTEVIDENCE|AEVIDENCE123|TEVIDENCE123|FEVIDENCEFILE|1783400001\.000100/);
+
+    const verification = await runSmokeScript([
+      "--verify-evidence",
+      evidencePath,
+      "--json",
+    ]);
+    assert.equal(verification.status, 0, verification.stderr);
+    const verificationOutput = JSON.parse(verification.stdout) as {
+      valid?: boolean;
+      summary?: {
+        satisfiedModes?: string[];
+        missingModes?: string[];
+      };
+      issues?: string[];
+    };
+    assert.equal(verificationOutput.valid, true);
+    assert.deepEqual(verificationOutput.summary?.satisfiedModes, ["post_message", "app_mention", "file_upload"]);
+    assert.deepEqual(verificationOutput.summary?.missingModes, []);
+    assert.deepEqual(verificationOutput.issues, []);
   } finally {
     rmSync(directory, { recursive: true, force: true });
     await new Promise<void>((resolve) => {
       server.close(() => resolve());
     });
+  }
+});
+
+test("Slack smoke evidence verifier rejects incomplete or unsafe artifacts", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "agentspace-slack-smoke-"));
+  try {
+    const evidencePath = join(directory, "live.json");
+    writeFileSync(evidencePath, JSON.stringify({
+      schemaVersion: 1,
+      provider: "slack",
+      generatedAt: new Date().toISOString(),
+      context: {
+        workspaceId: "default",
+        integrationId: "slack-1",
+        appReference: "ref_appsafe",
+        teamReference: "ref_teamsafe",
+      },
+      runs: [{
+        generatedAt: new Date().toISOString(),
+        mode: "live",
+        live: true,
+        ready: true,
+        context: {
+          workspaceId: "default",
+          integrationId: "slack-1",
+          appReference: "ref_appsafe",
+          teamReference: "ref_teamsafe",
+        },
+        liveResult: {
+          attempted: true,
+          ok: true,
+          mode: "post_message",
+          channelReference: "CUNSAFE123",
+          messageReference: "1783400001.000100",
+        },
+      }],
+    }, null, 2));
+
+    const verification = await runSmokeScript([
+      "--verify-evidence",
+      evidencePath,
+      "--json",
+    ]);
+    assert.equal(verification.status, 1);
+    const output = JSON.parse(verification.stdout) as {
+      valid?: boolean;
+      summary?: {
+        missingModes?: string[];
+      };
+      issues?: string[];
+    };
+    assert.equal(output.valid, false);
+    assert.ok(output.summary?.missingModes?.includes("app_mention"));
+    assert.ok(output.summary?.missingModes?.includes("file_upload"));
+    assert.ok(output.issues?.includes("raw_slack_identifier_in_evidence"));
+    assert.ok(output.issues?.includes("raw_slack_message_ts_in_evidence"));
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
   }
 });
 

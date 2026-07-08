@@ -18,6 +18,7 @@
     "db:pg:cutover-plan": "node --experimental-strip-types packages/db/src/postgres-cli.ts cutover-plan",
     "smoke:feishu": "node --experimental-strip-types scripts/feishu/smoke.ts",
     "smoke:slack": "node --experimental-strip-types scripts/slack/smoke.ts",
+    "smoke:slack:verify": "node --experimental-strip-types scripts/slack/smoke.ts --verify-evidence runtime-output/slack-smoke/live.json",
     "test:feishu:db": "node scripts/feishu/run-db-tests.mjs",
     "dev:web": "npm --prefix apps/web run dev -- --hostname 0.0.0.0 --port 1455",
     "start:web": "npm --prefix apps/web run start -- --hostname 0.0.0.0 --port 1455",

@@ -81,9 +81,28 @@ interface SlackSmokeEvidenceArtifactStatus {
   reasonCode?: "slack.smoke.evidence_requires_live_or_replay" | "slack.smoke.evidence_output_not_ready";
 }
 
+interface SlackSmokeEvidenceVerificationOutput {
+  evidencePath: string;
+  checkedAt: string;
+  valid: boolean;
+  generatedAt?: string;
+  context?: SlackSmokeContext;
+  summary: {
+    runCount: number;
+    freshRunCount: number;
+    requiredModes: SlackSmokeLiveMode[];
+    satisfiedModes: SlackSmokeLiveMode[];
+    missingModes: SlackSmokeLiveMode[];
+  };
+  issues: string[];
+}
+
 interface ParsedArgs {
   flags: Record<string, string | boolean>;
 }
+
+const SLACK_SMOKE_REQUIRED_LIVE_MODES: SlackSmokeLiveMode[] = ["post_message", "app_mention", "file_upload"];
+const SLACK_SMOKE_EVIDENCE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
 const REQUIRED_ENV = [
   "AGENT_SPACE_WORKSPACE_ID",
@@ -96,6 +115,17 @@ const REQUIRED_ENV = [
 
 async function main(): Promise<void> {
   const parsed = parseArgs(process.argv.slice(2));
+  const verifyEvidencePath = getStringFlag(parsed.flags, "verify-evidence");
+  if (verifyEvidencePath) {
+    const output = verifySlackSmokeEvidenceFile(verifyEvidencePath);
+    if (parsed.flags.json === true) {
+      console.log(JSON.stringify(output, null, 2));
+    } else {
+      console.log(formatSlackSmokeEvidenceVerificationOutput(output));
+    }
+    process.exitCode = output.valid ? 0 : 1;
+    return;
+  }
   const env = readEnv(getStringFlag(parsed.flags, "env-file"));
   const output = parsed.flags["replay-webhook"] === true
     ? await buildSlackSmokeWebhookReplayOutput(env)
@@ -147,6 +177,7 @@ export function buildSlackSmokeDryRunOutput(env: Record<string, string | undefin
       "npm run smoke:slack -- --env-file scripts/slack/.env --live --evidence runtime-output/slack-smoke/live.json --json",
       "SLACK_SMOKE_LIVE_MODE=app_mention npm run smoke:slack -- --env-file scripts/slack/.env --live --evidence runtime-output/slack-smoke/live.json --json",
       "SLACK_SMOKE_LIVE_MODE=file_upload npm run smoke:slack -- --env-file scripts/slack/.env --live --evidence runtime-output/slack-smoke/live.json --json",
+      "npm run smoke:slack:verify -- --json",
       "agent-space integrations slack evidence --workspace-id $AGENT_SPACE_WORKSPACE_ID --integration $AGENT_SPACE_SLACK_INTEGRATION_ID --strict --require message --json",
       "agent-space integrations slack evidence --workspace-id $AGENT_SPACE_WORKSPACE_ID --integration $AGENT_SPACE_SLACK_INTEGRATION_ID --live-smoke-evidence runtime-output/slack-smoke/live.json --strict --require all --json",
       "agent-space integrations slack outbox drain --workspace-id $AGENT_SPACE_WORKSPACE_ID --integration $AGENT_SPACE_SLACK_INTEGRATION_ID --json",
@@ -887,6 +918,27 @@ function formatSlackSmokeDryRunOutput(output: SlackSmokeOutput): string {
   return lines.join("\n");
 }
 
+function formatSlackSmokeEvidenceVerificationOutput(output: SlackSmokeEvidenceVerificationOutput): string {
+  const lines = [
+    `Slack smoke evidence: ${output.valid ? "valid" : "invalid"}`,
+    `Evidence: ${output.evidencePath}`,
+    `Live modes: ${output.summary.satisfiedModes.length}/${output.summary.requiredModes.length}`,
+  ];
+  if (output.generatedAt) {
+    lines.push(`Generated at: ${output.generatedAt}`);
+  }
+  if (output.summary.missingModes.length > 0) {
+    lines.push(`Missing modes: ${output.summary.missingModes.join(", ")}`);
+  }
+  if (output.issues.length > 0) {
+    lines.push("Issues:");
+    for (const issue of output.issues) {
+      lines.push(`- ${issue}`);
+    }
+  }
+  return lines.join("\n");
+}
+
 function readEnv(envFile: string | undefined): Record<string, string | undefined> {
   return {
     ...(envFile ? parseEnvFile(readFileSync(envFile, "utf8")) : {}),
@@ -980,6 +1032,194 @@ function readSlackSmokeEvidenceArtifact(path: string): Record<string, unknown>[]
   return runs.filter((run): run is Record<string, unknown> =>
     typeof run === "object" && run !== null && !Array.isArray(run)
   );
+}
+
+function verifySlackSmokeEvidenceFile(path: string): SlackSmokeEvidenceVerificationOutput {
+  const checkedAt = new Date();
+  const issues: string[] = [];
+  let artifactText = "";
+  let artifact: Record<string, unknown> | undefined;
+  if (!existsSync(path)) {
+    issues.push("evidence_file_missing");
+  } else {
+    try {
+      artifactText = readFileSync(path, "utf8");
+      artifact = parseJsonRecord(artifactText);
+      if (!artifact) {
+        issues.push("evidence_not_object");
+      }
+    } catch {
+      issues.push("evidence_read_failed");
+    }
+  }
+
+  const generatedAt = readString(artifact?.generatedAt);
+  const context = readSlackSmokeEvidenceRecordContext(artifact);
+  const runs = Array.isArray(artifact?.runs)
+    ? artifact.runs.filter((run): run is Record<string, unknown> =>
+      typeof run === "object" && run !== null && !Array.isArray(run)
+    )
+    : [];
+  if (artifact && artifact.schemaVersion !== 1) {
+    issues.push("schema_version_invalid");
+  }
+  if (artifact && artifact.provider !== "slack") {
+    issues.push("provider_invalid");
+  }
+  if (artifact && !generatedAt) {
+    issues.push("evidence_generated_at_missing");
+  }
+  if (generatedAt && !isFreshIsoTimestamp(generatedAt, checkedAt)) {
+    issues.push("evidence_stale");
+  }
+  if (artifact && runs.length === 0) {
+    issues.push("runs_missing");
+  }
+  if (artifact && !slackSmokeEvidenceContextComplete(context)) {
+    issues.push("artifact_context_incomplete");
+  }
+
+  const freshRuns = runs.filter((run) => {
+    const runGeneratedAt = readString(run.generatedAt);
+    return Boolean(runGeneratedAt && isFreshIsoTimestamp(runGeneratedAt, checkedAt));
+  });
+  const satisfiedModes: SlackSmokeLiveMode[] = [];
+  for (const requiredMode of SLACK_SMOKE_REQUIRED_LIVE_MODES) {
+    const run = freshRuns.find((candidate) =>
+      slackSmokeEvidenceRunSatisfiesMode(candidate, requiredMode, context, issues)
+    );
+    if (run) {
+      satisfiedModes.push(requiredMode);
+    } else if (artifact) {
+      issues.push(`missing_live_mode_${requiredMode}`);
+    }
+  }
+
+  if (artifactText) {
+    issues.push(...findSlackSmokeEvidenceRedactionIssues(artifactText));
+  }
+
+  const uniqueIssues = [...new Set(issues)];
+  const missingModes = SLACK_SMOKE_REQUIRED_LIVE_MODES.filter((mode) => !satisfiedModes.includes(mode));
+  return {
+    evidencePath: path,
+    checkedAt: checkedAt.toISOString(),
+    valid: uniqueIssues.length === 0,
+    generatedAt,
+    ...(context ? { context } : {}),
+    summary: {
+      runCount: runs.length,
+      freshRunCount: freshRuns.length,
+      requiredModes: SLACK_SMOKE_REQUIRED_LIVE_MODES,
+      satisfiedModes,
+      missingModes,
+    },
+    issues: uniqueIssues,
+  };
+}
+
+function slackSmokeEvidenceRunSatisfiesMode(
+  run: Record<string, unknown>,
+  requiredMode: SlackSmokeLiveMode,
+  artifactContext: SlackSmokeContext | undefined,
+  issues: string[],
+): boolean {
+  if (run.mode !== "live" || run.live !== true || run.ready !== true) {
+    return false;
+  }
+  const runGeneratedAt = readString(run.generatedAt);
+  if (!runGeneratedAt) {
+    issues.push("run_generated_at_missing");
+    return false;
+  }
+  const liveResult = readRecord(run.liveResult);
+  if (!liveResult || liveResult.mode !== requiredMode) {
+    return false;
+  }
+  const runContext = readSlackSmokeEvidenceRecordContext(run);
+  if (!slackSmokeEvidenceContextComplete(runContext)) {
+    issues.push("run_context_incomplete");
+    return false;
+  }
+  if (artifactContext && !slackSmokeEvidenceContextsMatch(runContext, artifactContext)) {
+    issues.push("run_context_mismatch");
+    return false;
+  }
+  if (liveResult.attempted !== true || liveResult.ok !== true) {
+    return false;
+  }
+  if (!readString(liveResult.channelReference)) {
+    issues.push(`live_mode_${requiredMode}_channel_reference_missing`);
+    return false;
+  }
+  if (requiredMode === "post_message") {
+    return Boolean(readString(liveResult.messageReference));
+  }
+  if (requiredMode === "app_mention") {
+    return liveResult.appMentionText === true && Boolean(readString(liveResult.botUserReference));
+  }
+  return liveResult.fileUpload === true &&
+    liveResult.uploadCompleted === true &&
+    Boolean(readString(liveResult.fileReference));
+}
+
+function readSlackSmokeEvidenceRecordContext(record: Record<string, unknown> | undefined): SlackSmokeContext | undefined {
+  const context = readRecord(record?.context);
+  if (!context) {
+    return undefined;
+  }
+  return {
+    workspaceId: readString(context.workspaceId),
+    integrationId: readString(context.integrationId),
+    appReference: readString(context.appReference),
+    teamReference: readString(context.teamReference),
+  };
+}
+
+function slackSmokeEvidenceContextComplete(context: SlackSmokeContext | undefined): boolean {
+  return Boolean(context?.workspaceId && context.integrationId && context.appReference && context.teamReference);
+}
+
+function slackSmokeEvidenceContextsMatch(
+  left: SlackSmokeContext | undefined,
+  right: SlackSmokeContext | undefined,
+): boolean {
+  return left?.workspaceId === right?.workspaceId &&
+    left?.integrationId === right?.integrationId &&
+    left?.appReference === right?.appReference &&
+    left?.teamReference === right?.teamReference;
+}
+
+function isFreshIsoTimestamp(value: string, checkedAt: Date): boolean {
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp)) {
+    return false;
+  }
+  const delta = checkedAt.getTime() - timestamp;
+  return delta >= -5 * 60 * 1000 && delta <= SLACK_SMOKE_EVIDENCE_MAX_AGE_MS;
+}
+
+function findSlackSmokeEvidenceRedactionIssues(text: string): string[] {
+  const issues: string[] = [];
+  if (/\b(?:xox[a-z]?|xapp)-[A-Za-z0-9-]+/i.test(text) || /\bBearer\s+[A-Za-z0-9._~+/=-]+/i.test(text)) {
+    issues.push("secret_like_value_in_evidence");
+  }
+  if (/\b(?:A|C|D|F|G|T|U|W)[A-Z0-9]{8,}\b/.test(text)) {
+    issues.push("raw_slack_identifier_in_evidence");
+  }
+  if (/\b\d{10}\.\d{6}\b/.test(text)) {
+    issues.push("raw_slack_message_ts_in_evidence");
+  }
+  if (/url_private|files\.slack\.com|slack-files\.com/i.test(text)) {
+    issues.push("slack_private_file_url_in_evidence");
+  }
+  return issues;
+}
+
+function readRecord(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
 }
 
 function parseEnvFile(contents: string): Record<string, string | undefined> {
