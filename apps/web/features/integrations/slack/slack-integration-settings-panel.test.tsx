@@ -38,6 +38,8 @@ describe("SlackIntegrationSettingsPanel", () => {
     expect(screen.getByText(/Conversation Reference: slack:C_S...RAL/)).toBeInTheDocument();
     expect(screen.getByText(/User Reference: slack:U_M...INA/)).toBeInTheDocument();
     expect(screen.getByText(/Health: Healthy/)).toBeInTheDocument();
+    expect(screen.getByText("Outbound Failures")).toBeInTheDocument();
+    expect(screen.getByText("slack.outbound.missing_scope")).toBeInTheDocument();
     expect(screen.getByText("Slack Acceptance Checks")).toBeInTheDocument();
   });
 

@@ -112,7 +112,24 @@ describe("Slack settings data", () => {
         processedAt: "2026-07-07T00:00:01.000Z",
       },
     ]);
-    mockListExternalMessageOutboxSync.mockReturnValue([]);
+    mockListExternalMessageOutboxSync.mockImplementation((input: { status?: string }) =>
+      input.status === "failed"
+        ? [{
+          id: "outbox-1",
+          integrationId: "slack-1",
+          channelBindingId: "channel-binding-1",
+          targetExternalChatId: "C111",
+          targetExternalThreadId: "1783400000.000100",
+          agentSpaceMessageId: "message-1",
+          payloadJson: "{}",
+          metadataJson: "{}",
+          status: "failed",
+          attempts: 2,
+          lastError: "slack.outbound.missing_scope",
+          createdAt: "2026-07-07T00:00:00.000Z",
+          updatedAt: "2026-07-07T00:03:00.000Z",
+        }]
+        : []);
   });
 
   it("filters Slack integration settings down to self-service identity data for members", () => {
@@ -159,9 +176,16 @@ describe("Slack settings data", () => {
       hasSigningSecret: true,
       channelBindingCount: 1,
       userBindingCount: 2,
+      outboxFailureCount: 1,
     });
     expect(item?.channelBindings[0]?.externalChannelReference).toBe("ref_C111");
     expect(item?.userBindings[0]?.externalUserReference).toBe("ref_U111");
+    expect(item?.recentOutboxFailures[0]).toMatchObject({
+      targetExternalChannelReference: "ref_C111",
+      targetExternalChannelIdRedacted: true,
+      lastError: "slack.outbound.missing_scope",
+      status: "failed",
+    });
     expect(item?.recentInboundEvents[0]?.externalEventReference).toBe("ref_Ev111");
     expect(item?.recentInboundEvents[0]?.bindingSuggestion).toEqual({
       kind: "channel",

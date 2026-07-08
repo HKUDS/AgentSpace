@@ -839,7 +839,7 @@ rawPayload = summarized payload or original safe subset
 - [x] 成功后写 external message mapping。
 - [x] 429 时读取 retry-after，写 `nextAttemptAt`。
 - [x] `channel_not_found` / `not_in_channel` / `missing_scope` / `invalid_auth` 等错误归一化。
-- [ ] CLI 支持 drain。
+- [x] CLI 支持 drain。
 - [ ] HTTP route 可 best-effort drain 当前 integration outbox。
 - [x] web daemon / CLI daemon 完成或失败任务时 queue Slack thread reply。
 - [x] worker 可 drain outbox。
@@ -848,7 +848,7 @@ rawPayload = summarized payload or original safe subset
 
 - [x] Agent 回复写回 Slack thread 的 queue 主链路已接入 daemon。
 - [x] rate limit 不丢消息，进入 pending retry。
-- [ ] terminal failure 可在 settings/CLI 看到。
+- [x] terminal failure 可在 settings/CLI 看到。
 - [x] outbox 不泄露 bot token。
 
 ### Phase 7：Socket Mode worker
@@ -911,7 +911,7 @@ rawPayload = summarized payload or original safe subset
 
 - [ ] owner/admin 可创建 Slack integration。
 - [ ] owner/admin 可绑定 channel。
-- [ ] owner/admin 可查看 outbox failure。
+- [x] owner/admin 可查看 outbox failure。
 - [ ] member 不可查看其他用户 external id。
 - [ ] 所有 external ids 默认 redacted / ref 化展示。
 

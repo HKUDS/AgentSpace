@@ -313,6 +313,58 @@ test("Slack command dispatcher routes subcommands without external services", as
   assert.equal(calls.some((call) => JSON.stringify(call).includes("xoxb-")), false);
 });
 
+test("Slack outbox drain CLI exposes terminal failures without secrets", async () => {
+  const logs = await captureConsoleLog(async () => {
+    const exitCode = await runSlackIntegrationCommand(
+      ["outbox", "drain", "--workspace-id", "workspace-1", "--integration", "slack-1", "--limit", "1"],
+      "json",
+      {
+        drainOutbox: async (flags: Record<string, string | boolean>) => {
+          assert.equal(flags["workspace-id"], "workspace-1");
+          assert.equal(flags.integration, "slack-1");
+          assert.equal(flags.limit, "1");
+          return {
+            workspaceId: "workspace-1",
+            provider: "slack",
+            integrationCount: 1,
+            processedCount: 1,
+            sentCount: 0,
+            failedCount: 1,
+            results: [{
+              integrationId: "slack-1",
+              outboxId: "outbox-1",
+              status: "failed",
+              errorCode: "slack.outbound.invalid_auth",
+              errorMessage: "Slack chat.postMessage failed: slack.outbound.invalid_auth",
+              retryable: false,
+              terminal: true,
+            }],
+            errors: [],
+          } as never;
+        },
+      },
+    );
+    assert.equal(exitCode, 0);
+  });
+
+  const output = JSON.parse(logs.join("\n")) as {
+    failedCount?: number;
+    results?: Array<{
+      status?: string;
+      errorCode?: string;
+      errorMessage?: string;
+      terminal?: boolean;
+    }>;
+  };
+  const serialized = JSON.stringify(output);
+  assert.equal(output.failedCount, 1);
+  assert.equal(output.results?.[0]?.status, "failed");
+  assert.equal(output.results?.[0]?.errorCode, "slack.outbound.invalid_auth");
+  assert.equal(output.results?.[0]?.terminal, true);
+  assert.match(output.results?.[0]?.errorMessage ?? "", /slack\.outbound\.invalid_auth/);
+  assert.doesNotMatch(serialized, /xoxb-|xapp-|signing-secret|CSECRET|USECRET/);
+});
+
 test("Slack create CLI stores encrypted credentials and returns redacted setup output", () => {
   const envDir = mkdtempSync(join(tmpdir(), "agent-space-slack-create-cli-"));
   const envFile = join(envDir, ".env");
