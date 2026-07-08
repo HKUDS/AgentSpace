@@ -1207,8 +1207,8 @@ function buildSlackEvidenceNextCommands(
   return [
     `agent-space integrations slack smoke-env --workspace-id ${workspaceId}${requiredIntegrationFlag} --app-url https://agentspace.example.com > scripts/slack/.env`,
     `agent-space integrations slack health-check --workspace-id ${workspaceId}${requiredIntegrationFlag} --json`,
-    `agent-space integrations slack readiness --workspace-id ${workspaceId}${integrationFlag} --strict --json`,
-    `agent-space integrations slack smoke-plan --workspace-id ${workspaceId}${integrationFlag} --strict --require ${readinessRequirement} --json`,
+    `agent-space integrations slack readiness --workspace-id ${workspaceId}${requiredIntegrationFlag} --strict --json`,
+    `agent-space integrations slack smoke-plan --workspace-id ${workspaceId}${requiredIntegrationFlag} --strict --require ${readinessRequirement} --json`,
     "npm run smoke:slack -- --env-file scripts/slack/.env --check-env --json",
     `npm run smoke:slack -- --env-file scripts/slack/.env --live --evidence ${evidencePath} --json`,
     `SLACK_SMOKE_LIVE_MODE=app_mention npm run smoke:slack -- --env-file scripts/slack/.env --live --evidence ${evidencePath} --json`,
