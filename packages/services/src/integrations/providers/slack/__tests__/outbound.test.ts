@@ -5,6 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 import type {
   ExternalIntegrationRecord,
+  ExternalMessageMappingRecord,
   ExternalMessageOutboxRecord,
 } from "@agent-space/db";
 import {
@@ -591,6 +592,106 @@ test("marks Slack outbox provider auth failures terminal with safe diagnostics",
   assert.doesNotMatch(JSON.stringify(result), /xoxb-secret-token|CSECRET123/);
 });
 
+test("completes Slack outbox messages and records safe outbound mappings", async () => {
+  const outbox = buildExternalMessageOutbox({
+    payloadJson: JSON.stringify({
+      channel: "CSECRET123",
+      text: "Agent reply",
+      thread_ts: "1783400000.000100",
+    }),
+  });
+  const locked = buildExternalMessageOutbox({
+    ...outbox,
+    status: "locked",
+    attempts: 1,
+    lockedBy: "slack-worker-test",
+    lockedAt: "2026-07-07T04:53:20.000Z",
+  });
+  let completedOutboxId: string | undefined;
+  let mappingInput: {
+    workspaceId?: string;
+    integrationId: string;
+    channelBindingId?: string;
+    direction: "inbound" | "outbound";
+    externalMessageId: string;
+    externalThreadId?: string;
+    agentSpaceMessageId?: string;
+    metadataJson?: unknown;
+  } | undefined;
+
+  const result = await processSlackOutboxMessage({
+    workspaceId: "workspace-1",
+    outbox,
+    integration: buildExternalIntegration(),
+    lockedBy: "slack-worker-test",
+    dependencies: {
+      markOutboxLocked: (input) => {
+        assert.deepEqual(input, {
+          workspaceId: "workspace-1",
+          outboxId: "outbox-1",
+          lockedBy: "slack-worker-test",
+        });
+        return locked;
+      },
+      readCredentials: () => ({ botToken: "xoxb-secret-token" }),
+      sendChatPostMessage: async (input) => {
+        assert.equal(input.botToken, "xoxb-secret-token");
+        assert.deepEqual(input.payload, {
+          channel: "CSECRET123",
+          text: "Agent reply",
+          thread_ts: "1783400000.000100",
+        });
+        return {
+          ok: true,
+          status: 200,
+          channel: "CSECRET123",
+          ts: "1783400002.000100",
+        };
+      },
+      completeOutbox: (input) => {
+        completedOutboxId = input.outboxId;
+        assert.deepEqual(input, {
+          workspaceId: "workspace-1",
+          outboxId: "outbox-1",
+        });
+        return {
+          ...locked,
+          status: "sent",
+          sentAt: "2026-07-07T04:53:22.000Z",
+        };
+      },
+      createMessageMapping: (input) => {
+        mappingInput = input;
+        assert.equal(input.workspaceId, "workspace-1");
+        assert.equal(input.integrationId, "slack-1");
+        assert.equal(input.channelBindingId, "channel-binding-1");
+        assert.equal(input.direction, "outbound");
+        assert.equal(input.externalMessageId, "1783400002.000100");
+        assert.equal(input.externalThreadId, "1783400000.000100");
+        assert.equal(input.agentSpaceMessageId, "message-1");
+        assert.doesNotMatch(JSON.stringify(input.metadataJson), /xoxb-secret-token|CSECRET123/);
+        return buildExternalMessageMapping({
+          externalMessageId: input.externalMessageId,
+          externalThreadId: input.externalThreadId,
+          agentSpaceMessageId: input.agentSpaceMessageId,
+          metadataJson: JSON.stringify(input.metadataJson ?? {}),
+        });
+      },
+      failOutbox: () => {
+        assert.fail("successful outbox must not be failed");
+      },
+    },
+  });
+
+  assert.equal(result.status, "sent");
+  assert.equal(result.outboxId, "outbox-1");
+  assert.equal(result.externalMessageId, "1783400002.000100");
+  assert.equal(completedOutboxId, "outbox-1");
+  assert.equal(mappingInput?.direction, "outbound");
+  assert.equal(mappingInput?.externalMessageId, "1783400002.000100");
+  assert.doesNotMatch(JSON.stringify({ result, mappingInput }), /xoxb-secret-token|CSECRET123/);
+});
+
 function buildExternalIntegration(
   overrides: Partial<ExternalIntegrationRecord> = {},
 ): ExternalIntegrationRecord {
@@ -609,6 +710,24 @@ function buildExternalIntegration(
     scopesJson: "[]",
     createdAt: "2026-07-07T04:53:20.000Z",
     updatedAt: "2026-07-07T04:53:20.000Z",
+    ...overrides,
+  };
+}
+
+function buildExternalMessageMapping(
+  overrides: Partial<ExternalMessageMappingRecord> = {},
+): ExternalMessageMappingRecord {
+  return {
+    id: "mapping-1",
+    workspaceId: "workspace-1",
+    integrationId: "slack-1",
+    channelBindingId: "channel-binding-1",
+    direction: "outbound",
+    externalMessageId: "1783400002.000100",
+    externalThreadId: "1783400000.000100",
+    agentSpaceMessageId: "message-1",
+    metadataJson: "{}",
+    createdAt: "2026-07-07T04:53:20.000Z",
     ...overrides,
   };
 }

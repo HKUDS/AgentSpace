@@ -828,15 +828,15 @@ rawPayload = summarized payload or original safe subset
 
 ### Phase 6：出站和 outbox drain
 
-- [ ] 新增 `outbound.ts`。
-- [ ] 实现 `buildSlackTextOutboundMessage(...)`。
-- [ ] `messageTransport.buildOutboundMessage(...)` 输出：
-  - [ ] `channel`
-  - [ ] `text`
-  - [ ] `thread_ts`
+- [x] 新增 `outbound.ts`。
+- [x] 实现 `buildSlackTextOutboundMessage(...)`。
+- [x] `messageTransport.buildOutboundMessage(...)` 输出：
+  - [x] `channel`
+  - [x] `text`
+  - [x] `thread_ts`
   - [x] optional `blocks`
 - [ ] 使用 `@slack/web-api` `WebClient.chat.postMessage(...)`。
-- [ ] 成功后写 external message mapping。
+- [x] 成功后写 external message mapping。
 - [x] 429 时读取 retry-after，写 `nextAttemptAt`。
 - [x] `channel_not_found` / `not_in_channel` / `missing_scope` / `invalid_auth` 等错误归一化。
 - [ ] CLI 支持 drain。
