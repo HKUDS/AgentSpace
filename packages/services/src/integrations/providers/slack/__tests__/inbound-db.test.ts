@@ -156,6 +156,26 @@ test("agent-scoped Slack bots in the same Slack channel route to their own Agent
   assert.equal(queuedTasks.filter((task) => task.agentId === "Nova").length, 1);
   const atlasTask = queuedTasks.find((task) => task.agentId === "Atlas");
   const novaTask = queuedTasks.find((task) => task.agentId === "Nova");
+  const atlasTaskInput = JSON.parse(atlasTask?.inputJson ?? "{}") as {
+    externalInput?: {
+      actor?: {
+        agentId?: string;
+        botBindingId?: string;
+      };
+    };
+  };
+  const novaTaskInput = JSON.parse(novaTask?.inputJson ?? "{}") as {
+    externalInput?: {
+      actor?: {
+        agentId?: string;
+        botBindingId?: string;
+      };
+    };
+  };
+  assert.equal(atlasTaskInput.externalInput?.actor?.agentId, "Atlas");
+  assert.equal(novaTaskInput.externalInput?.actor?.agentId, "Nova");
+  assert.equal(atlasTaskInput.externalInput?.actor?.botBindingId, atlasIntegration.id);
+  assert.equal(novaTaskInput.externalInput?.actor?.botBindingId, novaIntegration.id);
 
   const messages = readWorkspaceStateSync(DEFAULT_WORKSPACE_ID).messages;
   const atlasMessage = messages.find((message) => message.data?.external_message_id === "1783400000.000100");
@@ -164,10 +184,6 @@ test("agent-scoped Slack bots in the same Slack channel route to their own Agent
   assert.equal(novaMessage?.summary, "@Nova review the metrics");
   assert.equal(atlasMessage?.mentions?.[0]?.token, "Atlas");
   assert.equal(novaMessage?.mentions?.[0]?.token, "Nova");
-  assert.equal(atlasMessage?.data?.external_actor_agent_id, "Atlas");
-  assert.equal(novaMessage?.data?.external_actor_agent_id, "Nova");
-  assert.equal(atlasMessage?.data?.external_bot_binding_id, atlasIntegration.id);
-  assert.equal(novaMessage?.data?.external_bot_binding_id, novaIntegration.id);
   assert.equal(String(atlasMessage?.data?.external_context).includes("C_VIEWED"), false);
   assert.equal(String(atlasMessage?.data?.external_context).includes("T_SHARED"), false);
   assert.match(atlasMessage?.data?.external_context ?? "", /"slackAgentContext"/);
