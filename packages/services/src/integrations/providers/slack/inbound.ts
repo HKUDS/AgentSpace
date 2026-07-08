@@ -1,6 +1,7 @@
 import {
   createExternalMessageOutboxSync,
   createExternalMessageMappingSync,
+  listQueuedTasksSync,
   readEmployeeRuntimeBindingSync,
   readExternalChannelBindingByExternalChatSync,
   readExternalMessageMappingByExternalMessageSync,
@@ -13,6 +14,7 @@ import {
   type ExternalIntegrationRecord,
   type ExternalMessageMappingRecord,
   type ExternalMessageOutboxRecord,
+  type QueuedTaskRecord,
 } from "@agent-space/db";
 import type { AgentSpaceState, MessageAttachment, WorkspaceMessage } from "@agent-space/domain/workspace";
 import type { ExternalMessageEnvelope, IntegrationRuntimeContext } from "../../core/index.ts";
@@ -43,6 +45,7 @@ import {
   buildSlackTextOutboundMessage,
   queueSlackAppHomeOpenedWelcomeOutboxSync,
 } from "./outbound.ts";
+import { recordSlackThreadBindingSync } from "./thread-bindings.ts";
 
 export interface SlackInboundProcessResult {
   event: ExternalIntegrationEventRecord;
@@ -425,6 +428,26 @@ function dispatchPreparedSlackInboundEventSync(input: SlackInboundPreparedDispat
   }
 
   const agentSpaceMessage = findDispatchedWorkspaceMessage(state, input.message);
+  const dispatchedTask = agentSpaceMessage?.id && input.integration?.agentId
+    ? resolveSlackDispatchedTaskSync({
+      workspaceId: input.context.workspaceId,
+      channelName: input.channelBinding.channelName,
+      agentId: input.integration.agentId,
+      sourceMessageId: agentSpaceMessage.id,
+    })
+    : null;
+  const threadBinding = input.integration?.agentId && agentSpaceMessage?.id
+    ? recordSlackThreadBindingSync({
+      workspaceId: input.context.workspaceId,
+      integration: input.integration,
+      channelBinding: input.channelBinding,
+      message: input.message,
+      agentId: input.integration.agentId,
+      taskQueueId: dispatchedTask?.id,
+      routerSessionId: dispatchedTask?.routerSessionId,
+      agentSpaceMessageId: agentSpaceMessage.id,
+    })
+    : null;
   const fileMetadata = buildSlackFileStorageMetadata({
     attachments: input.message.attachments,
     downloadedAttachments: input.attachments,
@@ -444,6 +467,11 @@ function dispatchPreparedSlackInboundEventSync(input: SlackInboundPreparedDispat
       channelName: input.channelBinding.channelName,
       slackChannelType: input.channelBinding.externalChatType,
       agentContext: input.agentContext,
+      agentId: input.integration?.agentId,
+      botBindingId: input.integration?.agentId ? input.integration.id : undefined,
+      taskQueueId: dispatchedTask?.id,
+      routerSessionId: dispatchedTask?.routerSessionId,
+      threadBindingId: threadBinding?.id,
       ...fileMetadata,
     },
   });
@@ -461,6 +489,22 @@ function dispatchPreparedSlackInboundEventSync(input: SlackInboundPreparedDispat
     mapping,
     agentSpaceMessageId: agentSpaceMessage?.id,
   };
+}
+
+function resolveSlackDispatchedTaskSync(input: {
+  workspaceId: string;
+  channelName: string;
+  agentId: string;
+  sourceMessageId: string;
+}): QueuedTaskRecord | null {
+  return listQueuedTasksSync({ workspaceId: input.workspaceId })
+    .filter((task) => task.agentId === input.agentId)
+    .filter((task) => {
+      const payload = parseJsonRecord(task.inputJson);
+      return payload?.sourceMessageId === input.sourceMessageId &&
+        payload.channelName === input.channelName;
+    })
+    .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())[0] ?? null;
 }
 
 function finishIgnored(input: {
@@ -805,6 +849,17 @@ function buildSafeAttachmentReference(attachment: MessageAttachment): string {
 function readMetadataString(metadata: Record<string, unknown>, key: string): string | undefined {
   const value = metadata[key];
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function parseJsonRecord(value: string): Record<string, unknown> | null {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : null;
+  } catch {
+    return null;
+  }
 }
 
 function isPromiseLike<T>(value: T | Promise<T>): value is Promise<T> {

@@ -814,7 +814,7 @@ rawPayload = summarized payload or original safe subset
 - [ ] 校验 channel write / runtime access / agent usage。
 - [ ] 调 `sendChannelHumanMessageSync(...)`。
 - [ ] 写 `external_message_mapping`。
-- [ ] 写 thread binding。
+- [x] 写 thread binding。
 - [ ] 支持 `externalInput.provider = "slack"`。
 - [ ] 入站失败写 `external_integration_event.status = failed`。
 

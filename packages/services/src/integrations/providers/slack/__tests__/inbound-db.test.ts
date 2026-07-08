@@ -10,6 +10,7 @@ import {
   DEFAULT_WORKSPACE_ID,
   getDatabase,
   listExternalMessageOutboxSync,
+  listExternalThreadBindingsSync,
   listQueuedTasksSync,
   registerDaemonRuntimesSync,
   upsertExternalChannelBindingSync,
@@ -153,6 +154,8 @@ test("agent-scoped Slack bots in the same Slack channel route to their own Agent
   const queuedTasks = listQueuedTasksSync();
   assert.equal(queuedTasks.filter((task) => task.agentId === "Atlas").length, 1);
   assert.equal(queuedTasks.filter((task) => task.agentId === "Nova").length, 1);
+  const atlasTask = queuedTasks.find((task) => task.agentId === "Atlas");
+  const novaTask = queuedTasks.find((task) => task.agentId === "Nova");
 
   const messages = readWorkspaceStateSync(DEFAULT_WORKSPACE_ID).messages;
   const atlasMessage = messages.find((message) => message.data?.external_message_id === "1783400000.000100");
@@ -173,6 +176,30 @@ test("agent-scoped Slack bots in the same Slack channel route to their own Agent
   assert.equal(JSON.stringify(atlasMappingMetadata).includes("C_VIEWED"), false);
   assert.equal(JSON.stringify(atlasMappingMetadata).includes("T_SHARED"), false);
   assert.equal(typeof atlasMappingMetadata.agentContext, "object");
+
+  const threadBindings = listExternalThreadBindingsSync({
+    workspaceId: DEFAULT_WORKSPACE_ID,
+    provider: SLACK_PROVIDER_ID,
+    externalChatId: "C_SHARED",
+  });
+  assert.equal(threadBindings.length, 2);
+  const atlasThreadBinding = threadBindings.find((binding) => binding.agentId === "Atlas");
+  const novaThreadBinding = threadBindings.find((binding) => binding.agentId === "Nova");
+  assert.equal(atlasThreadBinding?.integrationId, atlasIntegration.id);
+  assert.equal(novaThreadBinding?.integrationId, novaIntegration.id);
+  assert.equal(atlasThreadBinding?.externalThreadId, "1783400000.000100");
+  assert.equal(novaThreadBinding?.externalThreadId, "1783400000.000200");
+  assert.equal(atlasThreadBinding?.taskQueueId, atlasTask?.id);
+  assert.equal(novaThreadBinding?.taskQueueId, novaTask?.id);
+  assert.equal(atlasThreadBinding?.agentSpaceMessageId, atlasMessage?.id);
+  assert.equal(novaThreadBinding?.agentSpaceMessageId, novaMessage?.id);
+  assert.equal(atlasMappingMetadata.threadBindingId, atlasThreadBinding?.id);
+  const atlasThreadMetadata = JSON.parse(atlasThreadBinding?.metadataJson ?? "{}") as Record<string, unknown>;
+  assert.equal(atlasThreadMetadata.provider, SLACK_PROVIDER_ID);
+  assert.equal(atlasThreadMetadata.agentId, "Atlas");
+  assert.equal(atlasThreadMetadata.botBindingId, atlasIntegration.id);
+  assert.equal(JSON.stringify(atlasThreadMetadata).includes("C_SHARED"), false);
+  assert.equal(JSON.stringify(atlasThreadMetadata).includes("1783400000.000100"), false);
 
   const welcomeResult = processSlackInboundEventSync({
     context: {

@@ -91,6 +91,13 @@ export {
   type SlackInboundProcessResult,
 } from "./inbound.ts";
 export {
+  readSlackThreadBindingSync,
+  recordSlackThreadBindingSync,
+  resolveSlackThreadBindingKey,
+  type ReadSlackThreadBindingInput,
+  type RecordSlackThreadBindingInput,
+} from "./thread-bindings.ts";
+export {
   buildSlackApprovalBlockAction,
   buildSlackApprovalPayloadHash,
 } from "./approval-actions.ts";
