@@ -195,6 +195,43 @@ test("builds strict Slack evidence reports without raw external ids", () => {
   assert.doesNotMatch(JSON.stringify(report), /A_SECRET|T_SECRET|C_SECRET|D_SECRET|U_SECRET|F_SECRET|url_private|files\.slack\.com|EvMessage|EvApproval|1783400000/);
 });
 
+test("Slack evidence remediation preserves custom live smoke evidence paths", () => {
+  const liveSmokeEvidencePath = "tmp/slack/live-custom.json";
+  const report = buildSlackEvidenceReport({
+    workspaceId: "workspace-1",
+    integrationId: "slack-1",
+    strict: true,
+    required: "all",
+    liveSmokeEvidencePath,
+    dependencies: {
+      listIntegrations: () => [makeIntegration()],
+      listChannelBindings: () => [],
+      listUserBindings: () => [],
+      listEvents: () => [],
+      listMessageMappings: () => [],
+      listOutbox: () => [],
+    },
+  });
+
+  assert.ok(report.nextCommands.includes(
+    `npm run smoke:slack -- --env-file scripts/slack/.env --live --evidence ${liveSmokeEvidencePath} --json`,
+  ));
+  assert.ok(report.nextCommands.includes(
+    `SLACK_SMOKE_LIVE_MODE=app_mention npm run smoke:slack -- --env-file scripts/slack/.env --live --evidence ${liveSmokeEvidencePath} --json`,
+  ));
+  assert.ok(report.nextCommands.includes(
+    `SLACK_SMOKE_LIVE_MODE=file_upload npm run smoke:slack -- --env-file scripts/slack/.env --live --evidence ${liveSmokeEvidencePath} --json`,
+  ));
+  assert.ok(report.nextCommands.includes(
+    `npm run smoke:slack:verify -- --verify-evidence ${liveSmokeEvidencePath} --env-file scripts/slack/.env --json`,
+  ));
+  assert.ok(report.nextCommands.includes(
+    `agent-space integrations slack evidence --workspace-id workspace-1 --integration slack-1 --live-smoke-evidence ${liveSmokeEvidencePath} --strict --require all --json`,
+  ));
+  assert.deepEqual(report.integrations[0]?.nextCommands, report.nextCommands);
+  assert.doesNotMatch(report.nextCommands.join("\n"), /runtime-output\/slack-smoke\/live\.json/);
+});
+
 test("Slack evidence reports actionable blockers when message smoke evidence is missing", () => {
   const report = buildSlackEvidenceReport({
     workspaceId: "workspace-1",

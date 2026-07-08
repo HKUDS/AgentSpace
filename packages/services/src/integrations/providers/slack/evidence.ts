@@ -25,6 +25,7 @@ export interface SlackLiveAppMentionProof {
   channelReference: string;
 }
 const SLACK_LOCAL_EVIDENCE_FRESHNESS_WINDOW_MS = 24 * 60 * 60 * 1000;
+const SLACK_DEFAULT_LIVE_SMOKE_EVIDENCE_PATH = "runtime-output/slack-smoke/live.json";
 
 export interface SlackEvidenceReport {
   workspaceId: string;
@@ -192,6 +193,7 @@ export function buildSlackEvidenceReport(input: {
 }): SlackEvidenceReport {
   const dependencies = input.dependencies ?? {};
   const required = input.required ?? "message";
+  const liveSmokeEvidencePath = input.liveSmokeEvidencePath ?? SLACK_DEFAULT_LIVE_SMOKE_EVIDENCE_PATH;
   const integrations = (dependencies.listIntegrations ?? listExternalIntegrationsSync)({
     workspaceId: input.workspaceId,
     provider: SLACK_PROVIDER_ID,
@@ -223,6 +225,7 @@ export function buildSlackEvidenceReport(input: {
     requireFreshEvidence: Boolean(input.strict),
     liveAppMentionProofs: liveSmokeEvidence?.summary?.appMentionProofsByIntegration?.[integration.id] ?? [],
     liveFileUploadChannelReferences: liveSmokeEvidence?.summary?.fileUploadChannelReferencesByIntegration?.[integration.id] ?? [],
+    liveSmokeEvidencePath,
     dependencies,
   }));
   const liveSatisfiedIntegrationIds = liveSmokeEvidence?.summary?.satisfiedIntegrationIds;
@@ -266,6 +269,7 @@ export function buildSlackEvidenceReport(input: {
         ?? items.find((item) => item.requiredSatisfied)?.integrationId
         ?? items.find((item) => item.status === "active")?.integrationId,
       required,
+      liveSmokeEvidencePath,
     ),
   };
 }
@@ -524,6 +528,7 @@ function buildSlackEvidenceIntegrationItem(input: {
   requireFreshEvidence: boolean;
   liveAppMentionProofs: SlackLiveAppMentionProof[];
   liveFileUploadChannelReferences: string[];
+  liveSmokeEvidencePath: string;
   dependencies: SlackEvidenceDependencies;
 }): SlackEvidenceIntegrationItem {
   const { integration } = input;
@@ -656,7 +661,12 @@ function buildSlackEvidenceIntegrationItem(input: {
     blockers: Array.from(new Set(blockers)),
     warnings: Array.from(new Set(warnings)),
     requiredSatisfied,
-    nextCommands: buildSlackEvidenceIntegrationNextCommands(input.workspaceId, integration.id, input.required),
+    nextCommands: buildSlackEvidenceIntegrationNextCommands(
+      input.workspaceId,
+      integration.id,
+      input.required,
+      input.liveSmokeEvidencePath,
+    ),
   };
 }
 
@@ -1703,10 +1713,14 @@ function buildSlackEvidenceNextCommands(
   workspaceId: string,
   integrationId: string | undefined,
   required: SlackEvidenceRequirement,
+  liveSmokeEvidencePath?: string,
 ): string[] {
   const integrationFlag = integrationId ? ` --integration ${integrationId}` : "";
   const requiredIntegrationFlag = integrationId ? integrationFlag : " --integration CHANGE_ME_SLACK_INTEGRATION_ID";
-  const evidencePath = "runtime-output/slack-smoke/live.json";
+  const evidencePath = liveSmokeEvidencePath ?? SLACK_DEFAULT_LIVE_SMOKE_EVIDENCE_PATH;
+  const verifyEvidenceCommand = evidencePath === SLACK_DEFAULT_LIVE_SMOKE_EVIDENCE_PATH
+    ? "npm run smoke:slack:verify -- --env-file scripts/slack/.env --json"
+    : `npm run smoke:slack:verify -- --verify-evidence ${evidencePath} --env-file scripts/slack/.env --json`;
   const readinessRequirement = required === "all" ? "all" : "message";
   return [
     `agent-space integrations slack smoke-env --workspace-id ${workspaceId}${requiredIntegrationFlag} --app-url https://agentspace.example.com > scripts/slack/.env`,
@@ -1718,7 +1732,7 @@ function buildSlackEvidenceNextCommands(
     `SLACK_SMOKE_LIVE_MODE=app_mention npm run smoke:slack -- --env-file scripts/slack/.env --live --evidence ${evidencePath} --json`,
     `agent-space integrations slack outbox drain --workspace-id ${workspaceId}${requiredIntegrationFlag} --json`,
     `SLACK_SMOKE_LIVE_MODE=file_upload npm run smoke:slack -- --env-file scripts/slack/.env --live --evidence ${evidencePath} --json`,
-    "npm run smoke:slack:verify -- --env-file scripts/slack/.env --json",
+    verifyEvidenceCommand,
     `agent-space integrations slack evidence --workspace-id ${workspaceId}${requiredIntegrationFlag} --live-smoke-evidence ${evidencePath} --strict --require ${required} --json`,
   ];
 }
@@ -1727,6 +1741,7 @@ function buildSlackEvidenceIntegrationNextCommands(
   workspaceId: string,
   integrationId: string,
   required: SlackEvidenceRequirement,
+  liveSmokeEvidencePath?: string,
 ): string[] {
-  return buildSlackEvidenceNextCommands(workspaceId, integrationId, required);
+  return buildSlackEvidenceNextCommands(workspaceId, integrationId, required, liveSmokeEvidencePath);
 }
