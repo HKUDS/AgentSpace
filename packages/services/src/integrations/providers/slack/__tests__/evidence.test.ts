@@ -1330,6 +1330,47 @@ test("Slack evidence strict all rejects pending or locked outbox rows", () => {
   assert.ok(report.blockers.includes("pending_outbox_unresolved"));
 });
 
+test("Slack evidence strict all reports failed outbox even when positive proof is complete", () => {
+  const dependencies = makeCompleteSlackEvidenceDependencies();
+  const baseListOutbox = dependencies?.listOutbox;
+  const report = buildSlackEvidenceReport({
+    workspaceId: "workspace-1",
+    strict: true,
+    required: "all",
+    requireLiveSmokeEvidence: true,
+    liveSmokeEvidence: makeLiveSmokeEvidence(),
+    dependencies: {
+      ...dependencies,
+      listOutbox: (input) => [
+        ...(baseListOutbox?.(input) ?? []),
+        makeOutbox({
+          id: "outbox-failed-1",
+          status: "failed",
+          sentAt: undefined,
+          metadataJson: {
+            provider: "slack",
+            outboxSource: "agent_status_card",
+            externalChatReference: "ref_safechat",
+            errorCode: "slack.rate_limited",
+          },
+        }),
+      ],
+    },
+  });
+
+  assert.equal(report.summary.messageSatisfiedCount, 1);
+  assert.equal(report.summary.nativeSatisfiedCount, 1);
+  assert.equal(report.summary.approvalSatisfiedCount, 1);
+  assert.equal(report.summary.filesSatisfiedCount, 1);
+  assert.equal(report.summary.unresolvedFailureCount, 1);
+  assert.equal(report.strictSatisfied, false);
+  assert.equal(report.integrations[0]?.requiredSatisfied, false);
+  assert.equal(report.integrations[0]?.failures.failedOutbox, 1);
+  assert.ok(report.integrations[0]?.blockers.includes("failed_outbox_unresolved"));
+  assert.ok(report.integrations[0]?.warnings.includes("failed_outbox_visible"));
+  assert.ok(report.blockers.includes("failed_outbox_unresolved"));
+});
+
 test("Slack evidence strict all requires fresh healthy integration health", () => {
   const degraded = buildSlackEvidenceReport({
     workspaceId: "workspace-1",

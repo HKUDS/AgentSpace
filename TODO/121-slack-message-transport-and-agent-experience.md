@@ -1174,6 +1174,7 @@ rawPayload = summarized payload or original safe subset
 - strict final evidence 报告现在有顶层 `blockers` 字段；只有整份 report 未满足时才聚合 `active_slack_integration_missing`、`slack_live_smoke_evidence_missing`、相关 integration 级 blockers 和 live artifact / 本地 evidence integration mismatch。workspace-wide 已通过时，其他未满足 integration 的问题仍保留在 `integrations[].blockers`，不会误报为 report 失败原因。
 - strict Slack evidence 会忽略超过 24 小时的本地 event / mapping / outbox 证据；如果旧记录本可满足门禁但 fresh 证据不足，最终报告会以 `local_evidence_stale` 阻断，避免用历史 smoke 误通过验收。
 - strict Slack evidence 现在会把未解决的 failed inbound/event 记录作为 `failed_events_unresolved` 阻断，即使 message/native/approval/files 的正向证据齐全，也不能在仍有失败事件时通过最终 gate。
+- strict Slack evidence 也会把未解决的 failed outbox 作为 `failed_outbox_unresolved` 阻断；即使正向 message/native/approval/files 证据齐全，最终报告也会保留正向 evidence 计数并给出可行动 blocker，而不是只返回泛化的 strict gate 未满足。
 - strict Slack evidence 现在也会把 pending/locked outbox 作为 `pending_outbox_unresolved` 阻断，确保 live app mention 后必须先执行 outbox drain 并完成 Slack thread 回写，再运行最终 gate。
 - strict Slack evidence 还要求最近 24 小时内的 healthy health-check；如果 credential/scope/socket 状态已退化或 health-check 过期，最终报告会以 `health_check_required_or_unhealthy` / `health_check_stale_or_missing` 阻断。
 - `smoke-plan` 在尚未创建 Slack integration 时会把 `create` 命令绑定到当前 workspace，并在 `smoke-env` / `health-check` / `readiness` / `worker --dry-run` / `bind-channel` / `bind-user` / `outbox drain` 里输出 `CHANGE_ME_SLACK_INTEGRATION_ID` 占位，避免按计划执行验收时复制到缺少 `--integration` 的无效命令。

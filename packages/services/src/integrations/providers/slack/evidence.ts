@@ -490,6 +490,7 @@ function buildSlackEvidenceIntegrationItem(input: {
     ...(staleEvidenceBlocksRequired ? ["local_evidence_stale"] : []),
     ...(failures.pendingOutbox > 0 ? ["pending_outbox_unresolved"] : []),
     ...(failures.failedEvents > 0 ? ["failed_events_unresolved"] : []),
+    ...(failures.failedOutbox > 0 ? ["failed_outbox_unresolved"] : []),
   ];
   const warnings = [
     ...(healthCheck.required && (!healthCheck.healthy || !healthCheck.fresh) ? ["health_check_not_ready"] : []),
@@ -575,7 +576,6 @@ function buildMessageEvidence(
     ).length
     : 0;
   const liveAppMentionOutboundReplies = liveAppMentionOutboundMappings + liveAppMentionOutboxReplies;
-  const failedOutbox = outbox.filter((item) => item.status === "failed").length;
   const satisfied = integration.status === "active" &&
     channelBindings.length > 0 &&
     userBindings.length > 0 &&
@@ -583,8 +583,7 @@ function buildMessageEvidence(
     inboundMappings > 0 &&
     agentTaskQueueEvidence > 0 &&
     (outboundMappings > 0 || sentOutbox > 0) &&
-    (!liveAppMentionCorrelationRequired || (liveAppMentionInboundMappings > 0 && liveAppMentionOutboundReplies > 0)) &&
-    failedOutbox === 0;
+    (!liveAppMentionCorrelationRequired || (liveAppMentionInboundMappings > 0 && liveAppMentionOutboundReplies > 0));
   return {
     satisfied,
     processedInboundEvents,
