@@ -163,6 +163,7 @@ test("builds strict Slack evidence reports without raw external ids", () => {
   assert.equal(report.summary.filesSatisfiedCount, 1);
   assert.equal(report.summary.staleEvidenceRowCount, 0);
   assert.equal(report.summary.unhealthyIntegrationCount, 0);
+  assert.deepEqual(report.blockers, []);
   assert.equal(report.integrations[0]?.healthCheck.healthy, true);
   assert.equal(report.integrations[0]?.healthCheck.fresh, true);
   assert.equal(report.integrations[0]?.message.agentTaskQueueEvidence, 1);
@@ -191,8 +192,34 @@ test("Slack evidence reports actionable blockers when message smoke evidence is 
 
   assert.equal(report.strictSatisfied, false);
   assert.equal(report.integrations[0]?.requiredSatisfied, false);
+  assert.ok(report.blockers.includes("channel_binding_missing"));
+  assert.ok(report.blockers.includes("processed_inbound_event_evidence_missing"));
   assert.ok(report.integrations[0]?.blockers.includes("channel_binding_missing"));
   assert.ok(report.integrations[0]?.blockers.includes("processed_inbound_event_evidence_missing"));
+});
+
+test("Slack evidence exposes top-level blockers for final evidence automation", () => {
+  const report = buildSlackEvidenceReport({
+    workspaceId: "workspace-1",
+    strict: true,
+    required: "all",
+    requireLiveSmokeEvidence: true,
+    liveSmokeEvidencePath: "runtime-output/slack-smoke/live.json",
+    dependencies: {
+      listIntegrations: () => [],
+      listChannelBindings: () => [],
+      listUserBindings: () => [],
+      listEvents: () => [],
+      listMessageMappings: () => [],
+      listOutbox: () => [],
+    },
+  });
+
+  assert.equal(report.strictSatisfied, false);
+  assert.deepEqual(report.integrations, []);
+  assert.ok(report.blockers.includes("active_slack_integration_missing"));
+  assert.ok(report.blockers.includes("slack_live_smoke_evidence_missing"));
+  assert.equal(report.liveSmokeEvidence?.present, false);
 });
 
 test("Slack evidence blocks message smoke without task queue proof", () => {
@@ -904,6 +931,7 @@ test("Slack evidence strict all requires live artifact for the same satisfied in
   assert.equal(report.liveSmokeEvidence?.valid, true);
   assert.deepEqual(report.liveSmokeEvidence?.summary?.satisfiedIntegrationIds, ["slack-2"]);
   assert.equal(report.strictSatisfied, false);
+  assert.ok(report.blockers.includes("slack_live_smoke_local_evidence_integration_mismatch"));
 });
 
 function makeIntegration(overrides: Partial<ExternalIntegrationRecord> = {}): ExternalIntegrationRecord {

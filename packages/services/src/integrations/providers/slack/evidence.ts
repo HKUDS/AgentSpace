@@ -26,6 +26,7 @@ export interface SlackEvidenceReport {
   strict: boolean;
   integrationCount: number;
   strictSatisfied: boolean;
+  blockers: string[];
   summary: {
     messageSatisfiedCount: number;
     nativeSatisfiedCount: number;
@@ -192,6 +193,12 @@ export function buildSlackEvidenceReport(input: {
       (!liveSatisfiedIntegrationIds || liveSatisfiedIntegrationIds.includes(item.integrationId))
     ))
   );
+  const blockers = buildSlackEvidenceReportBlockers({
+    selectedIntegrationId: input.integrationId,
+    items,
+    liveSmokeEvidence,
+    strictSatisfied,
+  });
   return {
     workspaceId: input.workspaceId,
     provider: SLACK_PROVIDER_ID,
@@ -200,6 +207,7 @@ export function buildSlackEvidenceReport(input: {
     strict: Boolean(input.strict),
     integrationCount: items.length,
     strictSatisfied,
+    blockers,
     summary: {
       messageSatisfiedCount: items.filter((item) => item.message.satisfied).length,
       nativeSatisfiedCount: items.filter((item) => item.nativeExperience.satisfied).length,
@@ -315,6 +323,36 @@ export function verifySlackLiveSmokeEvidence(input: {
       unsafeRawValueCount,
     },
   };
+}
+
+function buildSlackEvidenceReportBlockers(input: {
+  selectedIntegrationId?: string;
+  items: SlackEvidenceIntegrationItem[];
+  liveSmokeEvidence?: SlackLiveSmokeEvidenceVerification;
+  strictSatisfied: boolean;
+}): string[] {
+  const blockers: string[] = [];
+  if (input.items.length === 0) {
+    blockers.push(input.selectedIntegrationId ? "selected_integration_missing" : "active_slack_integration_missing");
+  }
+  for (const item of input.items) {
+    blockers.push(...item.blockers);
+  }
+  if (input.liveSmokeEvidence && !input.liveSmokeEvidence.valid) {
+    blockers.push(...input.liveSmokeEvidence.issues);
+  }
+  const liveSatisfiedIntegrationIds = input.liveSmokeEvidence?.summary?.satisfiedIntegrationIds ?? [];
+  if (
+    input.liveSmokeEvidence?.valid &&
+    input.items.some((item) => item.requiredSatisfied) &&
+    !input.items.some((item) => item.requiredSatisfied && liveSatisfiedIntegrationIds.includes(item.integrationId))
+  ) {
+    blockers.push("slack_live_smoke_local_evidence_integration_mismatch");
+  }
+  if (!input.strictSatisfied && blockers.length === 0) {
+    blockers.push("strict_slack_evidence_not_satisfied");
+  }
+  return Array.from(new Set(blockers));
 }
 
 function buildSlackEvidenceIntegrationItem(input: {
