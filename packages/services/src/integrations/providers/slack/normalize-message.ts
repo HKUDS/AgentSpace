@@ -1,4 +1,4 @@
-import type { ExternalMessageEnvelope, IntegrationRuntimeContext } from "../../core/index.ts";
+import type { ExternalMessageAttachment, ExternalMessageEnvelope, IntegrationRuntimeContext } from "../../core/index.ts";
 import {
   asRecord,
   asString,
@@ -6,7 +6,9 @@ import {
   resolveSlackEventId,
   resolveSlackEventReceivedAt,
   resolveSlackEventType,
+  summarizeSlackInboundFilesPayload,
   summarizeSlackInboundEventPayload,
+  type SlackInboundFileSummary,
 } from "./events.ts";
 import { SLACK_PROVIDER_ID } from "./constants.ts";
 
@@ -35,7 +37,9 @@ export function normalizeSlackInboundMessage(
     botUserId: input.botUserId,
     removeLeadingMention: event.type === "app_mention",
   });
-  if (!text) {
+  const attachments = summarizeSlackInboundFilesPayload(input.payload).map(buildSlackExternalMessageAttachment);
+  const normalizedText = text || buildSlackInboundFileOnlyText(attachments);
+  if (!normalizedText) {
     return null;
   }
 
@@ -48,8 +52,8 @@ export function normalizeSlackInboundMessage(
     externalMessageId,
     externalThreadId: asString(event.thread_ts) ?? externalMessageId,
     externalSenderId,
-    text,
-    attachments: [],
+    text: normalizedText,
+    attachments,
     rawPayload: summarizeSlackInboundEventPayload(input.payload),
     receivedAt: resolveSlackEventReceivedAt(input.payload),
   };
@@ -95,7 +99,8 @@ function isSupportedSlackMessageEvent(event: Record<string, unknown>, botUserId:
   if (type !== "app_mention" && type !== "message") {
     return false;
   }
-  if (asString(event.subtype) || asString(event.bot_id) || event.hidden === true) {
+  const subtype = asString(event.subtype);
+  if ((subtype && subtype !== "file_share") || asString(event.bot_id) || event.hidden === true) {
     return false;
   }
   const senderId = asString(event.user);
@@ -111,6 +116,41 @@ function isSupportedSlackMessageEvent(event: Record<string, unknown>, botUserId:
   }
   const text = asString(event.text) ?? "";
   return Boolean(botUserId && text.includes(`<@${botUserId}>`));
+}
+
+function buildSlackExternalMessageAttachment(file: SlackInboundFileSummary): ExternalMessageAttachment {
+  return {
+    id: file.fileRef,
+    fileName: file.displayName,
+    mediaType: file.mediaType,
+    sizeBytes: file.sizeBytes,
+    metadata: {
+      provider: SLACK_PROVIDER_ID,
+      source: "slack_file_metadata",
+      fileRef: file.fileRef,
+      fileType: file.fileType,
+      mode: file.mode,
+      isExternal: file.isExternal,
+      privateUrlRedacted: file.privateUrlRedacted,
+      permalinkRedacted: file.permalinkRedacted,
+      downloadStatus: "not_downloaded",
+      rawSlackFileIdStored: false,
+      privateUrlStored: false,
+    },
+  };
+}
+
+function buildSlackInboundFileOnlyText(attachments: ExternalMessageAttachment[]): string {
+  if (attachments.length === 0) {
+    return "";
+  }
+  const names = attachments
+    .map((attachment) => attachment.fileName?.trim())
+    .filter((name): name is string => Boolean(name))
+    .slice(0, 3);
+  const label = attachments.length === 1 ? "file" : "files";
+  const suffix = names.length > 0 ? `: ${names.join(", ")}` : "";
+  return `Shared ${attachments.length} Slack ${label}${suffix}. File contents have not been downloaded into AgentSpace yet.`;
 }
 
 function decodeSlackEntities(value: string): string {

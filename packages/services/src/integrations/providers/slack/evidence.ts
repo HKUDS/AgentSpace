@@ -15,7 +15,7 @@ import {
 import { SLACK_PROVIDER_ID } from "./constants.ts";
 import { buildSlackReference } from "./events.ts";
 
-export type SlackEvidenceRequirement = "message" | "native" | "approval" | "all";
+export type SlackEvidenceRequirement = "message" | "native" | "approval" | "files" | "all";
 
 export interface SlackEvidenceReport {
   workspaceId: string;
@@ -29,6 +29,7 @@ export interface SlackEvidenceReport {
     messageSatisfiedCount: number;
     nativeSatisfiedCount: number;
     approvalSatisfiedCount: number;
+    filesSatisfiedCount: number;
     unresolvedFailureCount: number;
   };
   integrations: SlackEvidenceIntegrationItem[];
@@ -66,6 +67,14 @@ export interface SlackEvidenceIntegrationItem {
     processedBlockActions: number;
     failedBlockActions: number;
     approvalStatusOutbox: number;
+  };
+  files: {
+    satisfied: boolean;
+    inboundFileMetadataEvents: number;
+    inboundFileMetadataMappings: number;
+    storedAttachmentEvidence: number;
+    outboundUploadEvidence: number;
+    unsafeFileMetadataRows: number;
   };
   failures: {
     failedEvents: number;
@@ -122,6 +131,7 @@ export function buildSlackEvidenceReport(input: {
       messageSatisfiedCount: items.filter((item) => item.message.satisfied).length,
       nativeSatisfiedCount: items.filter((item) => item.nativeExperience.satisfied).length,
       approvalSatisfiedCount: items.filter((item) => item.approvals.satisfied).length,
+      filesSatisfiedCount: items.filter((item) => item.files.satisfied).length,
       unresolvedFailureCount: items.reduce((count, item) => count + item.failures.failedEvents + item.failures.failedOutbox, 0),
     },
     integrations: items,
@@ -166,6 +176,7 @@ function buildSlackEvidenceIntegrationItem(input: {
   const message = buildMessageEvidence(events, mappings, outbox, channelBindings, userBindings, integration);
   const nativeExperience = buildNativeEvidence(events, mappings, outbox);
   const approvals = buildApprovalEvidence(events, outbox);
+  const files = buildFileEvidence(events, mappings, outbox);
   const failures = {
     failedEvents: events.filter((event) => event.status === "failed").length,
     failedOutbox: outbox.filter((item) => item.status === "failed").length,
@@ -179,6 +190,9 @@ function buildSlackEvidenceIntegrationItem(input: {
     ...(input.required === "approval" || input.required === "all"
       ? approvals.satisfied ? [] : ["slack_approval_block_action_evidence_missing"]
       : []),
+    ...(input.required === "files" || input.required === "all"
+      ? files.satisfied ? [] : buildSlackFileEvidenceBlockers(files)
+      : []),
   ];
   const warnings = [
     ...(failures.pendingOutbox > 0 ? ["pending_outbox_messages"] : []),
@@ -189,6 +203,7 @@ function buildSlackEvidenceIntegrationItem(input: {
     message: message.satisfied,
     native: nativeExperience.satisfied,
     approval: approvals.satisfied,
+    files: files.satisfied,
   });
   return {
     integrationId: integration.id,
@@ -206,6 +221,7 @@ function buildSlackEvidenceIntegrationItem(input: {
     message,
     nativeExperience,
     approvals,
+    files,
     failures,
     blockers: Array.from(new Set(blockers)),
     warnings: Array.from(new Set(warnings)),
@@ -281,6 +297,42 @@ function buildApprovalEvidence(
   };
 }
 
+function buildFileEvidence(
+  events: ExternalIntegrationEventRecord[],
+  mappings: ExternalMessageMappingRecord[],
+  outbox: ExternalMessageOutboxRecord[],
+): SlackEvidenceIntegrationItem["files"] {
+  const inboundFileMetadataEvents = events.filter((event) =>
+    event.status === "processed" && hasSlackFileMetadataEvidence(event.payloadJson)
+  ).length;
+  const inboundFileMetadataMappings = mappings.filter((mapping) =>
+    mapping.direction === "inbound" && hasSlackFileMetadataEvidence(mapping.metadataJson)
+  ).length;
+  const storedAttachmentEvidence = mappings.filter((mapping) =>
+    hasSlackStoredAttachmentEvidence(mapping.metadataJson)
+  ).length;
+  const outboundUploadEvidence = outbox.filter((item) =>
+    hasSlackOutboundFileUploadEvidence(item.metadataJson) || hasSlackOutboundFileUploadEvidence(item.payloadJson)
+  ).length;
+  const unsafeFileMetadataRows = [
+    ...events.map((event) => event.payloadJson),
+    ...mappings.map((mapping) => mapping.metadataJson),
+    ...outbox.map((item) => item.metadataJson),
+  ].filter(hasUnsafeSlackFileMetadata).length;
+  return {
+    satisfied: inboundFileMetadataEvents > 0 &&
+      inboundFileMetadataMappings > 0 &&
+      storedAttachmentEvidence > 0 &&
+      outboundUploadEvidence > 0 &&
+      unsafeFileMetadataRows === 0,
+    inboundFileMetadataEvents,
+    inboundFileMetadataMappings,
+    storedAttachmentEvidence,
+    outboundUploadEvidence,
+    unsafeFileMetadataRows,
+  };
+}
+
 function buildSlackMessageEvidenceBlockers(
   message: SlackEvidenceIntegrationItem["message"],
   integration: ExternalIntegrationRecord,
@@ -327,12 +379,33 @@ function buildSlackNativeEvidenceBlockers(native: SlackEvidenceIntegrationItem["
   return blockers;
 }
 
+function buildSlackFileEvidenceBlockers(files: SlackEvidenceIntegrationItem["files"]): string[] {
+  const blockers: string[] = [];
+  if (files.inboundFileMetadataEvents === 0) {
+    blockers.push("slack_inbound_file_metadata_event_evidence_missing");
+  }
+  if (files.inboundFileMetadataMappings === 0) {
+    blockers.push("slack_inbound_file_metadata_mapping_evidence_missing");
+  }
+  if (files.storedAttachmentEvidence === 0) {
+    blockers.push("slack_file_attachment_storage_evidence_missing");
+  }
+  if (files.outboundUploadEvidence === 0) {
+    blockers.push("slack_outbound_file_upload_evidence_missing");
+  }
+  if (files.unsafeFileMetadataRows > 0) {
+    blockers.push("slack_file_metadata_unsafe");
+  }
+  return blockers;
+}
+
 function isSlackEvidenceRequirementSatisfied(
   required: SlackEvidenceRequirement,
   evidence: {
     message: boolean;
     native: boolean;
     approval: boolean;
+    files: boolean;
   },
 ): boolean {
   if (required === "message") {
@@ -344,7 +417,10 @@ function isSlackEvidenceRequirementSatisfied(
   if (required === "approval") {
     return evidence.message && evidence.approval;
   }
-  return evidence.message && evidence.native && evidence.approval;
+  if (required === "files") {
+    return evidence.message && evidence.files;
+  }
+  return evidence.message && evidence.native && evidence.approval && evidence.files;
 }
 
 function isSlackAppHomeWelcomeMapping(mapping: ExternalMessageMappingRecord): boolean {
@@ -357,10 +433,101 @@ function hasSlackAgentContextEvidence(metadataJson: string): boolean {
   return Boolean(agentContext) || metadata?.hasAgentContext === true;
 }
 
+function hasSlackFileMetadataEvidence(metadataJson: string): boolean {
+  const metadata = parseJsonRecord(metadataJson);
+  return Boolean(
+    metadata?.hasFiles === true ||
+    readPositiveNumber(metadata?.fileCount) ||
+    readPositiveNumber(metadata?.slackFileCount) ||
+    readObjectArray(metadata?.files).length > 0 ||
+    readObjectArray(metadata?.slackFiles).length > 0
+  );
+}
+
+function hasSlackStoredAttachmentEvidence(metadataJson: string): boolean {
+  const metadata = parseJsonRecord(metadataJson);
+  return Boolean(
+    readPositiveNumber(metadata?.slackStoredAttachmentCount) ||
+    metadata?.slackFileDownloadStatus === "stored_attachment" ||
+    readObjectArray(metadata?.slackFiles).some((file) =>
+      readJsonStringFieldFromRecord(file, "downloadStatus") === "stored_attachment"
+    )
+  );
+}
+
+function hasSlackOutboundFileUploadEvidence(metadataJson: string): boolean {
+  const metadata = parseJsonRecord(metadataJson);
+  return Boolean(
+    metadata?.outboxSource === "slack_file_upload" ||
+    metadata?.slackUploadFlow === "external_upload" ||
+    metadata?.method === "files.completeUploadExternal" ||
+    readObjectArray(metadata?.files).some((file) =>
+      readJsonStringFieldFromRecord(file, "uploadStatus") === "sent"
+    )
+  );
+}
+
+function hasUnsafeSlackFileMetadata(metadataJson: string): boolean {
+  const metadata = parseJsonRecord(metadataJson);
+  return metadata ? hasUnsafeSlackFileMetadataValue(metadata) : false;
+}
+
+function hasUnsafeSlackFileMetadataValue(value: unknown, key = ""): boolean {
+  if (typeof value === "string") {
+    return hasUnsafeSlackFileString(value, key);
+  }
+  if (Array.isArray(value)) {
+    return value.some((item) => hasUnsafeSlackFileMetadataValue(item, key));
+  }
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+  return Object.entries(value).some(([entryKey, entryValue]) =>
+    isUnsafeSlackFileMetadataKey(entryKey) || hasUnsafeSlackFileMetadataValue(entryValue, entryKey)
+  );
+}
+
+function isUnsafeSlackFileMetadataKey(key: string): boolean {
+  const lowerKey = key.toLowerCase();
+  return lowerKey === "url_private" ||
+    lowerKey === "url_private_download" ||
+    lowerKey === "permalink" ||
+    lowerKey === "permalink_public";
+}
+
+function hasUnsafeSlackFileString(value: string, key: string): boolean {
+  if (/files\.slack\.com|slack-files\.com|url_private/i.test(value)) {
+    return true;
+  }
+  const lowerKey = key.toLowerCase();
+  if ((lowerKey === "id" || lowerKey === "file_id" || lowerKey === "fileid" || lowerKey.endsWith("fileid")) &&
+    /^F[A-Z0-9_-]{4,}$/.test(value)
+  ) {
+    return true;
+  }
+  return false;
+}
+
 function readJsonStringField(metadataJson: string, field: string): string | undefined {
   const metadata = parseJsonRecord(metadataJson);
+  return metadata ? readJsonStringFieldFromRecord(metadata, field) : undefined;
+}
+
+function readJsonStringFieldFromRecord(metadata: Record<string, unknown>, field: string): string | undefined {
   const value = metadata?.[field];
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function readPositiveNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined;
+}
+
+function readObjectArray(value: unknown): Record<string, unknown>[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is Record<string, unknown> =>
+        typeof item === "object" && item !== null && !Array.isArray(item)
+      )
+    : [];
 }
 
 function parseJsonRecord(value: unknown): Record<string, unknown> | undefined {

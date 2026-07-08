@@ -166,9 +166,10 @@ export function processSlackInboundEventSync(input: ProcessSlackInboundEventInpu
     agentId: input.integration?.agentId,
   });
   const agentContext = summarizeSlackAgentContextPayload(input.payload);
-  const externalContext = agentContext
-    ? JSON.stringify({ slackAgentContext: agentContext })
-    : undefined;
+  const externalContext = buildSlackExternalContext({
+    agentContext,
+    attachments: message.attachments,
+  });
   let state: AgentSpaceState;
   try {
     state = sendChannelHumanMessageSync(
@@ -229,6 +230,11 @@ export function processSlackInboundEventSync(input: ProcessSlackInboundEventInpu
       channelName: channelBinding.channelName,
       slackChannelType: channelBinding.externalChatType,
       agentContext,
+      ...(message.attachments.length > 0 ? {
+        slackFiles: message.attachments,
+        slackFileCount: message.attachments.length,
+        slackFileDownloadStatus: "metadata_only",
+      } : {}),
     },
   });
   const processed = updateExternalIntegrationEventStatusSync({
@@ -295,4 +301,19 @@ function readSlackBotUserId(configJson: string | undefined): string | undefined 
   } catch {
     return undefined;
   }
+}
+
+function buildSlackExternalContext(input: {
+  agentContext: ReturnType<typeof summarizeSlackAgentContextPayload>;
+  attachments: ExternalMessageEnvelope["attachments"];
+}): string | undefined {
+  const payload = {
+    ...(input.agentContext ? { slackAgentContext: input.agentContext } : {}),
+    ...(input.attachments.length > 0 ? {
+      slackFiles: input.attachments,
+      slackFileCount: input.attachments.length,
+      slackFileDownloadStatus: "metadata_only",
+    } : {}),
+  };
+  return Object.keys(payload).length > 0 ? JSON.stringify(payload) : undefined;
 }

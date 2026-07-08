@@ -75,6 +75,63 @@ test("normalizes Slack direct messages", () => {
   assert.doesNotMatch(JSON.stringify(message.rawPayload), /C_VIEWED|T_VIEWED/);
 });
 
+test("normalizes Slack file metadata without exposing private URLs", () => {
+  const message = normalizeSlackInboundMessage({
+    context,
+    botUserId: "UBOT",
+    payload: {
+      type: "event_callback",
+      event_id: "EvFile",
+      event_time: 1783400100,
+      api_app_id: "A123",
+      team_id: "T123",
+      event: {
+        type: "app_mention",
+        channel: "C123",
+        user: "U456",
+        text: "<@UBOT>",
+        ts: "1783400100.000100",
+        files: [{
+          id: "FSECRET123",
+          title: "Roadmap.pdf",
+          mimetype: "application/pdf",
+          filetype: "pdf",
+          size: 12345,
+          mode: "hosted",
+          url_private: "https://files.slack.com/files-pri/T123-FSECRET123/roadmap.pdf",
+          url_private_download: "https://files.slack.com/files-pri/T123-FSECRET123/download/roadmap.pdf",
+          permalink: "https://workspace.slack.com/files/U456/FSECRET123/roadmap.pdf",
+        }],
+      },
+    },
+  });
+
+  assert.ok(message);
+  assert.equal(message.text, "Shared 1 Slack file: Roadmap.pdf. File contents have not been downloaded into AgentSpace yet.");
+  assert.equal(message.attachments.length, 1);
+  assert.match(message.attachments[0]?.id ?? "", /^ref_[a-f0-9]{8}$/);
+  assert.equal(message.attachments[0]?.fileName, "Roadmap.pdf");
+  assert.equal(message.attachments[0]?.mediaType, "application/pdf");
+  assert.equal(message.attachments[0]?.sizeBytes, 12345);
+  assert.equal(message.attachments[0]?.url, undefined);
+  assert.deepEqual(message.attachments[0]?.metadata, {
+    provider: SLACK_PROVIDER_ID,
+    source: "slack_file_metadata",
+    fileRef: message.attachments[0]?.id,
+    fileType: "pdf",
+    mode: "hosted",
+    isExternal: false,
+    privateUrlRedacted: true,
+    permalinkRedacted: true,
+    downloadStatus: "not_downloaded",
+    rawSlackFileIdStored: false,
+    privateUrlStored: false,
+  });
+  assert.equal(message.rawPayload.hasFiles, true);
+  assert.equal(message.rawPayload.fileCount, 1);
+  assert.doesNotMatch(JSON.stringify(message), /FSECRET123|files\.slack\.com|url_private|workspace\.slack\.com\/files/);
+});
+
 test("ignores Slack bot and self messages", () => {
   assert.equal(normalizeSlackInboundMessage({
     context,

@@ -33,6 +33,18 @@ export interface SlackAgentContextSummary {
   entities: SlackAgentContextEntitySummary[];
 }
 
+export interface SlackInboundFileSummary {
+  fileRef: string;
+  displayName?: string;
+  mediaType?: string;
+  fileType?: string;
+  sizeBytes?: number;
+  mode?: string;
+  isExternal?: boolean;
+  privateUrlRedacted: boolean;
+  permalinkRedacted: boolean;
+}
+
 export interface SlackAppHomeOpenedMessagesTabEvent {
   externalChatId: string;
   externalUserId: string;
@@ -227,6 +239,7 @@ export function summarizeSlackInboundEventPayload(payload: Record<string, unknow
   const messageTs = asString(event?.ts);
   const threadTs = asString(event?.thread_ts);
   const agentContext = summarizeSlackAgentContextPayload(payload);
+  const files = summarizeSlackInboundFilesPayload(payload);
   return {
     type: asString(payload.type) ?? "unknown",
     eventType: resolveSlackEventType(payload),
@@ -239,9 +252,17 @@ export function summarizeSlackInboundEventPayload(payload: Record<string, unknow
     threadRef: buildOptionalSlackReference(threadTs),
     hasText: Boolean(text),
     textLength: text?.length ?? 0,
+    hasFiles: files.length > 0,
+    fileCount: files.length,
+    files: files.length > 0 ? files : undefined,
     hasAgentContext: Boolean(agentContext),
     agentContext,
   };
+}
+
+export function summarizeSlackInboundFilesPayload(payload: Record<string, unknown>): SlackInboundFileSummary[] {
+  const event = asRecord(payload.event);
+  return summarizeSlackInboundFiles(event?.files);
 }
 
 export function buildSlackReference(value: string): string {
@@ -315,6 +336,54 @@ function summarizeSlackLegacyContextEntity(
     teamRef: buildOptionalSlackReference(asString(context.team_id)),
     enterpriseRef: buildOptionalSlackReference(asString(context.enterprise_id)),
   }];
+}
+
+function summarizeSlackInboundFiles(value: unknown): SlackInboundFileSummary[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.flatMap((item) => {
+    const file = asRecord(item);
+    if (!file) {
+      return [];
+    }
+    const summary = summarizeSlackInboundFile(file);
+    return summary ? [summary] : [];
+  }).slice(0, 10);
+}
+
+function summarizeSlackInboundFile(file: Record<string, unknown>): SlackInboundFileSummary | undefined {
+  const fileId = asString(file.id) ?? asString(file.file_id);
+  const displayName = truncateSlackContextText(
+    asString(file.title) ?? asString(file.name) ?? asString(file.pretty_type),
+    160,
+  );
+  const mediaType = truncateSlackContextText(asString(file.mimetype), 120);
+  const fileType = truncateSlackContextText(asString(file.filetype), 80);
+  const sizeBytes = readNumber(file.size);
+  const mode = truncateSlackContextText(asString(file.mode), 40);
+  const fallbackSeed = JSON.stringify({
+    displayName,
+    mediaType,
+    fileType,
+    sizeBytes,
+    mode,
+  });
+  const fileRef = buildSlackReference(fileId ?? fallbackSeed);
+  if (!fileRef) {
+    return undefined;
+  }
+  return {
+    fileRef,
+    displayName,
+    mediaType,
+    fileType,
+    sizeBytes,
+    mode,
+    isExternal: file.is_external === true,
+    privateUrlRedacted: Boolean(asString(file.url_private) || asString(file.url_private_download)),
+    permalinkRedacted: Boolean(asString(file.permalink) || asString(file.permalink_public)),
+  };
 }
 
 function hasSlackAgentContextEntitySignal(entity: SlackAgentContextEntitySummary): boolean {

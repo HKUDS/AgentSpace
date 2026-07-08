@@ -168,7 +168,7 @@ test("integrations help documents Slack message transport commands", async () =>
   assert.match(output, /--bot-token-env SLACK_BOT_TOKEN/);
   assert.match(output, /--signing-secret-env SLACK_SIGNING_SECRET/);
   assert.match(output, /--require message\|worker\|all/);
-  assert.match(output, /--require message\|native\|approval\|all/);
+  assert.match(output, /--require message\|native\|approval\|files\|all/);
 });
 
 test("slack --help prints usage without touching external services", async () => {
