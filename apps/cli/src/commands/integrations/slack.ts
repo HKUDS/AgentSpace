@@ -29,6 +29,7 @@ import {
   type SlackAgentBotBinding,
   type SlackEvidenceReport,
   type SlackEvidenceRequirement,
+  type SlackHealthCheckResult,
   type SlackLiveSmokeEvidenceReadError,
   type SlackReadinessReport,
   type SlackReadinessRequirement,
@@ -55,6 +56,12 @@ interface SlackIntegrationCommandDependencies {
   buildSmokeEnvTemplateReport?: typeof buildSlackSmokeEnvTemplateReport;
   runWorker?: typeof runSlackWorkerForCli;
   drainOutbox?: typeof drainSlackOutboxForCli;
+}
+
+interface SlackHealthCheckCommandReport {
+  ok?: unknown;
+  integrationId?: unknown;
+  health: SlackHealthCheckResult;
 }
 
 export async function runSlackIntegrationCommand(
@@ -101,7 +108,11 @@ export async function runSlackIntegrationCommand(
   }
   if (subcommand === "health-check") {
     const result = await (deps.runHealthCheck ?? runSlackHealthCheckForCli)(parsed.flags);
-    writeData(format, result);
+    if (format === "json") {
+      writeData(format, result);
+    } else {
+      console.log(formatSlackHealthCheckCommandText(result));
+    }
     return result.health.status === "healthy" ? 0 : 1;
   }
   if (subcommand === "readiness") {
@@ -719,6 +730,49 @@ function readSlackEvidenceRequirement(flags: Record<string, string | boolean>): 
     return value;
   }
   throw new Error("slack.evidence.invalid_requirement");
+}
+
+export function formatSlackHealthCheckCommandText(report: SlackHealthCheckCommandReport): string {
+  const lines = [
+    "AgentSpace Slack health",
+    `Integration: ${typeof report.integrationId === "string" ? report.integrationId : "unknown"}`,
+    `Healthy: ${formatSlackCliYesNo(report.health.status === "healthy")}`,
+    `Status: ${report.health.status}`,
+    `Checked at: ${report.health.checkedAt}`,
+  ];
+  if (report.health.scopeReviewStatus) {
+    lines.push(`Scope review: ${report.health.scopeReviewStatus}`);
+  }
+  if (report.health.missingScopes && report.health.missingScopes.length > 0) {
+    lines.push(`Missing scopes: ${report.health.missingScopes.join(", ")}`);
+  }
+  if (report.health.socketMode) {
+    lines.push(
+      `Socket Mode: checked=${formatSlackCliYesNo(report.health.socketMode.checked)}, ok=${formatSlackCliYesNo(report.health.socketMode.ok)}`,
+    );
+    if (report.health.socketMode.errorMessage) {
+      lines.push(`Socket Mode error: ${report.health.socketMode.errorMessage}`);
+    }
+  }
+  if (report.health.errorMessage) {
+    lines.push(`Error: ${report.health.errorMessage}`);
+  }
+
+  lines.push("", "Checks:");
+  if (report.health.checks.length === 0) {
+    lines.push("- none");
+  } else {
+    for (const check of report.health.checks) {
+      lines.push(`- [${check.status}] ${check.name}`);
+      if (check.detail) {
+        lines.push(`  ${check.detail}`);
+      }
+      if (check.nextStep) {
+        lines.push(`  next: ${check.nextStep}`);
+      }
+    }
+  }
+  return lines.join("\n");
 }
 
 export function formatSlackReadinessCommandText(report: SlackReadinessReport): string {

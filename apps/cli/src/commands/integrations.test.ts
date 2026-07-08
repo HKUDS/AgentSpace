@@ -435,6 +435,56 @@ test("Slack command dispatcher routes subcommands without external services", as
   assert.equal(calls.some((call) => JSON.stringify(call).includes("xoxb-")), false);
 });
 
+test("Slack health-check text output summarizes checks without raw ids", async () => {
+  const logs = await captureConsoleLog(async () => {
+    const exitCode = await runSlackIntegrationCommand(
+      ["health-check", "--workspace-id", "workspace-1", "--integration", "slack-1"],
+      "text",
+      {
+        runHealthCheck: async () => ({
+          ok: false,
+          integrationId: "slack-1",
+          health: {
+            status: "degraded",
+            checkedAt: freshFeishuEvidenceTimestamp(),
+            botUserId: "U123RAW",
+            teamId: "T123RAW",
+            teamName: "Raw Team",
+            appId: "A123RAW",
+            missingScopes: ["assistant:write"],
+            scopeReviewStatus: "missing",
+            socketMode: {
+              checked: true,
+              ok: false,
+              errorMessage: "apps.connections.open denied",
+            },
+            checks: [{
+              name: "auth_test",
+              status: "pass",
+              detail: "Slack auth.test accepted the saved bot token.",
+            }, {
+              name: "bot_scopes",
+              status: "fail",
+              detail: "Missing Slack bot scopes: assistant:write.",
+              nextStep: "Update the Slack app OAuth scopes, reinstall the app, and rerun health-check.",
+            }],
+          },
+        } as never),
+      },
+    );
+    assert.equal(exitCode, 1);
+  });
+  const output = logs.join("\n");
+
+  assert.match(output, /AgentSpace Slack health/);
+  assert.match(output, /Healthy: no/);
+  assert.match(output, /Missing scopes: assistant:write/);
+  assert.match(output, /\[fail\] bot_scopes/);
+  assert.match(output, /next: Update the Slack app OAuth scopes/);
+  assert.doesNotMatch(output, /\[object Object\]/);
+  assert.doesNotMatch(output, /A123RAW|T123RAW|U123RAW/);
+});
+
 test("Slack readiness text output summarizes blockers and next commands", async () => {
   const logs = await captureConsoleLog(async () => {
     const exitCode = await runSlackIntegrationCommand(

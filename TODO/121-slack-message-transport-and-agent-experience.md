@@ -1197,6 +1197,7 @@ rawPayload = summarized payload or original safe subset
 - `smoke-plan` 在尚未创建 Slack integration 时会把 `create` 命令绑定到当前 workspace，并在 `smoke-env` / `health-check` / `readiness` / `worker --dry-run` / `bind-channel` / `bind-user` / `outbox drain` 里输出 `CHANGE_ME_SLACK_INTEGRATION_ID` 占位，避免按计划执行验收时复制到缺少 `--integration` 的无效命令。
 - `smoke-plan` 和 final evidence remediation 的最终 `evidence --strict --require all` 命令在尚未选择 integration 时也会带 `CHANGE_ME_SLACK_INTEGRATION_ID`，确保 live artifact、health-check、outbox drain 和最终证据都指向同一个 Slack integration。
 - 真实 `agent-space integrations slack --help`、`smoke-plan --strict --require all --json` 和 `evidence --strict --require all --json` 入口现在按需加载 CLI 命令模块，不会为了 Slack setup/help/evidence 路径加载 `agent-space-daemon` runtime bundle；CLI 顶层 `--json` 异常 fallback 会把缺 DB 配置等基础阻断输出为结构化 `agent_space_cli.*` JSON，`apps/cli/src/commands/integrations.test.ts` 覆盖这些启动路径，避免 daemon bundle 的 Slack SDK 动态 require 或空 stdout 阻断验收命令。
+- Slack CLI `health-check` 的非 JSON text 输出现在使用专用摘要，展示 status、scope/socket 状态、checks、detail 和 nextStep，同时避免 raw Slack app/team/user id 出现在 text 摘要里。
 - Slack CLI `readiness` 的非 JSON text 输出现在使用专用摘要，显式展示每个 integration 的 message/worker readiness、bindings/outbox、blockers/warnings 和 next commands，避免嵌套对象渲染影响前置排障。
 - Slack CLI `evidence` / `smoke-plan` 的非 JSON text 输出现在使用专用摘要，显式展示 blockers、manualActions 和关键 next commands，避免通用对象渲染成 `[object Object]` 导致人工验收漏步骤。
 - Slack CLI `smoke-plan` 的 text 输出现在也列出 `create`、`bindChannel`、`bindUser`、dry smoke 和 webhook replay 命令，避免不使用 `--json` 时漏掉 setup / binding / replay 步骤。
