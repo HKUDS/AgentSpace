@@ -808,11 +808,11 @@ rawPayload = summarized payload or original safe subset
 - [x] 读取 channel binding：
   - [x] Slack channel id -> AgentSpace channel。
   - [x] 未绑定 channel -> 记录 ignored。
-  - [ ] 未绑定 channel -> queue setup notice。
+  - [x] 未绑定 channel -> queue setup notice。
 - [x] 读取 user binding：
   - [x] Slack user id -> AgentSpace user。
   - [x] 未绑定 user -> 记录 ignored。
-  - [ ] 未绑定 user -> queue identity notice。
+  - [x] 未绑定 user -> queue identity notice。
 - [x] 校验 channel write / runtime access / agent usage。
 - [x] 调 `sendChannelHumanMessageSync(...)`。
 - [x] 写 `external_message_mapping`。

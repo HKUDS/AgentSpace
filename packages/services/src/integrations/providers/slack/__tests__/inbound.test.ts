@@ -144,6 +144,17 @@ test("ignores Slack messages when the channel is not bound", () => {
       readUserBindingByExternalUser: () => {
         assert.fail("user binding lookup should not run when channel binding is missing");
       },
+      createNoticeOutbox: (input) => {
+        calls.push("create-setup-notice");
+        assert.equal(input.channelBindingId, undefined);
+        assert.equal(input.targetExternalChatId, "C123");
+        assert.equal(input.targetExternalThreadId, "1783400005.000100");
+        const metadata = input.metadataJson as Record<string, unknown>;
+        assert.equal(metadata.outboxSource, "inbound_setup_notice");
+        assert.equal(metadata.noticeType, "channel_binding_missing");
+        assert.doesNotMatch(JSON.stringify(metadata), /C123|U456|1783400005\.000100/);
+        return buildExternalMessageOutbox(input as Partial<ExternalMessageOutboxRecord>);
+      },
       updateEventStatus: (input) => {
         calls.push("mark-ignored");
         assert.equal(input.status, "ignored");
@@ -160,9 +171,17 @@ test("ignores Slack messages when the channel is not bound", () => {
   assert.equal(result.dispatchStatus, "ignored");
   assert.equal(result.reasonCode, "slack.channel_binding_missing");
   assert.equal(result.mapping, undefined);
+  assert.equal(result.noticeOutbox?.targetExternalChatId, "C123");
+  assert.equal(result.noticeOutbox?.targetExternalThreadId, "1783400005.000100");
   assert.equal(result.event.status, "ignored");
   assert.equal(result.message?.externalChatId, "C123");
-  assert.deepEqual(calls, ["record-event", "read-existing-mapping", "read-channel-binding", "mark-ignored"]);
+  assert.deepEqual(calls, [
+    "record-event",
+    "read-existing-mapping",
+    "read-channel-binding",
+    "create-setup-notice",
+    "mark-ignored",
+  ]);
 });
 
 test("ignores Slack messages when the sender is not bound", () => {
@@ -200,6 +219,17 @@ test("ignores Slack messages when the sender is not bound", () => {
         });
         return null;
       },
+      createNoticeOutbox: (input) => {
+        calls.push("create-identity-notice");
+        assert.equal(input.channelBindingId, "channel-binding-1");
+        assert.equal(input.targetExternalChatId, "C123");
+        assert.equal(input.targetExternalThreadId, "1783400006.000100");
+        const metadata = input.metadataJson as Record<string, unknown>;
+        assert.equal(metadata.outboxSource, "inbound_identity_notice");
+        assert.equal(metadata.noticeType, "user_binding_missing");
+        assert.doesNotMatch(JSON.stringify(metadata), /C123|U456|1783400006\.000100/);
+        return buildExternalMessageOutbox(input as Partial<ExternalMessageOutboxRecord>);
+      },
       updateEventStatus: (input) => {
         calls.push("mark-ignored");
         assert.equal(input.status, "ignored");
@@ -216,6 +246,9 @@ test("ignores Slack messages when the sender is not bound", () => {
   assert.equal(result.dispatchStatus, "ignored");
   assert.equal(result.reasonCode, "slack.user_binding_missing");
   assert.equal(result.mapping, undefined);
+  assert.equal(result.noticeOutbox?.channelBindingId, "channel-binding-1");
+  assert.equal(result.noticeOutbox?.targetExternalChatId, "C123");
+  assert.equal(result.noticeOutbox?.targetExternalThreadId, "1783400006.000100");
   assert.equal(result.event.status, "ignored");
   assert.equal(result.message?.externalSenderId, "U456");
   assert.deepEqual(calls, [
@@ -223,6 +256,7 @@ test("ignores Slack messages when the sender is not bound", () => {
     "read-existing-mapping",
     "read-channel-binding",
     "read-user-binding",
+    "create-identity-notice",
     "mark-ignored",
   ]);
 });

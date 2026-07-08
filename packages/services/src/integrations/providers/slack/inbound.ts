@@ -70,6 +70,8 @@ export interface ProcessSlackInboundEventInput {
 export interface SlackInboundPermissionNoticeOutboxInput {
   message: Pick<ExternalMessageEnvelope, "externalChatId" | "externalThreadId">;
   text: string;
+  outboxSource?: "inbound_permission_notice" | "inbound_setup_notice" | "inbound_identity_notice";
+  noticeType?: "permission_denied" | "channel_binding_missing" | "user_binding_missing";
 }
 
 export interface SlackInboundProcessDependencies {
@@ -280,6 +282,14 @@ function prepareSlackInboundDispatchSync(input: ProcessSlackInboundEventInput): 
     externalChatId: message.externalChatId,
   });
   if (!channelBinding || channelBinding.status !== "active") {
+    const noticeOutbox = queueSlackInboundNoticeSync({
+      context: input.context,
+      message,
+      text: "This Slack conversation is not connected to an AgentSpace channel yet. Ask an AgentSpace admin to map this Slack conversation before retrying.",
+      outboxSource: "inbound_setup_notice",
+      noticeType: "channel_binding_missing",
+      dependencies,
+    });
     return {
       ready: false,
       result: finishIgnored({
@@ -288,6 +298,7 @@ function prepareSlackInboundDispatchSync(input: ProcessSlackInboundEventInput): 
         event,
         message,
         reasonCode: "slack.channel_binding_missing",
+        noticeOutbox,
       }),
     };
   }
@@ -300,6 +311,15 @@ function prepareSlackInboundDispatchSync(input: ProcessSlackInboundEventInput): 
       })
     : null;
   if (!userBinding || userBinding.status !== "active") {
+    const noticeOutbox = queueSlackInboundNoticeSync({
+      context: input.context,
+      message,
+      channelBindingId: channelBinding.id,
+      text: "Your Slack identity is not linked to an AgentSpace user yet. Ask an AgentSpace admin to bind your Slack user before retrying.",
+      outboxSource: "inbound_identity_notice",
+      noticeType: "user_binding_missing",
+      dependencies,
+    });
     return {
       ready: false,
       result: finishIgnored({
@@ -308,6 +328,7 @@ function prepareSlackInboundDispatchSync(input: ProcessSlackInboundEventInput): 
         event,
         message,
         reasonCode: "slack.user_binding_missing",
+        noticeOutbox,
       }),
     };
   }
@@ -625,11 +646,15 @@ function queueSlackInboundNoticeSync(input: {
   message: ExternalMessageEnvelope;
   channelBindingId?: string;
   text: string;
+  outboxSource?: SlackInboundPermissionNoticeOutboxInput["outboxSource"];
+  noticeType?: SlackInboundPermissionNoticeOutboxInput["noticeType"];
   dependencies: Pick<ResolvedSlackInboundProcessDependencies, "createNoticeOutbox">;
 }): ExternalMessageOutboxRecord {
   const notice = buildSlackInboundPermissionNoticeOutbox({
     message: input.message,
     text: input.text,
+    outboxSource: input.outboxSource,
+    noticeType: input.noticeType,
   });
   return input.dependencies.createNoticeOutbox({
     workspaceId: input.context.workspaceId,
@@ -654,8 +679,8 @@ export function buildSlackInboundPermissionNoticeOutbox(input: SlackInboundPermi
     payload: outbound.payload,
     metadataJson: {
       provider: SLACK_PROVIDER_ID,
-      outboxSource: "inbound_permission_notice",
-      noticeType: "permission_denied",
+      outboxSource: input.outboxSource ?? "inbound_permission_notice",
+      noticeType: input.noticeType ?? "permission_denied",
       externalChatReference: buildSlackReference(input.message.externalChatId),
       externalThreadReference: input.message.externalThreadId
         ? buildSlackReference(input.message.externalThreadId)
