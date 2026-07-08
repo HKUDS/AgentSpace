@@ -29,7 +29,11 @@ vi.mock("@agent-space/db", () => ({
 }));
 
 vi.mock("@agent-space/services", () => ({
-  buildSlackReference: (value: string) => `ref_${value}`,
+  buildSlackReference: (value: string) => {
+    const first = value.charCodeAt(0).toString(16);
+    const last = value.charCodeAt(value.length - 1).toString(16);
+    return `ref_${value.length}_${first}_${last}`;
+  },
   SLACK_DEFAULT_SCOPES: ["app_mentions:read", "chat:write"],
   SLACK_EVENT_CALLBACK_PATH: "/api/integrations/slack/events",
   SLACK_INTERACTION_CALLBACK_PATH: "/api/integrations/slack/interactions",
@@ -105,8 +109,8 @@ describe("Slack settings data", () => {
         status: "ignored",
         errorMessage: "slack.channel_binding_missing",
         payloadJson: JSON.stringify({
-          channelRef: "ref_C999",
-          userRef: "ref_U999",
+          channelRef: expectedSlackReference("C999"),
+          userRef: expectedSlackReference("U999"),
         }),
         receivedAt: "2026-07-07T00:00:00.000Z",
         processedAt: "2026-07-07T00:00:01.000Z",
@@ -178,20 +182,36 @@ describe("Slack settings data", () => {
       userBindingCount: 2,
       outboxFailureCount: 1,
     });
-    expect(item?.channelBindings[0]?.externalChannelReference).toBe("ref_C111");
-    expect(item?.userBindings[0]?.externalUserReference).toBe("ref_U111");
+    expect(item?.channelBindings[0]?.externalChannelReference).toBe(
+      expectedSlackReference("C111"),
+    );
+    expect(item?.userBindings[0]?.externalUserReference).toBe(
+      expectedSlackReference("U111"),
+    );
     expect(item?.recentOutboxFailures[0]).toMatchObject({
-      targetExternalChannelReference: "ref_C111",
+      targetExternalChannelReference: expectedSlackReference("C111"),
       targetExternalChannelIdRedacted: true,
+      targetExternalThreadReference: expectedSlackReference("1783400000.000100"),
+      targetExternalThreadIdRedacted: true,
       lastError: "slack.outbound.missing_scope",
       status: "failed",
     });
-    expect(item?.recentInboundEvents[0]?.externalEventReference).toBe("ref_Ev111");
+    expect(item?.recentInboundEvents[0]?.externalEventReference).toBe(
+      expectedSlackReference("Ev111"),
+    );
     expect(item?.recentInboundEvents[0]?.bindingSuggestion).toEqual({
       kind: "channel",
-      externalChannelReference: "ref_C999",
+      externalChannelReference: expectedSlackReference("C999"),
       externalChannelIdRedacted: true,
     });
+    const serializedItem = JSON.stringify(item);
+    expect(serializedItem).not.toContain("C111");
+    expect(serializedItem).not.toContain("C999");
+    expect(serializedItem).not.toContain("U111");
+    expect(serializedItem).not.toContain("U222");
+    expect(serializedItem).not.toContain("U999");
+    expect(serializedItem).not.toContain("Ev111");
+    expect(serializedItem).not.toContain("1783400000.000100");
     expect(item?.setupGuide?.checks.map((check) => check.key)).toEqual([
       "credentials",
       "callback_or_socket",
@@ -232,6 +252,12 @@ describe("Slack settings data", () => {
     });
   });
 });
+
+function expectedSlackReference(value: string): string {
+  const first = value.charCodeAt(0).toString(16);
+  const last = value.charCodeAt(value.length - 1).toString(16);
+  return `ref_${value.length}_${first}_${last}`;
+}
 
 function buildIntegration() {
   return {
