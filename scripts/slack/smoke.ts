@@ -128,6 +128,8 @@ const REQUIRED_ENV = [
   "SLACK_SMOKE_CALLBACK_URL",
   "SLACK_SMOKE_CHANNEL_ID",
   "SLACK_SMOKE_USER_ID",
+  "SLACK_SMOKE_APP_ID",
+  "SLACK_SMOKE_TEAM_ID",
 ] as const;
 
 async function main(): Promise<void> {

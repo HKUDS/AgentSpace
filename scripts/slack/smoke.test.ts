@@ -119,6 +119,8 @@ test("Slack smoke dry-run rejects placeholder env without leaking ids", () => {
     assert.equal(output.ready, false);
     assert.ok(output.missingRequired.includes("SLACK_SMOKE_CHANNEL_ID"));
     assert.ok(output.missingRequired.includes("SLACK_SMOKE_USER_ID"));
+    assert.ok(output.missingRequired.includes("SLACK_SMOKE_APP_ID"));
+    assert.ok(output.missingRequired.includes("SLACK_SMOKE_TEAM_ID"));
     assert.doesNotMatch(result.stdout, /C123|U123|xoxb|xapp/);
   } finally {
     rmSync(directory, { recursive: true, force: true });
@@ -136,6 +138,8 @@ test("Slack smoke dry-run accepts filled non-secret env", () => {
       "SLACK_SMOKE_CALLBACK_URL=https://agentspace.test/api/integrations/slack/events",
       "SLACK_SMOKE_CHANNEL_ID=C123",
       "SLACK_SMOKE_USER_ID=U123",
+      "SLACK_SMOKE_APP_ID=A123",
+      "SLACK_SMOKE_TEAM_ID=T123",
     ].join("\n"));
 
     const result = spawnSync(process.execPath, [
@@ -183,6 +187,7 @@ test("Slack smoke dry-run accepts filled non-secret env", () => {
     ].map((command) => output.nextCommands.indexOf(command));
     assert.deepEqual(commandIndexes.every((index) => index >= 0), true);
     assert.deepEqual(commandIndexes, [...commandIndexes].sort((left, right) => left - right));
+    assert.doesNotMatch(result.stdout, /A123|T123|C123|U123|xoxb|xapp/);
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
@@ -200,6 +205,8 @@ test("Slack smoke dry-run refuses evidence artifact writes", () => {
       "SLACK_SMOKE_CALLBACK_URL=https://agentspace.test/api/integrations/slack/events",
       "SLACK_SMOKE_CHANNEL_ID=C123",
       "SLACK_SMOKE_USER_ID=U123",
+      "SLACK_SMOKE_APP_ID=A123",
+      "SLACK_SMOKE_TEAM_ID=T123",
     ].join("\n"));
 
     const result = spawnSync(process.execPath, [
