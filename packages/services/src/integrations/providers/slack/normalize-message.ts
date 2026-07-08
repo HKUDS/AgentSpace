@@ -150,7 +150,7 @@ function buildSlackInboundFileOnlyText(attachments: ExternalMessageAttachment[])
     .slice(0, 3);
   const label = attachments.length === 1 ? "file" : "files";
   const suffix = names.length > 0 ? `: ${names.join(", ")}` : "";
-  return `Shared ${attachments.length} Slack ${label}${suffix}. File contents have not been downloaded into AgentSpace yet.`;
+  return `Shared ${attachments.length} Slack ${label}${suffix}.`;
 }
 
 function decodeSlackEntities(value: string): string {

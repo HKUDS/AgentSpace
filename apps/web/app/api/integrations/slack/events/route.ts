@@ -7,6 +7,7 @@ import {
 import {
   SLACK_PROVIDER_ID,
   buildSlackUrlVerificationResponse,
+  createSlackInboundAttachmentDownloader,
   drainSlackOutboxMessages,
   isSlackUrlVerificationPayload,
   processSlackInboundEvent,
@@ -79,6 +80,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       },
       payload: requestPayload.payload,
       integration,
+      attachmentDownloader: createSlackInboundAttachmentDownloader({
+        workspaceId,
+        botToken: credentials.botToken,
+      }),
     });
   } catch (error) {
     return NextResponse.json(buildSlackWebhookErrorResponse({

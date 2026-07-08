@@ -5,6 +5,7 @@ import {
   type ExternalIntegrationRecord,
 } from "@agent-space/db";
 import type { IntegrationRuntimeContext } from "../../core/index.ts";
+import { createSlackInboundAttachmentDownloader } from "./attachments.ts";
 import { SLACK_PROVIDER_ID } from "./constants.ts";
 import { readSlackIntegrationCredentials, type SlackPlainCredentials } from "./credentials.ts";
 import {
@@ -382,6 +383,13 @@ export async function processSlackSocketModeEnvelope(input: {
       context: input.context,
       payload,
       integration: input.integration,
+      ...(input.dependencies?.processInboundEvent ? {} : {
+        attachmentDownloader: createSlackInboundAttachmentDownloader({
+          workspaceId: input.context.workspaceId,
+          botToken: readSlackIntegrationCredentials(input.integration).botToken,
+          baseUrl: input.baseUrl,
+        }),
+      }),
     });
     recordSlackSocketWorkerInboundMetrics(input.metrics, result);
     await drainSlackSocketWorkerOutbox(input);

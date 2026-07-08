@@ -242,6 +242,7 @@ test("builds Slack agent_view app manifests with normalized prompts and bot name
     "assistant:write",
     "channels:read",
     "chat:write",
+    "files:read",
     "files:write",
     "groups:read",
     "im:history",

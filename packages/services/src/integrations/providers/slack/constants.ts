@@ -22,8 +22,13 @@ export const SLACK_FILE_UPLOAD_SCOPES = [
   "files:write",
 ] as const;
 
+export const SLACK_FILE_DOWNLOAD_SCOPES = [
+  "files:read",
+] as const;
+
 export const SLACK_DEFAULT_SCOPES = [
   ...SLACK_BOT_MESSAGE_SCOPES,
+  ...SLACK_FILE_DOWNLOAD_SCOPES,
   ...SLACK_FILE_UPLOAD_SCOPES,
 ] as const;
 

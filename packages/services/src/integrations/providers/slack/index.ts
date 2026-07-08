@@ -13,6 +13,7 @@ export {
   SLACK_BOT_MESSAGE_SCOPES,
   SLACK_DEFAULT_SCOPES,
   SLACK_EVENT_CALLBACK_PATH,
+  SLACK_FILE_DOWNLOAD_SCOPES,
   SLACK_FILE_UPLOAD_SCOPES,
   SLACK_INTERACTION_CALLBACK_PATH,
   SLACK_OUTBOX_MAX_ATTEMPTS,
@@ -26,6 +27,16 @@ export {
   SLACK_SOCKET_MODE_SCOPES,
   SLACK_TEXT_MESSAGE_MAX_CHARS,
 } from "./constants.ts";
+export {
+  SLACK_INBOUND_ATTACHMENT_MAX_BYTES,
+  SLACK_INBOUND_ATTACHMENT_TIMEOUT_MS,
+  createSlackInboundAttachmentDownloader,
+  downloadSlackInboundMessageAttachment,
+  resolveSlackInboundAttachmentDescriptor,
+  type SlackInboundAttachmentDescriptor,
+  type SlackInboundAttachmentDownloadInput,
+  type SlackInboundAttachmentDownloader,
+} from "./attachments.ts";
 export {
   buildEncryptedSlackCredentials,
   readSlackIntegrationCredentials,

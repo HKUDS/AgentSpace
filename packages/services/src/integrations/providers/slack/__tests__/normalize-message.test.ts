@@ -107,7 +107,7 @@ test("normalizes Slack file metadata without exposing private URLs", () => {
   });
 
   assert.ok(message);
-  assert.equal(message.text, "Shared 1 Slack file: Roadmap.pdf. File contents have not been downloaded into AgentSpace yet.");
+  assert.equal(message.text, "Shared 1 Slack file: Roadmap.pdf.");
   assert.equal(message.attachments.length, 1);
   assert.match(message.attachments[0]?.id ?? "", /^ref_[a-f0-9]{8}$/);
   assert.equal(message.attachments[0]?.fileName, "Roadmap.pdf");
