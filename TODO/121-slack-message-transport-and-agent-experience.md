@@ -1170,6 +1170,7 @@ rawPayload = summarized payload or original safe subset
 - strict Slack approval evidence 现在也要求 `block_actions` 处理记录和已发送的 `agent_status_card` outbox 状态回写同时存在；只有回调处理成功但没有把审批结果成功回写 Slack thread 时，`--require approval/all` 会以 `slack_approval_status_outbox_evidence_missing` 阻断。
 - Slack `agent_status_card` outbox metadata 现在会保留安全 `approvalId` provenance；strict approval evidence 要求 processed `block_actions` 和 sent status-card outbox 指向同一个 approval，避免不同审批记录拼接满足 approval gate。
 - strict Slack native evidence 现在只把已发送的 app-home welcome / assistant suggested prompts outbox 计入 native proof；排队时创建的 app-home mapping、pending/locked/failed outbox 都不能单独证明 Slack 原生 agent 体验已经发出。
+- strict Slack files evidence 现在要求同一条 inbound mapping 同时具备 Slack file metadata 和 stored attachment proof；不同历史 mapping 里的“看见文件”和“已存储附件”不能拼接满足 files gate，缺失时会返回 `slack_file_attachment_storage_correlation_missing`。
 - Slack agent route guard 拒绝时的 inbound thread notice 现在会保留安全 `reasonCode`；`slack.agent_runtime_unavailable` 会被写入 ignored mapping、event error 和 notice metadata，证明 runtime 不可用不是静默失败且不泄露原始 Slack chat/user/thread id。
 - Slack inbound 传给 AgentSpace message 的 `externalInput.actor.externalActorReference` 现在使用 `ref_...` 脱敏引用，不再使用 `slack:<raw user id>`，避免 raw Slack user id 进入 workspace message / agent context。
 - daemon task prompt 现在有 Slack 专项回归：`externalInput` 中的 raw Slack event id、message ts、channel id 和 actor user id 都不会进入 agent prompt，只会以 `ref_...` 安全引用或已脱敏 `externalContext` 摘要出现。

@@ -115,6 +115,7 @@ export interface SlackEvidenceIntegrationItem {
     inboundFileMetadataEvents: number;
     inboundFileMetadataMappings: number;
     storedAttachmentEvidence: number;
+    storedInboundFileMappings: number;
     outboundUploadEvidence: number;
     unsafeFileMetadataRows: number;
   };
@@ -683,6 +684,11 @@ function buildFileEvidence(
   const storedAttachmentEvidence = mappings.filter((mapping) =>
     hasSlackStoredAttachmentEvidence(mapping.metadataJson)
   ).length;
+  const storedInboundFileMappings = mappings.filter((mapping) =>
+    mapping.direction === "inbound" &&
+    hasSlackFileMetadataEvidence(mapping.metadataJson) &&
+    hasSlackStoredAttachmentEvidence(mapping.metadataJson)
+  ).length;
   const outboundUploadEvidence = outbox.filter((item) =>
     item.status === "sent" &&
     (hasSlackOutboundFileUploadEvidence(item.metadataJson) || hasSlackOutboundFileUploadEvidence(item.payloadJson))
@@ -695,12 +701,13 @@ function buildFileEvidence(
   return {
     satisfied: inboundFileMetadataEvents > 0 &&
       inboundFileMetadataMappings > 0 &&
-      storedAttachmentEvidence > 0 &&
+      storedInboundFileMappings > 0 &&
       outboundUploadEvidence > 0 &&
       unsafeFileMetadataRows === 0,
     inboundFileMetadataEvents,
     inboundFileMetadataMappings,
     storedAttachmentEvidence,
+    storedInboundFileMappings,
     outboundUploadEvidence,
     unsafeFileMetadataRows,
   };
@@ -794,6 +801,9 @@ function buildSlackFileEvidenceBlockers(files: SlackEvidenceIntegrationItem["fil
   }
   if (files.storedAttachmentEvidence === 0) {
     blockers.push("slack_file_attachment_storage_evidence_missing");
+  }
+  if (files.storedAttachmentEvidence > 0 && files.storedInboundFileMappings === 0) {
+    blockers.push("slack_file_attachment_storage_correlation_missing");
   }
   if (files.outboundUploadEvidence === 0) {
     blockers.push("slack_outbound_file_upload_evidence_missing");

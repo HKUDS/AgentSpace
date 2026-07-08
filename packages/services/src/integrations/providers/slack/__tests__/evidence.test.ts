@@ -729,6 +729,95 @@ test("Slack evidence files gate stays blocked until file storage and upload proo
   assert.ok(report.integrations[0]?.blockers.includes("slack_outbound_file_upload_evidence_missing"));
 });
 
+test("Slack evidence files gate requires stored attachment proof on the inbound file mapping", () => {
+  const report = buildSlackEvidenceReport({
+    workspaceId: "workspace-1",
+    strict: true,
+    required: "files",
+    dependencies: {
+      listIntegrations: () => [makeIntegration()],
+      listChannelBindings: () => [makeChannelBinding()],
+      listUserBindings: () => [makeUserBinding()],
+      listEvents: () => [
+        makeEvent({
+          eventType: "event_callback.message",
+          status: "processed",
+          payloadJson: {
+            hasFiles: true,
+            fileCount: 1,
+            files: [{
+              fileRef: "ref_safefile",
+              displayName: "roadmap.pdf",
+              privateUrlRedacted: true,
+            }],
+          },
+        }),
+      ],
+      listMessageMappings: () => [
+        makeMapping({
+          direction: "inbound",
+          metadataJson: {
+            provider: "slack",
+            agentId: "Atlas",
+            taskAgentId: "Atlas",
+            taskQueueId: "task-safe-1",
+            slackFileCount: 1,
+            slackFiles: [{
+              fileRef: "ref_safefile",
+              downloadStatus: "not_downloaded",
+            }],
+          },
+        }),
+        makeMapping({
+          id: "mapping-stored-other",
+          direction: "inbound",
+          externalMessageId: "1783400009.000100",
+          metadataJson: {
+            provider: "slack",
+            slackFileDownloadStatus: "stored_attachment",
+          },
+        }),
+        makeMapping({
+          direction: "outbound",
+          externalMessageId: "1783400002.000100",
+          externalThreadId: "1783400000.000100",
+          metadataJson: {
+            provider: "slack",
+            outboxSource: "agent_reply",
+            externalChatReference: "ref_safechat",
+          },
+        }),
+      ],
+      listOutbox: () => [
+        makeOutbox({
+          status: "sent",
+          metadataJson: {
+            provider: "slack",
+            outboxSource: "agent_reply",
+          },
+        }),
+        makeOutbox({
+          status: "sent",
+          metadataJson: {
+            provider: "slack",
+            outboxSource: "slack_file_upload",
+            slackUploadFlow: "external_upload",
+          },
+        }),
+      ],
+    },
+  });
+
+  assert.equal(report.strictSatisfied, false);
+  assert.equal(report.integrations[0]?.files.inboundFileMetadataMappings, 1);
+  assert.equal(report.integrations[0]?.files.storedAttachmentEvidence, 1);
+  assert.equal(report.integrations[0]?.files.storedInboundFileMappings, 0);
+  assert.equal(report.integrations[0]?.files.outboundUploadEvidence, 1);
+  assert.ok(report.integrations[0]?.blockers.includes("slack_file_attachment_storage_correlation_missing"));
+  assert.equal(report.integrations[0]?.blockers.includes("slack_file_attachment_storage_evidence_missing"), false);
+  assert.doesNotMatch(JSON.stringify(report), /1783400009|1783400000/);
+});
+
 test("Slack evidence files gate flags unsafe raw Slack file metadata", () => {
   const report = buildSlackEvidenceReport({
     workspaceId: "workspace-1",
