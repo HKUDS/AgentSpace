@@ -215,6 +215,7 @@ test("builds Slack smoke plan and env template without raw external ids", () => 
   assert.equal(plan.commands.healthCheck, "agent-space integrations slack health-check --workspace-id workspace-1 --integration slack-1 --json");
   assert.equal(plan.commands.readiness, "agent-space integrations slack readiness --workspace-id workspace-1 --integration slack-1 --strict --json");
   assert.equal(plan.commands.smokeEnv, "agent-space integrations slack smoke-env --workspace-id workspace-1 --integration slack-1 --app-url https://agentspace.test");
+  assert.equal(plan.commands.workerDryRun, "agent-space integrations slack worker --workspace-id workspace-1 --integration slack-1 --dry-run --json");
   assert.match(plan.commands.webhookReplay, /--replay-webhook/);
   assert.match(plan.commands.livePostMessage, /--live --evidence runtime-output\/slack-smoke\/live\.json/);
   assert.match(plan.commands.liveAppMention, /SLACK_SMOKE_LIVE_MODE=app_mention/);
@@ -291,12 +292,14 @@ test("Slack smoke plan setup commands use workspace and integration placeholders
   assert.equal(plan.commands.healthCheck, "agent-space integrations slack health-check --workspace-id workspace-2 --integration CHANGE_ME_SLACK_INTEGRATION_ID --json");
   assert.equal(plan.commands.readiness, "agent-space integrations slack readiness --workspace-id workspace-2 --integration CHANGE_ME_SLACK_INTEGRATION_ID --strict --json");
   assert.equal(plan.commands.smokeEnv, "agent-space integrations slack smoke-env --workspace-id workspace-2 --integration CHANGE_ME_SLACK_INTEGRATION_ID --app-url https://agentspace.example.com");
+  assert.equal(plan.commands.workerDryRun, "agent-space integrations slack worker --workspace-id workspace-2 --integration CHANGE_ME_SLACK_INTEGRATION_ID --dry-run --json");
   assert.equal(plan.commands.bindChannel, "agent-space integrations slack bind-channel --workspace-id workspace-2 --integration CHANGE_ME_SLACK_INTEGRATION_ID --channel CHANGE_ME_AGENTSPACE_CHANNEL --slack-channel CHANGE_ME_SLACK_CHANNEL_ID --json");
   assert.equal(plan.commands.bindUser, "agent-space integrations slack bind-user --workspace-id workspace-2 --integration CHANGE_ME_SLACK_INTEGRATION_ID --user-id CHANGE_ME_AGENTSPACE_USER_ID --slack-user CHANGE_ME_SLACK_USER_ID --json");
   assert.equal(plan.commands.drainOutbox, "agent-space integrations slack outbox drain --workspace-id workspace-2 --integration CHANGE_ME_SLACK_INTEGRATION_ID --json");
   assert.equal(plan.commands.finalEvidence, "agent-space integrations slack evidence --workspace-id workspace-2 --integration CHANGE_ME_SLACK_INTEGRATION_ID --live-smoke-evidence runtime-output/slack-smoke/live.json --strict --require all --json");
   assert.equal(plan.checklist.find((item) => item.id === "health_check")?.detail, plan.commands.healthCheck);
   assert.equal(plan.checklist.find((item) => item.id === "drain_outbox_reply")?.detail, plan.commands.drainOutbox);
+  assert.equal(plan.checklist.find((item) => item.id === "worker")?.detail, plan.commands.workerDryRun);
   assert.equal(plan.checklist.find((item) => item.id === "final_evidence")?.detail, plan.commands.finalEvidence);
 });
 
