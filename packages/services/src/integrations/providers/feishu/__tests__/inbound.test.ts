@@ -566,6 +566,17 @@ test("reply-with-setup-card first message policy sends setup card without creati
   assert.equal(metadata.botBindingId, fixtures.integration.id);
   assert.doesNotMatch(mapping.metadataJson, /oc_setup_card|om-setup-card-root|ou_mina|on_mina/);
 
+  const noticeMetadata = JSON.parse(result.noticeOutbox.metadataJson) as Record<string, unknown>;
+  assert.equal(noticeMetadata.provider, "feishu");
+  assert.equal(noticeMetadata.outboxSource, "inbound_setup_notice");
+  assert.equal(noticeMetadata.noticeType, "channel_setup_required");
+  assert.equal(noticeMetadata.noticeSource, "first_message_policy");
+  assert.equal(noticeMetadata.reasonCode, "feishu_channel_setup_card_required");
+  assert.equal(noticeMetadata.agentId, "Atlas");
+  assert.match(String(noticeMetadata.externalChatReference), /^[a-f0-9]{16}$/);
+  assert.match(String(noticeMetadata.externalThreadReference), /^[a-f0-9]{16}$/);
+  assert.doesNotMatch(result.noticeOutbox.metadataJson, /oc_setup_card|om-setup-card-root|ou_mina|on_mina/);
+
   const noticePayload = JSON.parse(result.noticeOutbox.payloadJson) as {
     msg_type?: string;
     reply_to_message_id?: string;
@@ -1935,6 +1946,14 @@ test("unbound Feishu users are ignored and queued for a binding notice", databas
     reply_to_message_id?: string;
     content?: string;
   };
+  const noticeMetadata = JSON.parse(result.noticeOutbox.metadataJson) as Record<string, unknown>;
+  assert.equal(noticeMetadata.provider, "feishu");
+  assert.equal(noticeMetadata.outboxSource, "inbound_identity_notice");
+  assert.equal(noticeMetadata.noticeType, "user_binding_missing");
+  assert.equal(noticeMetadata.reasonCode, "external_user_unbound");
+  assert.match(String(noticeMetadata.externalChatReference), /^[a-f0-9]{16}$/);
+  assert.match(String(noticeMetadata.externalThreadReference), /^[a-f0-9]{16}$/);
+  assert.doesNotMatch(result.noticeOutbox.metadataJson, /oc_general|ou_mina|on_mina|om-unbound-user/);
   assert.equal(noticePayload.reply_to_message_id, "om-unbound-user");
   const noticeContent = JSON.parse(String(noticePayload.content)) as { text?: string };
   assert.match(noticeContent.text ?? "", /还没有绑定 AgentSpace 账号/);
@@ -2012,6 +2031,14 @@ test("unbound Feishu channels are ignored and queued for an admin binding notice
   assert.equal(metadata.mappedChannelName, undefined);
 
   const noticePayload = JSON.parse(result.noticeOutbox.payloadJson) as { content?: string };
+  const noticeMetadata = JSON.parse(result.noticeOutbox.metadataJson) as Record<string, unknown>;
+  assert.equal(noticeMetadata.provider, "feishu");
+  assert.equal(noticeMetadata.outboxSource, "inbound_setup_notice");
+  assert.equal(noticeMetadata.noticeType, "channel_binding_missing");
+  assert.equal(noticeMetadata.reasonCode, "external_channel_unbound");
+  assert.match(String(noticeMetadata.externalChatReference), /^[a-f0-9]{16}$/);
+  assert.match(String(noticeMetadata.externalThreadReference), /^[a-f0-9]{16}$/);
+  assert.doesNotMatch(result.noticeOutbox.metadataJson, /oc_general|ou_mina|on_mina|om-unbound-channel/);
   const noticeContent = JSON.parse(String(noticePayload.content)) as { text?: string };
   assert.match(noticeContent.text ?? "", /还没有绑定到 AgentSpace channel/);
   assert.doesNotMatch(noticeContent.text ?? "", /https?:\/\//);
@@ -2055,6 +2082,14 @@ test("bound Feishu users without channel access are ignored and queued for a den
   assert.equal(metadata.userId, fixtures.user.id);
 
   const noticePayload = JSON.parse(result.noticeOutbox.payloadJson) as { content?: string };
+  const noticeMetadata = JSON.parse(result.noticeOutbox.metadataJson) as Record<string, unknown>;
+  assert.equal(noticeMetadata.provider, "feishu");
+  assert.equal(noticeMetadata.outboxSource, "inbound_permission_notice");
+  assert.equal(noticeMetadata.noticeType, "permission_denied");
+  assert.equal(noticeMetadata.reasonCode, "external_channel_access_denied");
+  assert.match(String(noticeMetadata.externalChatReference), /^[a-f0-9]{16}$/);
+  assert.match(String(noticeMetadata.externalThreadReference), /^[a-f0-9]{16}$/);
+  assert.doesNotMatch(result.noticeOutbox.metadataJson, /oc_general|ou_mina|on_mina|om-channel-denied/);
   const noticeContent = JSON.parse(String(noticePayload.content)) as { text?: string };
   assert.match(noticeContent.text ?? "", /没有这个 AgentSpace channel 的访问权限/);
 });

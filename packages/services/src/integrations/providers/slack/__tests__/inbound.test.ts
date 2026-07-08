@@ -41,6 +41,7 @@ test("builds Slack permission denial notices for the original thread with safe m
   assert.equal(notice.metadataJson.provider, "slack");
   assert.equal(notice.metadataJson.outboxSource, "inbound_permission_notice");
   assert.equal(notice.metadataJson.noticeType, "permission_denied");
+  assert.equal(notice.metadataJson.reasonCode, undefined);
   assert.match(String(notice.metadataJson.externalChatReference), /^ref_[a-f0-9]{8}$/);
   assert.match(String(notice.metadataJson.externalThreadReference), /^ref_[a-f0-9]{8}$/);
   assert.doesNotMatch(JSON.stringify(notice.metadataJson), /C_SHARED_SECRET|1783400003\.000100/);
@@ -153,6 +154,7 @@ test("ignores Slack messages when the channel is not bound", () => {
         const metadata = input.metadataJson as Record<string, unknown>;
         assert.equal(metadata.outboxSource, "inbound_setup_notice");
         assert.equal(metadata.noticeType, "channel_binding_missing");
+        assert.equal(metadata.reasonCode, "slack.channel_binding_missing");
         assert.doesNotMatch(JSON.stringify(metadata), /C123|U456|1783400005\.000100/);
         return buildExternalMessageOutbox(input as Partial<ExternalMessageOutboxRecord>);
       },
@@ -228,6 +230,7 @@ test("ignores Slack messages when the sender is not bound", () => {
         const metadata = input.metadataJson as Record<string, unknown>;
         assert.equal(metadata.outboxSource, "inbound_identity_notice");
         assert.equal(metadata.noticeType, "user_binding_missing");
+        assert.equal(metadata.reasonCode, "slack.user_binding_missing");
         assert.doesNotMatch(JSON.stringify(metadata), /C123|U456|1783400006\.000100/);
         return buildExternalMessageOutbox(input as Partial<ExternalMessageOutboxRecord>);
       },

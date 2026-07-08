@@ -26,6 +26,10 @@ export {
   recordExternalDataOperationStartSync,
 } from "./data-operations.ts";
 export {
+  buildExternalNoticeMetadata,
+  type ExternalNoticeMetadataInput,
+} from "./notices.ts";
+export {
   enqueueExternalOutboundMessageSync,
   listDueExternalOutboundMessagesSync,
 } from "./outbox.ts";

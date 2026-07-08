@@ -21,6 +21,7 @@ import {
 import type { ChannelRecord, MessageAttachment } from "@agent-space/domain/workspace";
 import {
   buildExternalIdHash,
+  buildExternalNoticeMetadata,
   type ExternalMessageEnvelope,
   type IntegrationRuntimeContext,
 } from "../../core/index.ts";
@@ -374,6 +375,9 @@ function prepareFeishuInboundDispatchSync(input: ProcessFeishuInboundEventInput)
           context: input.context,
           message,
           text: buildFeishuChannelBindingNotice({ workspaceId: input.context.workspaceId }),
+          outboxSource: "inbound_setup_notice",
+          noticeType: "channel_binding_missing",
+          reasonCode,
         });
     return {
       ready: false,
@@ -415,6 +419,10 @@ function prepareFeishuInboundDispatchSync(input: ProcessFeishuInboundEventInput)
           workspaceId: input.context.workspaceId,
           reviewStatus: channelReviewStatus,
         }),
+        outboxSource: "inbound_setup_notice",
+        noticeType: "channel_review_required",
+        noticeSource: channelReviewStatus,
+        reasonCode,
       }));
     return {
       ready: false,
@@ -642,6 +650,9 @@ function prepareFeishuInboundDispatchSync(input: ProcessFeishuInboundEventInput)
           message,
           channelBindingId: channelBinding.id,
           text: buildFeishuUserBindingNotice({ workspaceId: input.context.workspaceId }),
+          outboxSource: "inbound_identity_notice",
+          noticeType: "user_binding_missing",
+          reasonCode: blockedReasonCode,
         });
     return {
       ready: false,
@@ -686,6 +697,9 @@ function prepareFeishuInboundDispatchSync(input: ProcessFeishuInboundEventInput)
         message,
         channelBindingId: channelBinding.id,
         text: "你已绑定 AgentSpace 账号，但没有这个 AgentSpace channel 的访问权限。请先在 AgentSpace 申请或让管理员添加频道权限。",
+        outboxSource: "inbound_permission_notice",
+        noticeType: "permission_denied",
+        reasonCode: "external_channel_access_denied",
       });
     return {
       ready: false,
@@ -1834,6 +1848,10 @@ function queueFeishuInboundNoticeSync(input: {
   message: ExternalMessageEnvelope;
   channelBindingId?: string;
   text: string;
+  outboxSource?: string;
+  noticeType: string;
+  noticeSource?: string;
+  reasonCode?: string;
 }): ExternalMessageOutboxRecord {
   const outbound = buildFeishuTextOutboundMessage({
     targetExternalChatId: input.message.externalChatId,
@@ -1847,6 +1865,16 @@ function queueFeishuInboundNoticeSync(input: {
     targetExternalChatId: outbound.targetExternalChatId,
     targetExternalThreadId: outbound.targetExternalThreadId,
     payloadJson: outbound.payload,
+    metadataJson: buildExternalNoticeMetadata({
+      provider: FEISHU_PROVIDER_ID,
+      outboxSource: input.outboxSource,
+      noticeType: input.noticeType,
+      noticeSource: input.noticeSource,
+      reasonCode: input.reasonCode,
+      externalChatId: input.message.externalChatId,
+      externalThreadId: outbound.targetExternalThreadId,
+      buildExternalReference: shortHash,
+    }),
   });
 }
 
@@ -1872,20 +1900,21 @@ function queueFeishuIdentityBindingRequiredCardOutboxSync(input: {
     targetExternalChatId: outbound.targetExternalChatId,
     targetExternalThreadId: outbound.targetExternalThreadId,
     payloadJson: outbound.payload,
-    metadataJson: {
+    metadataJson: buildExternalNoticeMetadata({
       provider: FEISHU_PROVIDER_ID,
       noticeType: "identity_binding_required",
       noticeSource: "external_guest_policy",
       reasonCode: "feishu_external_guest_identity_required",
-      actorType: "external_guest",
-      workspaceMemberCreated: false,
-      agentId: input.agentId,
-      botBindingId: input.context.integrationId,
-      externalChatReference: shortHash(input.message.externalChatId),
-      externalThreadReference: outbound.targetExternalThreadId
-        ? shortHash(outbound.targetExternalThreadId)
-        : undefined,
-    },
+      externalChatId: input.message.externalChatId,
+      externalThreadId: outbound.targetExternalThreadId,
+      buildExternalReference: shortHash,
+      extra: {
+        actorType: "external_guest",
+        workspaceMemberCreated: false,
+        agentId: input.agentId,
+        botBindingId: input.context.integrationId,
+      },
+    }),
   });
 }
 

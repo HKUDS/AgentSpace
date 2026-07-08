@@ -331,6 +331,7 @@ test("Slack inbound ignores channel permission denial with a thread notice", dat
   const outboxMetadata = JSON.parse(outbox[0]?.metadataJson ?? "{}") as Record<string, unknown>;
   assert.equal(outboxMetadata.outboxSource, "inbound_permission_notice");
   assert.equal(outboxMetadata.noticeType, "permission_denied");
+  assert.equal(outboxMetadata.reasonCode, "slack.channel_access_denied");
   assert.equal(JSON.stringify(outboxMetadata).includes("C_SHARED"), false);
   assert.equal(JSON.stringify(outboxMetadata).includes("URAVI"), false);
 });

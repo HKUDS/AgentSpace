@@ -1016,7 +1016,7 @@ rawPayload = summarized payload or original safe subset
 做完 Slack MVP 后再清理，避免预先抽象过度。
 
 - [ ] 抽出 common external inbound dispatcher。
-- [ ] 抽出 common setup notice / identity notice。
+- [x] 抽出 common setup notice / identity notice。
 - [ ] 抽出 common integration settings cards。
 - [ ] 抽出 common health/outbox panel。
 - [x] 抽出 common redacted external id reference。
@@ -1032,11 +1032,15 @@ rawPayload = summarized payload or original safe subset
 - Slack Socket Mode worker 复用 common metrics shape，并只扩展 Slack-specific `ackCount` / `ackFailedCount`。
 - Feishu WebSocket worker 复用 common metrics shape，并只扩展 Feishu-specific `noticeOutboxCount`。
 - `packages/services/src/integrations/core/worker-metrics.test.ts`、Slack socket-worker test、Feishu websocket-worker test 覆盖 common metrics 初始化和 outbox failure 记录。
+- `packages/services/src/integrations/core/notices.ts` 提供 provider-neutral `buildExternalNoticeMetadata(...)`，统一写入 provider、outboxSource / noticeSource、noticeType、reasonCode 和安全化 external chat/thread reference。
+- Slack inbound setup / identity / permission notices 复用 common notice metadata helper，并保留 `ref_<8 hex>` 引用格式。
+- Feishu inbound setup card、plain setup / identity / permission notices、external guest identity card 复用 common notice metadata helper，并保留 `<16 hex>` 引用格式。
+- `packages/services/src/integrations/core/notices.test.ts`、Slack inbound tests、Feishu inbound tests 覆盖 notice metadata 类型、reasonCode 和 raw external id 不落 metadata。
 
 验收：
 
 - [ ] Feishu 功能不回退。
-- [ ] Slack 和 Feishu 共用明确 helper，而不是复制大块逻辑。
+- [x] Slack 和 Feishu 共用明确 helper，而不是复制大块逻辑。
 - [ ] 新 provider 接入需要改的文件数明显减少。
 
 ## 测试计划

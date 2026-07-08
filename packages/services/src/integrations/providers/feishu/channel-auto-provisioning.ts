@@ -10,6 +10,7 @@ import {
 import { addChannelEmployeesSync, createChannelSync } from "../../../channels/channels.ts";
 import { readWorkspaceStateSync } from "../../../shared/state-io.ts";
 import { sameValue, slugify } from "../../../shared/helpers.ts";
+import { buildExternalNoticeMetadata } from "../../core/index.ts";
 import { FEISHU_PROVIDER_ID } from "./constants.ts";
 import { asRecord, asString } from "./events.ts";
 import { buildFeishuInteractiveCardOutboundMessage } from "./outbound.ts";
@@ -283,6 +284,19 @@ export function queueFeishuChannelSetupCardOutboxSync(input: {
     targetExternalChatId: outbound.targetExternalChatId,
     targetExternalThreadId: outbound.targetExternalThreadId,
     payloadJson: outbound.payload,
+    metadataJson: buildExternalNoticeMetadata({
+      provider: FEISHU_PROVIDER_ID,
+      outboxSource: "inbound_setup_notice",
+      noticeType: "channel_setup_required",
+      noticeSource: "first_message_policy",
+      reasonCode: "feishu_channel_setup_card_required",
+      externalChatId: input.targetExternalChatId,
+      externalThreadId: outbound.targetExternalThreadId,
+      buildExternalReference: shortHash,
+      extra: {
+        agentId: input.agentId,
+      },
+    }),
   });
 }
 

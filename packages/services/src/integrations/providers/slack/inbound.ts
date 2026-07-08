@@ -17,7 +17,11 @@ import {
   type QueuedTaskRecord,
 } from "@agent-space/db";
 import type { AgentSpaceState, MessageAttachment, WorkspaceMessage } from "@agent-space/domain/workspace";
-import type { ExternalMessageEnvelope, IntegrationRuntimeContext } from "../../core/index.ts";
+import {
+  buildExternalNoticeMetadata,
+  type ExternalMessageEnvelope,
+  type IntegrationRuntimeContext,
+} from "../../core/index.ts";
 import { canWriteChannelForActorSync } from "../../../channel-access/channel-access.ts";
 import { sendChannelHumanMessageSync } from "../../../messages/messages.ts";
 import {
@@ -34,7 +38,6 @@ import {
   resolveSlackEventReceivedAt,
   resolveSlackEventType,
   resolveSlackAppHomeOpenedMessagesTabEvent,
-  buildSlackReference,
   summarizeSlackAgentContextPayload,
   summarizeSlackInboundEventPayload,
 } from "./events.ts";
@@ -72,6 +75,7 @@ export interface SlackInboundPermissionNoticeOutboxInput {
   text: string;
   outboxSource?: "inbound_permission_notice" | "inbound_setup_notice" | "inbound_identity_notice";
   noticeType?: "permission_denied" | "channel_binding_missing" | "user_binding_missing";
+  reasonCode?: string;
 }
 
 export interface SlackInboundProcessDependencies {
@@ -294,6 +298,7 @@ function prepareSlackInboundDispatchSync(input: ProcessSlackInboundEventInput): 
       text: "This Slack conversation is not connected to an AgentSpace channel yet. Ask an AgentSpace admin to map this Slack conversation before retrying.",
       outboxSource: "inbound_setup_notice",
       noticeType: "channel_binding_missing",
+      reasonCode: "slack.channel_binding_missing",
       dependencies,
     });
     return {
@@ -324,6 +329,7 @@ function prepareSlackInboundDispatchSync(input: ProcessSlackInboundEventInput): 
       text: "Your Slack identity is not linked to an AgentSpace user yet. Ask an AgentSpace admin to bind your Slack user before retrying.",
       outboxSource: "inbound_identity_notice",
       noticeType: "user_binding_missing",
+      reasonCode: "slack.user_binding_missing",
       dependencies,
     });
     return {
@@ -372,6 +378,7 @@ function prepareSlackInboundDispatchSync(input: ProcessSlackInboundEventInput): 
       message,
       channelBindingId: channelBinding.id,
       text: "Your Slack identity is linked, but your AgentSpace account cannot access this channel. Ask an AgentSpace admin to add you to the channel before retrying.",
+      reasonCode: "slack.channel_access_denied",
       dependencies,
     });
     return {
@@ -654,6 +661,7 @@ function queueSlackInboundNoticeSync(input: {
   text: string;
   outboxSource?: SlackInboundPermissionNoticeOutboxInput["outboxSource"];
   noticeType?: SlackInboundPermissionNoticeOutboxInput["noticeType"];
+  reasonCode?: SlackInboundPermissionNoticeOutboxInput["reasonCode"];
   dependencies: Pick<ResolvedSlackInboundProcessDependencies, "createNoticeOutbox">;
 }): ExternalMessageOutboxRecord {
   const notice = buildSlackInboundPermissionNoticeOutbox({
@@ -661,6 +669,7 @@ function queueSlackInboundNoticeSync(input: {
     text: input.text,
     outboxSource: input.outboxSource,
     noticeType: input.noticeType,
+    reasonCode: input.reasonCode,
   });
   return input.dependencies.createNoticeOutbox({
     workspaceId: input.context.workspaceId,
@@ -683,15 +692,14 @@ export function buildSlackInboundPermissionNoticeOutbox(input: SlackInboundPermi
     targetExternalChatId: outbound.targetExternalChatId,
     targetExternalThreadId: outbound.targetExternalThreadId,
     payload: outbound.payload,
-    metadataJson: {
+    metadataJson: buildExternalNoticeMetadata({
       provider: SLACK_PROVIDER_ID,
       outboxSource: input.outboxSource ?? "inbound_permission_notice",
       noticeType: input.noticeType ?? "permission_denied",
-      externalChatReference: buildSlackReference(input.message.externalChatId),
-      externalThreadReference: input.message.externalThreadId
-        ? buildSlackReference(input.message.externalThreadId)
-        : undefined,
-    },
+      reasonCode: input.reasonCode,
+      externalChatId: input.message.externalChatId,
+      externalThreadId: input.message.externalThreadId,
+    }),
   };
 }
 
