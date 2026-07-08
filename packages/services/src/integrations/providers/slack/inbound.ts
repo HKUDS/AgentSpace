@@ -19,6 +19,7 @@ import {
   resolveSlackEventId,
   resolveSlackEventReceivedAt,
   resolveSlackEventType,
+  resolveSlackAppHomeOpenedMessagesTabEvent,
   summarizeSlackAgentContextPayload,
   summarizeSlackInboundEventPayload,
 } from "./events.ts";
@@ -26,6 +27,7 @@ import {
   ensureSlackAgentMentionText,
   normalizeSlackInboundMessage,
 } from "./normalize-message.ts";
+import { queueSlackAppHomeOpenedWelcomeOutboxSync } from "./outbound.ts";
 
 export interface SlackInboundProcessResult {
   event: ExternalIntegrationEventRecord;
@@ -60,6 +62,34 @@ export function processSlackInboundEventSync(input: ProcessSlackInboundEventInpu
       event,
       message: null,
       reasonCode: "slack.agent_context_changed",
+    });
+  }
+  const appHomeOpened = resolveSlackAppHomeOpenedMessagesTabEvent(input.payload);
+  if (appHomeOpened) {
+    const agentContext = summarizeSlackAgentContextPayload(input.payload);
+    if (!input.integration) {
+      return finishIgnored({
+        context: input.context,
+        event,
+        message: null,
+        reasonCode: "slack.app_home_opened_integration_missing",
+      });
+    }
+    const welcomeResult = queueSlackAppHomeOpenedWelcomeOutboxSync({
+      workspaceId: input.context.workspaceId,
+      integration: input.integration,
+      externalChatId: appHomeOpened.externalChatId,
+      externalUserId: appHomeOpened.externalUserId,
+      externalEventId,
+      agentContext,
+    });
+    return finishIgnored({
+      context: input.context,
+      event,
+      message: null,
+      reasonCode: welcomeResult.status === "queued"
+        ? "slack.app_home_opened_welcome_queued"
+        : welcomeResult.reasonCode,
     });
   }
   const botUserId = readSlackBotUserId(input.integration?.configJson);

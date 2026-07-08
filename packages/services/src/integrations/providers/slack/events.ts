@@ -33,6 +33,12 @@ export interface SlackAgentContextSummary {
   entities: SlackAgentContextEntitySummary[];
 }
 
+export interface SlackAppHomeOpenedMessagesTabEvent {
+  externalChatId: string;
+  externalUserId: string;
+  tab: "messages";
+}
+
 export type SlackCallbackContextValidationResult =
   | {
     ok: true;
@@ -171,6 +177,20 @@ export function isSlackAgentContextChangedEvent(payload: Record<string, unknown>
   return asString(event?.type) === "app_context_changed";
 }
 
+export function resolveSlackAppHomeOpenedMessagesTabEvent(
+  payload: Record<string, unknown>,
+): SlackAppHomeOpenedMessagesTabEvent | undefined {
+  const event = asRecord(payload.event);
+  if (asString(event?.type) !== "app_home_opened" || asString(event?.tab) !== "messages") {
+    return undefined;
+  }
+  const externalChatId = asString(event?.channel);
+  const externalUserId = asString(event?.user);
+  return externalChatId && externalUserId
+    ? { externalChatId, externalUserId, tab: "messages" }
+    : undefined;
+}
+
 export function summarizeSlackAgentContextPayload(
   payload: Record<string, unknown>,
 ): SlackAgentContextSummary | undefined {
@@ -242,6 +262,21 @@ function buildOptionalSlackReference(value: string | undefined): string | undefi
   return value ? buildSlackReference(value) : undefined;
 }
 
+function buildSlackContextValueReference(value: unknown): string | undefined {
+  const stringValue = asString(value);
+  if (stringValue) {
+    return buildSlackReference(stringValue);
+  }
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+  try {
+    return buildSlackReference(JSON.stringify(value));
+  } catch {
+    return undefined;
+  }
+}
+
 function resolveSlackAgentContext(payload: Record<string, unknown>): {
   source: SlackAgentContextSummary["source"];
   context: Record<string, unknown>;
@@ -260,7 +295,7 @@ function summarizeSlackAgentContextEntity(
 ): SlackAgentContextEntitySummary | undefined {
   const summary = {
     type: truncateSlackContextText(asString(entity.type), 120),
-    valueRef: buildOptionalSlackReference(asString(entity.value)),
+    valueRef: buildSlackContextValueReference(entity.value),
     teamRef: buildOptionalSlackReference(asString(entity.team_id)),
     enterpriseRef: buildOptionalSlackReference(asString(entity.enterprise_id)),
   };

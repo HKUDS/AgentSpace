@@ -8,6 +8,7 @@ import {
   markExternalMessageOutboxLockedSync,
   readExternalChannelBindingSync,
   readExternalIntegrationSync,
+  readExternalMessageMappingByExternalMessageSync,
   readExternalMessageMappingByAgentSpaceMessageSync,
   type ExternalIntegrationRecord,
   type ExternalMessageMappingRecord,
@@ -22,7 +23,7 @@ import {
 } from "../../core/index.ts";
 import { SLACK_OUTBOX_MAX_ATTEMPTS, SLACK_PROVIDER_ID, SLACK_TEXT_MESSAGE_MAX_CHARS } from "./constants.ts";
 import { readSlackIntegrationCredentials } from "./credentials.ts";
-import { buildSlackReference } from "./events.ts";
+import { buildSlackReference, type SlackAgentContextSummary } from "./events.ts";
 
 export interface SlackOutboxProcessResult {
   outboxId: string;
@@ -58,6 +59,18 @@ export interface SlackOutboxDrainResult {
     errorMessage: string;
   }>;
 }
+
+export type SlackAppHomeOpenedWelcomeQueueResult =
+  | {
+    status: "queued";
+    outbox: ExternalMessageOutboxRecord;
+    mapping: ExternalMessageMappingRecord;
+  }
+  | {
+    status: "skipped";
+    reasonCode: "slack.app_home_opened_welcome_already_queued";
+    mapping: ExternalMessageMappingRecord;
+  };
 
 export interface SlackTextOutboundPayload extends Record<string, unknown> {
   channel: string;
@@ -131,6 +144,46 @@ export function buildSlackBlockKitOutboundMessage(input: {
       ...(input.targetExternalThreadId ? { thread_ts: input.targetExternalThreadId } : {}),
     } satisfies SlackBlockKitOutboundPayload,
   };
+}
+
+export function buildSlackAppHomeOpenedWelcomeOutboundMessage(input: {
+  targetExternalChatId: string;
+  agentId?: string | null;
+}): ExternalOutboundMessagePayload {
+  const agentId = readString(input.agentId);
+  const title = agentId
+    ? `AgentSpace is ready for ${agentId}.`
+    : "AgentSpace is ready in Slack.";
+  const intro = agentId
+    ? `You are connected to *${escapeSlackMrkdwn(agentId)}* through AgentSpace.`
+    : "You are connected to AgentSpace through Slack.";
+  return buildSlackBlockKitOutboundMessage({
+    targetExternalChatId: input.targetExternalChatId,
+    text: title,
+    blocks: [
+      {
+        type: "section",
+        text: {
+          type: "mrkdwn",
+          text: `*${escapeSlackMrkdwn(title)}*\n${intro}`,
+        },
+      },
+      {
+        type: "section",
+        text: {
+          type: "mrkdwn",
+          text: "Send a message here to start a governed AgentSpace conversation. Admins can also bind Slack channels and users for channel replies.",
+        },
+      },
+      {
+        type: "context",
+        elements: [{
+          type: "mrkdwn",
+          text: "Workspace permissions, approvals, and audit trails stay controlled by AgentSpace.",
+        }],
+      },
+    ],
+  });
 }
 
 export function buildSlackAgentStatusBlocks(input: {
@@ -280,6 +333,74 @@ export function queueSlackOutboundMessageSync(input: {
       attachmentCount: countSendableSlackAttachments(input.message.attachments),
     }),
   });
+}
+
+export function queueSlackAppHomeOpenedWelcomeOutboxSync(input: {
+  workspaceId: string;
+  integration: Pick<ExternalIntegrationRecord, "id" | "agentId">;
+  externalChatId: string;
+  externalUserId: string;
+  externalEventId?: string;
+  agentContext?: SlackAgentContextSummary;
+}): SlackAppHomeOpenedWelcomeQueueResult {
+  const externalMessageId = buildSlackAppHomeOpenedWelcomeExternalMessageId({
+    externalChatId: input.externalChatId,
+    externalUserId: input.externalUserId,
+  });
+  const existingMapping = readExternalMessageMappingByExternalMessageSync({
+    workspaceId: input.workspaceId,
+    integrationId: input.integration.id,
+    externalMessageId,
+  });
+  if (existingMapping) {
+    return {
+      status: "skipped",
+      reasonCode: "slack.app_home_opened_welcome_already_queued",
+      mapping: existingMapping,
+    };
+  }
+
+  const outbound = buildSlackAppHomeOpenedWelcomeOutboundMessage({
+    targetExternalChatId: input.externalChatId,
+    agentId: input.integration.agentId,
+  });
+  const mapping = createExternalMessageMappingSync({
+    workspaceId: input.workspaceId,
+    integrationId: input.integration.id,
+    direction: "outbound",
+    externalMessageId,
+    externalThreadId: externalMessageId,
+    externalSenderId: input.externalUserId,
+    externalEventId: input.externalEventId,
+    agentSpaceMessageId: externalMessageId,
+    metadataJson: {
+      provider: SLACK_PROVIDER_ID,
+      mappingSource: "app_home_opened_welcome",
+      externalChatReference: formatSlackOutboundReference(input.externalChatId),
+      externalUserReference: formatSlackOutboundReference(input.externalUserId),
+      agentContext: input.agentContext,
+    },
+  });
+  const outbox = enqueueExternalOutboundMessageSync({
+    context: {
+      workspaceId: input.workspaceId,
+      integrationId: input.integration.id,
+      provider: SLACK_PROVIDER_ID,
+    },
+    agentSpaceMessageId: externalMessageId,
+    outbound,
+    metadataJson: {
+      ...buildSlackQueuedOutboxMetadata({
+        source: "app_home_opened_welcome",
+        outbound,
+        integration: input.integration,
+      }),
+      onboardingKey: externalMessageId,
+      externalUserReference: formatSlackOutboundReference(input.externalUserId),
+      agentContext: input.agentContext,
+    },
+  });
+  return { status: "queued", outbox, mapping };
 }
 
 export function queueSlackChannelReplyOutboxSync(input: {
@@ -619,7 +740,7 @@ function readSlackOutboundPayload(value: string): SlackChatPostMessagePayload {
 }
 
 function buildSlackQueuedOutboxMetadata(input: {
-  source: "direct_outbound_message" | "agent_reply" | "agent_status_card";
+  source: "direct_outbound_message" | "agent_reply" | "agent_status_card" | "app_home_opened_welcome";
   outbound: Pick<ExternalOutboundMessagePayload, "targetExternalChatId" | "targetExternalThreadId">;
   integration?: Pick<ExternalIntegrationRecord, "id" | "agentId"> | null;
   attachmentCount?: number;
@@ -635,6 +756,13 @@ function buildSlackQueuedOutboxMetadata(input: {
     attachmentsUploaded: false,
     attachmentCount: input.attachmentCount && input.attachmentCount > 0 ? input.attachmentCount : undefined,
   };
+}
+
+function buildSlackAppHomeOpenedWelcomeExternalMessageId(input: {
+  externalChatId: string;
+  externalUserId: string;
+}): string {
+  return `slack-app-home-welcome-${buildSlackReference(`${input.externalChatId}:${input.externalUserId}`).slice(4)}`;
 }
 
 interface SlackOutboundIntegrationCandidate {

@@ -9,6 +9,7 @@ import {
   createWorkspaceMembershipSync,
   DEFAULT_WORKSPACE_ID,
   getDatabase,
+  listExternalMessageOutboxSync,
   listQueuedTasksSync,
   registerDaemonRuntimesSync,
   upsertExternalChannelBindingSync,
@@ -172,6 +173,47 @@ test("agent-scoped Slack bots in the same Slack channel route to their own Agent
   assert.equal(JSON.stringify(atlasMappingMetadata).includes("C_VIEWED"), false);
   assert.equal(JSON.stringify(atlasMappingMetadata).includes("T_SHARED"), false);
   assert.equal(typeof atlasMappingMetadata.agentContext, "object");
+
+  const welcomeResult = processSlackInboundEventSync({
+    context: {
+      workspaceId: DEFAULT_WORKSPACE_ID,
+      integrationId: atlasIntegration.id,
+      provider: SLACK_PROVIDER_ID,
+    },
+    integration: atlasIntegration,
+    payload: buildSlackAppHomeOpenedPayload({
+      eventId: "EvAtlasHome",
+      appId: "A_ATLAS",
+      userId: "UMINA",
+      channelId: "D_ATLAS",
+    }),
+  });
+  const duplicateWelcomeResult = processSlackInboundEventSync({
+    context: {
+      workspaceId: DEFAULT_WORKSPACE_ID,
+      integrationId: atlasIntegration.id,
+      provider: SLACK_PROVIDER_ID,
+    },
+    integration: atlasIntegration,
+    payload: buildSlackAppHomeOpenedPayload({
+      eventId: "EvAtlasHomeAgain",
+      appId: "A_ATLAS",
+      userId: "UMINA",
+      channelId: "D_ATLAS",
+    }),
+  });
+  assert.equal(welcomeResult.reasonCode, "slack.app_home_opened_welcome_queued");
+  assert.equal(duplicateWelcomeResult.reasonCode, "slack.app_home_opened_welcome_already_queued");
+
+  const welcomeOutbox = listExternalMessageOutboxSync({
+    workspaceId: DEFAULT_WORKSPACE_ID,
+    integrationId: atlasIntegration.id,
+  }).filter((item) => item.targetExternalChatId === "D_ATLAS");
+  assert.equal(welcomeOutbox.length, 1);
+  const welcomeMetadata = JSON.parse(welcomeOutbox[0]?.metadataJson ?? "{}") as Record<string, unknown>;
+  assert.equal(welcomeMetadata.outboxSource, "app_home_opened_welcome");
+  assert.equal(JSON.stringify(welcomeMetadata).includes("D_ATLAS"), false);
+  assert.equal(JSON.stringify(welcomeMetadata).includes("UMINA"), false);
 });
 
 function seedSlackAgentBotWorkspace(): void {
@@ -257,6 +299,28 @@ function buildSlackMentionPayload(input: {
       bot_id: undefined,
       bot_user_id: input.botUserId,
       app_context: input.appContext,
+    },
+  };
+}
+
+function buildSlackAppHomeOpenedPayload(input: {
+  eventId: string;
+  appId: string;
+  userId: string;
+  channelId: string;
+}): Record<string, unknown> {
+  return {
+    type: "event_callback",
+    event_id: input.eventId,
+    api_app_id: input.appId,
+    team_id: "T_SHARED",
+    event_time: 1783400000,
+    event: {
+      type: "app_home_opened",
+      tab: "messages",
+      channel: input.channelId,
+      user: input.userId,
+      event_ts: "1783400002.000100",
     },
   };
 }

@@ -6,6 +6,7 @@ import {
   isSlackUrlVerificationPayload,
   resolveSlackCallbackAppId,
   resolveSlackCallbackTeamId,
+  resolveSlackAppHomeOpenedMessagesTabEvent,
   resolveSlackEventId,
   resolveSlackEventType,
   summarizeSlackAgentContextPayload,
@@ -110,6 +111,14 @@ test("summarizes Slack agent context without storing raw external ids", () => {
             value: "F_SECRET",
             enterprise_id: "E_SECRET",
           },
+          {
+            type: "slack#/types/message_context",
+            value: {
+              message_ts: "1782919931.619439",
+              channel_id: "C_OBJECT_SECRET",
+            },
+            team_id: "T_SECRET",
+          },
         ],
       },
     },
@@ -119,11 +128,40 @@ test("summarizes Slack agent context without storing raw external ids", () => {
   assert.ok(agentContext);
   assert.equal(agentContext.source, "context");
   assert.equal(agentContext.hasEntities, true);
-  assert.equal(agentContext.entityCount, 2);
+  assert.equal(agentContext.entityCount, 3);
   assert.equal(agentContext.entities[0]?.type, "slack#/types/channel_id");
   assert.match(agentContext.entities[0]?.valueRef ?? "", /^ref_[a-f0-9]{8}$/);
+  assert.match(agentContext.entities[2]?.valueRef ?? "", /^ref_[a-f0-9]{8}$/);
 
   const eventSummary = summarizeSlackInboundEventPayload(payload);
   assert.equal(eventSummary.hasAgentContext, true);
-  assert.doesNotMatch(JSON.stringify(eventSummary), /C_SECRET|F_SECRET|T_SECRET|E_SECRET|U_SECRET/);
+  assert.doesNotMatch(JSON.stringify(eventSummary), /C_SECRET|F_SECRET|T_SECRET|E_SECRET|U_SECRET|C_OBJECT_SECRET/);
+});
+
+test("resolves Slack app_home_opened messages tab events", () => {
+  const payload = {
+    type: "event_callback",
+    event_id: "EvHome",
+    event: {
+      type: "app_home_opened",
+      tab: "messages",
+      channel: "D123",
+      user: "U456",
+    },
+  };
+
+  assert.deepEqual(resolveSlackAppHomeOpenedMessagesTabEvent(payload), {
+    externalChatId: "D123",
+    externalUserId: "U456",
+    tab: "messages",
+  });
+  assert.equal(resolveSlackAppHomeOpenedMessagesTabEvent({
+    ...payload,
+    event: {
+      type: "app_home_opened",
+      tab: "home",
+      channel: "D123",
+      user: "U456",
+    },
+  }), undefined);
 });

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   buildSlackAgentStatusCardOutboundMessage,
+  buildSlackAppHomeOpenedWelcomeOutboundMessage,
   buildSlackTextOutboundMessage,
   resolveSlackReplyTargetExternalMessageId,
   selectSlackOutboundChannelBindingForReply,
@@ -110,6 +111,25 @@ test("builds Slack Block Kit approval status cards with safe action values", () 
     payloadHash: "payload-hash-1",
     token: "approval-token-1",
   });
+});
+
+test("builds Slack app_home_opened welcome messages", () => {
+  const outbound = buildSlackAppHomeOpenedWelcomeOutboundMessage({
+    targetExternalChatId: "D123",
+    agentId: "Atlas",
+  });
+
+  assert.equal(outbound.targetExternalChatId, "D123");
+  const payload = outbound.payload as {
+    channel?: string;
+    text?: string;
+    blocks?: Array<{ type?: string; text?: { text?: string } }>;
+  };
+  assert.equal(payload.channel, "D123");
+  assert.equal(payload.text, "AgentSpace is ready for Atlas.");
+  assert.equal(payload.blocks?.[0]?.type, "section");
+  assert.match(payload.blocks?.[0]?.text?.text ?? "", /AgentSpace is ready for Atlas/);
+  assert.match(JSON.stringify(payload.blocks), /Workspace permissions/);
 });
 
 test("sends Slack chat.postMessage Block Kit payloads", async () => {
