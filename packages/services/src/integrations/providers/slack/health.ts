@@ -546,6 +546,16 @@ export function buildSlackSmokePlanReport(input: {
         detail: commands.liveFileUpload,
       },
       {
+        id: "native_agent_experience",
+        status: readiness.readyForMessageSmokeCount > 0 ? "manual" : "blocked",
+        detail: "Open the Slack app Messages tab, then send one Slack app-context DM or agent-view message so AgentSpace records app_context_changed or app-context message evidence, app_home_opened welcome evidence, and assistant suggested prompts evidence.",
+      },
+      {
+        id: "approval_block_actions",
+        status: readiness.readyForMessageSmokeCount > 0 ? "manual" : "blocked",
+        detail: "Trigger one AgentSpace runtime approval card in Slack and approve or reject it so AgentSpace records processed block_actions evidence and an approval status outbox receipt.",
+      },
+      {
         id: "verify_live_evidence",
         status: readiness.readyForMessageSmokeCount > 0 ? "manual" : "blocked",
         detail: commands.verifyLiveEvidence,
