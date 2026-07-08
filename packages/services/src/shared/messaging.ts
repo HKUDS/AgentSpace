@@ -47,6 +47,7 @@ export interface ExternalMessageInputContext {
   externalEventId?: string;
   externalMessageId?: string;
   externalChatId?: string;
+  externalContext?: string;
   trust: "untrusted_user_message";
   actor?: {
     actorType: "user" | "external_guest";
@@ -117,12 +118,14 @@ export function buildExternalMessageData(input: ExternalMessageInputContext | un
     return undefined;
   }
   const policy = governedInput.workspaceDataPolicy;
+  const externalContext = normalizeExternalContextString(governedInput.externalContext);
   return {
     external_provider: governedInput.provider,
     ...(governedInput.providerLabel ? { external_provider_label: governedInput.providerLabel } : {}),
     ...(governedInput.externalEventId ? { external_event_id: governedInput.externalEventId } : {}),
     ...(governedInput.externalMessageId ? { external_message_id: governedInput.externalMessageId } : {}),
     ...(governedInput.externalChatId ? { external_chat_id: governedInput.externalChatId } : {}),
+    ...(externalContext ? { external_context: externalContext } : {}),
     external_trust: governedInput.trust,
     ...(policy ? {
       workspace_data_policy_decision: policy.decision,
@@ -133,6 +136,14 @@ export function buildExternalMessageData(input: ExternalMessageInputContext | un
       workspace_data_agent_context: String(policy.allowedUses.includeInAgentContext),
     } : {}),
   };
+}
+
+function normalizeExternalContextString(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+  return trimmed.length > 4000 ? trimmed.slice(0, 4000).trimEnd() : trimmed;
 }
 
 export function pushWorkspaceMessageIfChannel(

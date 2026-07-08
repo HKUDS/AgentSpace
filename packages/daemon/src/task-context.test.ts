@@ -13,6 +13,7 @@ test("parseTaskInputJson preserves untrusted Feishu external input metadata", ()
       externalEventId: "evt-1",
       externalMessageId: "om-1",
       externalChatId: "oc-1",
+      externalContext: "{\"slackAgentContext\":{\"entities\":[{\"valueRef\":\"ref_abcd1234\"}]}}",
       trust: "untrusted_user_message",
       actor: {
         actorType: "external_guest",
@@ -46,6 +47,7 @@ test("parseTaskInputJson preserves untrusted Feishu external input metadata", ()
     externalEventId: "evt-1",
     externalMessageId: "om-1",
     externalChatId: "oc-1",
+    externalContext: "{\"slackAgentContext\":{\"entities\":[{\"valueRef\":\"ref_abcd1234\"}]}}",
     trust: "untrusted_user_message",
     actor: {
       actorType: "external_guest",
@@ -94,6 +96,7 @@ test("buildTaskPrompt redacts Feishu external input identifiers from the agent p
         externalEventId: "evt-secret-1",
         externalMessageId: "om-secret-1",
         externalChatId: "oc-secret-1",
+        externalContext: "{\"slackAgentContext\":{\"entities\":[{\"valueRef\":\"ref_abcd1234\"}]}}",
         trust: "untrusted_user_message",
       },
     },
@@ -104,6 +107,7 @@ test("buildTaskPrompt redacts Feishu external input identifiers from the agent p
   assert.equal(prompt.includes("evt-secret-1"), false);
   assert.equal(prompt.includes("om-secret-1"), false);
   assert.equal(prompt.includes("oc-secret-1"), false);
+  assert.match(prompt, /外部上下文摘要: \{"slackAgentContext":\{"entities":\[\{"valueRef":"ref_abcd1234"\}\]\}\}/);
 });
 
 test("buildTaskPrompt treats Feishu lark-cli write grants as approval-gated", () => {

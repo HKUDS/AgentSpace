@@ -15,9 +15,11 @@ import type { ExternalMessageEnvelope, IntegrationRuntimeContext } from "../../c
 import { sendChannelHumanMessageSync } from "../../../messages/messages.ts";
 import { SLACK_PROVIDER_ID } from "./constants.ts";
 import {
+  isSlackAgentContextChangedEvent,
   resolveSlackEventId,
   resolveSlackEventReceivedAt,
   resolveSlackEventType,
+  summarizeSlackAgentContextPayload,
   summarizeSlackInboundEventPayload,
 } from "./events.ts";
 import {
@@ -52,6 +54,14 @@ export function processSlackInboundEventSync(input: ProcessSlackInboundEventInpu
     payloadJson: summarizeSlackInboundEventPayload(input.payload),
     receivedAt: resolveSlackEventReceivedAt(input.payload),
   });
+  if (isSlackAgentContextChangedEvent(input.payload)) {
+    return finishIgnored({
+      context: input.context,
+      event,
+      message: null,
+      reasonCode: "slack.agent_context_changed",
+    });
+  }
   const botUserId = readSlackBotUserId(input.integration?.configJson);
   const message = normalizeSlackInboundMessage({
     context: input.context,
@@ -125,6 +135,10 @@ export function processSlackInboundEventSync(input: ProcessSlackInboundEventInpu
     text: message.text ?? "",
     agentId: input.integration?.agentId,
   });
+  const agentContext = summarizeSlackAgentContextPayload(input.payload);
+  const externalContext = agentContext
+    ? JSON.stringify({ slackAgentContext: agentContext })
+    : undefined;
   let state: AgentSpaceState;
   try {
     state = sendChannelHumanMessageSync(
@@ -141,6 +155,7 @@ export function processSlackInboundEventSync(input: ProcessSlackInboundEventInpu
         externalEventId: message.externalEventId,
         externalMessageId: message.externalMessageId,
         externalChatId: message.externalChatId,
+        externalContext,
         trust: "untrusted_user_message",
         actor: {
           actorType: "user",
@@ -183,6 +198,7 @@ export function processSlackInboundEventSync(input: ProcessSlackInboundEventInpu
       provider: SLACK_PROVIDER_ID,
       channelName: channelBinding.channelName,
       slackChannelType: channelBinding.externalChatType,
+      agentContext,
     },
   });
   const processed = updateExternalIntegrationEventStatusSync({

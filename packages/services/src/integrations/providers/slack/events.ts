@@ -19,6 +19,20 @@ export interface SlackEventCallbackPayload extends Record<string, unknown> {
   event?: Record<string, unknown>;
 }
 
+export interface SlackAgentContextEntitySummary {
+  type?: string;
+  valueRef?: string;
+  teamRef?: string;
+  enterpriseRef?: string;
+}
+
+export interface SlackAgentContextSummary {
+  source: "app_context" | "context";
+  hasEntities: boolean;
+  entityCount: number;
+  entities: SlackAgentContextEntitySummary[];
+}
+
 export type SlackCallbackContextValidationResult =
   | {
     ok: true;
@@ -152,6 +166,39 @@ export function resolveSlackCallbackTeamId(payload: Record<string, unknown>): st
     ?? asString(authorization?.team_id);
 }
 
+export function isSlackAgentContextChangedEvent(payload: Record<string, unknown>): boolean {
+  const event = asRecord(payload.event);
+  return asString(event?.type) === "app_context_changed";
+}
+
+export function summarizeSlackAgentContextPayload(
+  payload: Record<string, unknown>,
+): SlackAgentContextSummary | undefined {
+  const resolved = resolveSlackAgentContext(payload);
+  if (!resolved) {
+    return undefined;
+  }
+  const entityRecords = Array.isArray(resolved.context.entities)
+    ? resolved.context.entities.flatMap((entity) => {
+        const record = asRecord(entity);
+        return record ? [record] : [];
+      })
+    : [];
+  const entities = [
+    ...entityRecords.flatMap((entity) => {
+      const summary = summarizeSlackAgentContextEntity(entity);
+      return summary ? [summary] : [];
+    }),
+    ...summarizeSlackLegacyContextEntity(resolved.context),
+  ].slice(0, 10);
+  return {
+    source: resolved.source,
+    hasEntities: entities.length > 0,
+    entityCount: entityRecords.length,
+    entities,
+  };
+}
+
 export function summarizeSlackInboundEventPayload(payload: Record<string, unknown>): Record<string, unknown> {
   const event = asRecord(payload.event);
   const text = asString(event?.text);
@@ -159,6 +206,7 @@ export function summarizeSlackInboundEventPayload(payload: Record<string, unknow
   const user = asString(event?.user);
   const messageTs = asString(event?.ts);
   const threadTs = asString(event?.thread_ts);
+  const agentContext = summarizeSlackAgentContextPayload(payload);
   return {
     type: asString(payload.type) ?? "unknown",
     eventType: resolveSlackEventType(payload),
@@ -171,6 +219,8 @@ export function summarizeSlackInboundEventPayload(payload: Record<string, unknow
     threadRef: buildOptionalSlackReference(threadTs),
     hasText: Boolean(text),
     textLength: text?.length ?? 0,
+    hasAgentContext: Boolean(agentContext),
+    agentContext,
   };
 }
 
@@ -190,6 +240,54 @@ export function asString(value: unknown): string | undefined {
 
 function buildOptionalSlackReference(value: string | undefined): string | undefined {
   return value ? buildSlackReference(value) : undefined;
+}
+
+function resolveSlackAgentContext(payload: Record<string, unknown>): {
+  source: SlackAgentContextSummary["source"];
+  context: Record<string, unknown>;
+} | undefined {
+  const event = asRecord(payload.event);
+  const appContext = asRecord(event?.app_context) ?? asRecord(payload.app_context);
+  if (appContext) {
+    return { source: "app_context", context: appContext };
+  }
+  const context = asRecord(event?.context) ?? asRecord(payload.context);
+  return context ? { source: "context", context } : undefined;
+}
+
+function summarizeSlackAgentContextEntity(
+  entity: Record<string, unknown>,
+): SlackAgentContextEntitySummary | undefined {
+  const summary = {
+    type: truncateSlackContextText(asString(entity.type), 120),
+    valueRef: buildOptionalSlackReference(asString(entity.value)),
+    teamRef: buildOptionalSlackReference(asString(entity.team_id)),
+    enterpriseRef: buildOptionalSlackReference(asString(entity.enterprise_id)),
+  };
+  return hasSlackAgentContextEntitySignal(summary) ? summary : undefined;
+}
+
+function summarizeSlackLegacyContextEntity(
+  context: Record<string, unknown>,
+): SlackAgentContextEntitySummary[] {
+  const channelId = asString(context.channel_id);
+  if (!channelId) {
+    return [];
+  }
+  return [{
+    type: "slack#/types/channel_id",
+    valueRef: buildSlackReference(channelId),
+    teamRef: buildOptionalSlackReference(asString(context.team_id)),
+    enterpriseRef: buildOptionalSlackReference(asString(context.enterprise_id)),
+  }];
+}
+
+function hasSlackAgentContextEntitySignal(entity: SlackAgentContextEntitySummary): boolean {
+  return Boolean(entity.type || entity.valueRef || entity.teamRef || entity.enterpriseRef);
+}
+
+function truncateSlackContextText(value: string | undefined, maxLength: number): string | undefined {
+  return value && value.length > maxLength ? value.slice(0, maxLength).trimEnd() : value;
 }
 
 function readNumber(value: unknown): number | undefined {

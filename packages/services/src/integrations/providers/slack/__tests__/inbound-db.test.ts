@@ -119,6 +119,13 @@ test("agent-scoped Slack bots in the same Slack channel route to their own Agent
       botUserId: "UATLAS",
       messageTs: "1783400000.000100",
       text: "<@UATLAS> summarize the launch plan",
+      appContext: {
+        entities: [{
+          type: "slack#/types/channel_id",
+          value: "C_VIEWED",
+          team_id: "T_SHARED",
+        }],
+      },
     }),
   });
   const novaResult = processSlackInboundEventSync({
@@ -157,6 +164,14 @@ test("agent-scoped Slack bots in the same Slack channel route to their own Agent
   assert.equal(novaMessage?.data?.external_actor_agent_id, "Nova");
   assert.equal(atlasMessage?.data?.external_bot_binding_id, atlasIntegration.id);
   assert.equal(novaMessage?.data?.external_bot_binding_id, novaIntegration.id);
+  assert.equal(String(atlasMessage?.data?.external_context).includes("C_VIEWED"), false);
+  assert.equal(String(atlasMessage?.data?.external_context).includes("T_SHARED"), false);
+  assert.match(atlasMessage?.data?.external_context ?? "", /"slackAgentContext"/);
+
+  const atlasMappingMetadata = JSON.parse(atlasResult.mapping?.metadataJson ?? "{}") as Record<string, unknown>;
+  assert.equal(JSON.stringify(atlasMappingMetadata).includes("C_VIEWED"), false);
+  assert.equal(JSON.stringify(atlasMappingMetadata).includes("T_SHARED"), false);
+  assert.equal(typeof atlasMappingMetadata.agentContext, "object");
 });
 
 function seedSlackAgentBotWorkspace(): void {
@@ -223,6 +238,7 @@ function buildSlackMentionPayload(input: {
   botUserId: string;
   messageTs: string;
   text: string;
+  appContext?: Record<string, unknown>;
 }): Record<string, unknown> {
   return {
     type: "event_callback",
@@ -240,6 +256,7 @@ function buildSlackMentionPayload(input: {
       event_ts: input.messageTs,
       bot_id: undefined,
       bot_user_id: input.botUserId,
+      app_context: input.appContext,
     },
   };
 }

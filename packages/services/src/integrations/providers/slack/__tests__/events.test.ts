@@ -8,6 +8,8 @@ import {
   resolveSlackCallbackTeamId,
   resolveSlackEventId,
   resolveSlackEventType,
+  summarizeSlackAgentContextPayload,
+  summarizeSlackInboundEventPayload,
   validateSlackCallbackContext,
   verifySlackRequestSignature,
 } from "../events.ts";
@@ -85,4 +87,43 @@ test("resolves Slack callback context and event identity", () => {
     expectedAppId: "A999",
     expectedTeamId: "T123",
   }).ok, false);
+});
+
+test("summarizes Slack agent context without storing raw external ids", () => {
+  const payload = {
+    type: "event_callback",
+    api_app_id: "A123",
+    team_id: "T_SECRET",
+    event_id: "EvContext",
+    event: {
+      type: "app_context_changed",
+      user: "U_SECRET",
+      context: {
+        entities: [
+          {
+            type: "slack#/types/channel_id",
+            value: "C_SECRET",
+            team_id: "T_SECRET",
+          },
+          {
+            type: "slack#/types/list_id",
+            value: "F_SECRET",
+            enterprise_id: "E_SECRET",
+          },
+        ],
+      },
+    },
+  };
+
+  const agentContext = summarizeSlackAgentContextPayload(payload);
+  assert.ok(agentContext);
+  assert.equal(agentContext.source, "context");
+  assert.equal(agentContext.hasEntities, true);
+  assert.equal(agentContext.entityCount, 2);
+  assert.equal(agentContext.entities[0]?.type, "slack#/types/channel_id");
+  assert.match(agentContext.entities[0]?.valueRef ?? "", /^ref_[a-f0-9]{8}$/);
+
+  const eventSummary = summarizeSlackInboundEventPayload(payload);
+  assert.equal(eventSummary.hasAgentContext, true);
+  assert.doesNotMatch(JSON.stringify(eventSummary), /C_SECRET|F_SECRET|T_SECRET|E_SECRET|U_SECRET/);
 });

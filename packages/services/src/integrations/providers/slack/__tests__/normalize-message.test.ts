@@ -56,6 +56,13 @@ test("normalizes Slack direct messages", () => {
         text: "hello from DM",
         ts: "1783400001.000100",
         thread_ts: "1783400000.000100",
+        app_context: {
+          entities: [{
+            type: "slack#/types/channel_id",
+            value: "C_VIEWED",
+            team_id: "T_VIEWED",
+          }],
+        },
       },
     },
   });
@@ -64,6 +71,8 @@ test("normalizes Slack direct messages", () => {
   assert.equal(message.externalChatId, "D123");
   assert.equal(message.externalThreadId, "1783400000.000100");
   assert.equal(message.text, "hello from DM");
+  assert.equal(message.rawPayload.hasAgentContext, true);
+  assert.doesNotMatch(JSON.stringify(message.rawPayload), /C_VIEWED|T_VIEWED/);
 });
 
 test("ignores Slack bot and self messages", () => {

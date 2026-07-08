@@ -12,6 +12,7 @@ test("buildExternalMessageData converts untrusted external input into workspace 
     externalEventId: "evt-1",
     externalMessageId: "om-1",
     externalChatId: "oc-general",
+    externalContext: "{\"slackAgentContext\":{\"entities\":[{\"valueRef\":\"ref_abcd1234\"}]}}",
     trust: "untrusted_user_message",
   }), {
     external_provider: "feishu",
@@ -19,6 +20,7 @@ test("buildExternalMessageData converts untrusted external input into workspace 
     external_event_id: "evt-1",
     external_message_id: "om-1",
     external_chat_id: "oc-general",
+    external_context: "{\"slackAgentContext\":{\"entities\":[{\"valueRef\":\"ref_abcd1234\"}]}}",
     external_trust: "untrusted_user_message",
     workspace_data_policy_decision: "allow",
     workspace_data_policy_reason: "workspace_data.external_untrusted_user_message_allowed",
