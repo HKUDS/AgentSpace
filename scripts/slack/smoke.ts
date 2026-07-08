@@ -154,6 +154,8 @@ export async function buildSlackSmokeLiveOutput(env: Record<string, string | und
   const botToken = env.SLACK_BOT_TOKEN?.trim();
   const postToken = env.SLACK_SMOKE_POST_TOKEN?.trim();
   const channelId = env.SLACK_SMOKE_CHANNEL_ID?.trim();
+  const appId = env.SLACK_SMOKE_APP_ID?.trim();
+  const teamId = env.SLACK_SMOKE_TEAM_ID?.trim();
   const messageText = env.SLACK_SMOKE_MESSAGE_TEXT?.trim() || "AgentSpace Slack smoke";
   const threadTs = env.SLACK_SMOKE_THREAD_TS?.trim();
   const botUserId = env.SLACK_SMOKE_BOT_USER_ID?.trim();
@@ -166,6 +168,8 @@ export async function buildSlackSmokeLiveOutput(env: Record<string, string | und
     ...(liveMode === "app_mention" && postToken && !isPlaceholderValue(postToken) ? [] : liveMode === "app_mention" ? ["SLACK_SMOKE_POST_TOKEN"] : []),
     ...(liveMode === "app_mention" && botUserId && !isPlaceholderValue(botUserId) ? [] : liveMode === "app_mention" ? ["SLACK_SMOKE_BOT_USER_ID"] : []),
     ...(channelId && !isPlaceholderValue(channelId) ? [] : ["SLACK_SMOKE_CHANNEL_ID"]),
+    ...(appId && !isPlaceholderValue(appId) ? [] : ["SLACK_SMOKE_APP_ID"]),
+    ...(teamId && !isPlaceholderValue(teamId) ? [] : ["SLACK_SMOKE_TEAM_ID"]),
   ];
   const items = [
     ...dryRunOutput.items,
@@ -182,6 +186,18 @@ export async function buildSlackSmokeLiveOutput(env: Record<string, string | und
       note: liveMode === "post_message" || liveMode === "file_upload"
         ? missingLive.includes("SLACK_BOT_TOKEN") ? "missing_or_placeholder" : "configured"
         : "not_required_for_app_mention_mode",
+    } satisfies SlackSmokeEnvItem,
+    {
+      key: "SLACK_SMOKE_APP_ID",
+      required: true,
+      status: missingLive.includes("SLACK_SMOKE_APP_ID") ? "fail" : "pass",
+      note: missingLive.includes("SLACK_SMOKE_APP_ID") ? "missing_or_placeholder" : "configured",
+    } satisfies SlackSmokeEnvItem,
+    {
+      key: "SLACK_SMOKE_TEAM_ID",
+      required: true,
+      status: missingLive.includes("SLACK_SMOKE_TEAM_ID") ? "fail" : "pass",
+      note: missingLive.includes("SLACK_SMOKE_TEAM_ID") ? "missing_or_placeholder" : "configured",
     } satisfies SlackSmokeEnvItem,
     ...(liveMode === "app_mention" ? [
       {
@@ -231,10 +247,10 @@ export async function buildSlackSmokeLiveOutput(env: Record<string, string | und
         mode: liveMode,
         errorCode: "slack.smoke.live_env_incomplete",
         errorMessage: liveMode === "app_mention"
-          ? "Slack app mention live smoke requires a complete env, SLACK_SMOKE_POST_TOKEN, and SLACK_SMOKE_BOT_USER_ID."
+          ? "Slack app mention live smoke requires a complete env, SLACK_SMOKE_POST_TOKEN, SLACK_SMOKE_BOT_USER_ID, SLACK_SMOKE_APP_ID, and SLACK_SMOKE_TEAM_ID."
           : liveMode === "file_upload"
-          ? "Slack file upload live smoke requires a complete env and SLACK_BOT_TOKEN."
-          : "Slack live smoke requires a complete env and SLACK_BOT_TOKEN.",
+          ? "Slack file upload live smoke requires a complete env, SLACK_BOT_TOKEN, SLACK_SMOKE_APP_ID, and SLACK_SMOKE_TEAM_ID."
+          : "Slack live smoke requires a complete env, SLACK_BOT_TOKEN, SLACK_SMOKE_APP_ID, and SLACK_SMOKE_TEAM_ID.",
       },
       summary: {
         required: items.length,

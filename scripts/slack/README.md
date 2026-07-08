@@ -54,6 +54,8 @@ Send one disposable live Slack message after readiness passes:
 SLACK_BOT_TOKEN=xoxb-... npm run smoke:slack -- --env-file scripts/slack/.env --live --evidence runtime-output/slack-smoke/live.json --json
 ```
 
+Fill `SLACK_SMOKE_APP_ID` and `SLACK_SMOKE_TEAM_ID` before any live command. All live modes require them so the evidence artifact can carry hashed Slack app/team context for the final strict gate.
+
 Then trigger a real app mention and a disposable file upload into the same evidence artifact:
 
 ```bash

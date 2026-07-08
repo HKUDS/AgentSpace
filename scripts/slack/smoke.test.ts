@@ -87,6 +87,67 @@ test("Slack smoke dry-run accepts filled non-secret env", () => {
   }
 });
 
+test("Slack smoke live requires app and team context before network calls", async () => {
+  const requests: string[] = [];
+  const server = createServer((request, response) => {
+    requests.push(request.url ?? "");
+    response.setHeader("content-type", "application/json");
+    response.end(JSON.stringify({
+      ok: true,
+      channel: "C123LIVE",
+      ts: "1783400000.000100",
+    }));
+  });
+  await new Promise<void>((resolve) => {
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  const address = server.address();
+  assert.ok(address && typeof address === "object");
+  const directory = mkdtempSync(join(tmpdir(), "agentspace-slack-smoke-"));
+  try {
+    const envPath = join(directory, ".env");
+    writeFileSync(envPath, [
+      "AGENT_SPACE_WORKSPACE_ID=default",
+      "AGENT_SPACE_SLACK_INTEGRATION_ID=slack-1",
+      "AGENT_SPACE_PUBLIC_APP_URL=https://agentspace.test",
+      "SLACK_SMOKE_CALLBACK_URL=https://agentspace.test/api/integrations/slack/events",
+      "SLACK_SMOKE_CHANNEL_ID=C123LIVE",
+      "SLACK_SMOKE_USER_ID=U123LIVE",
+      "SLACK_BOT_TOKEN=xoxb-live-secret",
+      `SLACK_API_BASE_URL=http://127.0.0.1:${address.port}`,
+    ].join("\n"));
+
+    const result = await runSmokeScript([
+      "--env-file",
+      envPath,
+      "--live",
+      "--json",
+    ]);
+
+    assert.equal(result.status, 1, result.stderr);
+    assert.equal(requests.length, 0);
+    const output = JSON.parse(result.stdout) as {
+      ready: boolean;
+      liveResult?: {
+        attempted: boolean;
+        errorCode?: string;
+      };
+      missingRequired: string[];
+    };
+    assert.equal(output.ready, false);
+    assert.equal(output.liveResult?.attempted, false);
+    assert.equal(output.liveResult?.errorCode, "slack.smoke.live_env_incomplete");
+    assert.ok(output.missingRequired.includes("SLACK_SMOKE_APP_ID"));
+    assert.ok(output.missingRequired.includes("SLACK_SMOKE_TEAM_ID"));
+    assert.doesNotMatch(result.stdout, /xoxb-live-secret|C123LIVE|U123LIVE/);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+    await new Promise<void>((resolve) => {
+      server.close(() => resolve());
+    });
+  }
+});
+
 test("Slack smoke live sends a disposable channel message with redacted output", async () => {
   const requests: Array<{
     authorization?: string;
@@ -125,6 +186,8 @@ test("Slack smoke live sends a disposable channel message with redacted output",
       "SLACK_SMOKE_CALLBACK_URL=https://agentspace.test/api/integrations/slack/events",
       "SLACK_SMOKE_CHANNEL_ID=C123LIVE",
       "SLACK_SMOKE_USER_ID=U123LIVE",
+      "SLACK_SMOKE_APP_ID=ALIVE123",
+      "SLACK_SMOKE_TEAM_ID=TLIVE123",
       "SLACK_SMOKE_MESSAGE_TEXT=AgentSpace Slack smoke",
       "SLACK_BOT_TOKEN=xoxb-live-secret",
       `SLACK_API_BASE_URL=http://127.0.0.1:${address.port}`,
@@ -158,7 +221,7 @@ test("Slack smoke live sends a disposable channel message with redacted output",
     assert.equal(output.liveResult?.ok, true);
     assert.equal(output.liveResult?.channelReference, "channel C1...VE");
     assert.equal(output.liveResult?.messageReference, "message 1783...0100");
-    assert.doesNotMatch(result.stdout, /xoxb-live-secret|C123LIVE|U123LIVE/);
+    assert.doesNotMatch(result.stdout, /xoxb-live-secret|C123LIVE|U123LIVE|ALIVE123|TLIVE123/);
   } finally {
     rmSync(directory, { recursive: true, force: true });
     await new Promise<void>((resolve) => {
@@ -205,6 +268,8 @@ test("Slack smoke live app_mention mode posts a bot mention from the configured 
       "SLACK_SMOKE_CALLBACK_URL=https://agentspace.test/api/integrations/slack/events",
       "SLACK_SMOKE_CHANNEL_ID=CAPPMENTION",
       "SLACK_SMOKE_USER_ID=UPOSTER",
+      "SLACK_SMOKE_APP_ID=AAPPMENTION",
+      "SLACK_SMOKE_TEAM_ID=TAPPMENTION",
       "SLACK_SMOKE_MESSAGE_TEXT=@Atlas live app mention",
       "SLACK_SMOKE_LIVE_MODE=app_mention",
       "SLACK_SMOKE_BOT_USER_ID=UBOTLIVE",
@@ -245,7 +310,7 @@ test("Slack smoke live app_mention mode posts a bot mention from the configured 
     assert.equal(output.liveResult?.channelReference, "channel CAPP...TION");
     assert.equal(output.liveResult?.botUserReference, "user UB...VE");
     assert.equal(output.liveResult?.messageReference, "message 1783...0200");
-    assert.doesNotMatch(result.stdout, /xoxp-user-secret|xoxb-bot-secret|CAPPMENTION|UPOSTER|UBOTLIVE/);
+    assert.doesNotMatch(result.stdout, /xoxp-user-secret|xoxb-bot-secret|CAPPMENTION|UPOSTER|UBOTLIVE|AAPPMENTION|TAPPMENTION/);
   } finally {
     rmSync(directory, { recursive: true, force: true });
     await new Promise<void>((resolve) => {
@@ -313,6 +378,8 @@ test("Slack smoke live file_upload mode uses the external upload flow", async ()
       "SLACK_SMOKE_CALLBACK_URL=https://agentspace.test/api/integrations/slack/events",
       "SLACK_SMOKE_CHANNEL_ID=CFILELIVE",
       "SLACK_SMOKE_USER_ID=UFILELIVE",
+      "SLACK_SMOKE_APP_ID=AFILELIVE",
+      "SLACK_SMOKE_TEAM_ID=TFILELIVE",
       "SLACK_SMOKE_MESSAGE_TEXT=AgentSpace Slack file smoke",
       "SLACK_SMOKE_LIVE_MODE=file_upload",
       "SLACK_SMOKE_FILE_NAME=agentspace-smoke.txt",
@@ -369,7 +436,7 @@ test("Slack smoke live file_upload mode uses the external upload flow", async ()
     assert.equal(output.liveResult?.uploadCompleted, true);
     assert.equal(output.liveResult?.channelReference, "channel CFIL...LIVE");
     assert.equal(output.liveResult?.fileReference, "file FSMO...E123");
-    assert.doesNotMatch(result.stdout, /xoxb-file-secret|CFILELIVE|UFILELIVE|FSMOKEFILE123|upload\/F/);
+    assert.doesNotMatch(result.stdout, /xoxb-file-secret|CFILELIVE|UFILELIVE|AFILELIVE|TFILELIVE|FSMOKEFILE123|upload\/F/);
   } finally {
     rmSync(directory, { recursive: true, force: true });
     await new Promise<void>((resolve) => {
