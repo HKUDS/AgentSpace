@@ -53,6 +53,7 @@ export interface SlackEvidenceIntegrationItem {
     satisfied: boolean;
     processedInboundEvents: number;
     inboundMappings: number;
+    agentTaskQueueEvidence: number;
     outboundMappings: number;
     sentOutbox: number;
   };
@@ -243,6 +244,9 @@ function buildMessageEvidence(
     (event.eventType === "event_callback.app_mention" || event.eventType === "event_callback.message")
   ).length;
   const inboundMappings = mappings.filter((mapping) => mapping.direction === "inbound").length;
+  const agentTaskQueueEvidence = mappings.filter((mapping) =>
+    mapping.direction === "inbound" && hasSlackAgentTaskQueueEvidence(mapping, integration)
+  ).length;
   const outboundMappings = mappings.filter((mapping) => mapping.direction === "outbound" && !isSlackAppHomeWelcomeMapping(mapping)).length;
   const sentOutbox = outbox.filter((item) => item.status === "sent").length;
   const failedOutbox = outbox.filter((item) => item.status === "failed").length;
@@ -251,12 +255,14 @@ function buildMessageEvidence(
     userBindings.length > 0 &&
     processedInboundEvents > 0 &&
     inboundMappings > 0 &&
+    (!integration.agentId || agentTaskQueueEvidence > 0) &&
     (outboundMappings > 0 || sentOutbox > 0) &&
     failedOutbox === 0;
   return {
     satisfied,
     processedInboundEvents,
     inboundMappings,
+    agentTaskQueueEvidence,
     outboundMappings,
     sentOutbox,
   };
@@ -357,6 +363,9 @@ function buildSlackMessageEvidenceBlockers(
   if (message.inboundMappings === 0) {
     blockers.push("inbound_mapping_evidence_missing");
   }
+  if (integration.agentId && message.agentTaskQueueEvidence === 0) {
+    blockers.push("agent_task_queue_evidence_missing");
+  }
   if (message.outboundMappings === 0 && message.sentOutbox === 0) {
     blockers.push("outbound_reply_evidence_missing");
   }
@@ -426,6 +435,22 @@ function isSlackEvidenceRequirementSatisfied(
 
 function isSlackAppHomeWelcomeMapping(mapping: ExternalMessageMappingRecord): boolean {
   return readJsonStringField(mapping.metadataJson, "mappingSource") === "app_home_opened_welcome";
+}
+
+function hasSlackAgentTaskQueueEvidence(
+  mapping: ExternalMessageMappingRecord,
+  integration: ExternalIntegrationRecord,
+): boolean {
+  const metadata = parseJsonRecord(mapping.metadataJson);
+  if (!metadata) {
+    return false;
+  }
+  const taskQueueId = readJsonStringFieldFromRecord(metadata, "taskQueueId");
+  if (!taskQueueId) {
+    return false;
+  }
+  const agentId = readJsonStringFieldFromRecord(metadata, "agentId");
+  return integration.agentId ? agentId === integration.agentId : true;
 }
 
 function hasSlackAgentContextEvidence(metadataJson: string): boolean {

@@ -857,6 +857,12 @@ rawPayload = summarized payload or original safe subset
 - [x] 权限不足不会创建 task。
 - [x] duplicate event 不会重复创建 task。
 
+证据：
+
+- `packages/services/src/integrations/providers/slack/__tests__/inbound.test.ts` 覆盖 agent-scoped Slack bot mention 会注入 `@Atlas`、调用 task resolution、记录 thread binding，并在 inbound mapping metadata 中写入 `taskQueueId` / `routerSessionId` / `threadBindingId`，且不落 raw Slack channel/user id。
+- `packages/services/src/integrations/providers/slack/evidence.ts` 的 message gate 对 agent-scoped Slack integration 现在要求 inbound mapping 具备 task queue 证据；缺 `taskQueueId` 会产生 `agent_task_queue_evidence_missing` blocker，避免最终 `--strict --require all` 在未证明 task 创建时误通过。
+- `packages/services/src/integrations/providers/slack/__tests__/evidence.test.ts` 覆盖上述正反两条 evidence 行为。真实 DB-backed task 创建仍由 `AGENT_SPACE_SLACK_INBOUND_DB_TESTS=1` gated 测试和 live smoke 验收证明。
+
 ### Phase 6：出站和 outbox drain
 
 - [x] 新增 `outbound.ts`。
@@ -924,6 +930,7 @@ rawPayload = summarized payload or original safe subset
 - [x] socket mode token 缺失时给出 next step。
 - [x] smoke plan 可指导用户配置 Slack app。
 - [x] evidence report 不输出原始 Slack app/team/channel/user/message/event id，并能按 `message|native|approval|files|all` 严格门禁退出。
+- [x] agent-scoped message evidence 必须包含 task queue 证据；缺失时 strict evidence 以 `agent_task_queue_evidence_missing` 阻断。
 
 ### Phase 9：Web settings UI
 

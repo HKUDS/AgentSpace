@@ -63,6 +63,8 @@ test("builds strict Slack evidence reports without raw external ids", () => {
           externalMessageId: "1783400000.000100",
           metadataJson: {
             provider: "slack",
+            agentId: "Atlas",
+            taskQueueId: "task-safe-1",
             slackFileCount: 1,
             slackStoredAttachmentCount: 1,
             slackFileDownloadStatus: "stored_attachment",
@@ -158,6 +160,7 @@ test("builds strict Slack evidence reports without raw external ids", () => {
   assert.equal(report.summary.nativeSatisfiedCount, 1);
   assert.equal(report.summary.approvalSatisfiedCount, 1);
   assert.equal(report.summary.filesSatisfiedCount, 1);
+  assert.equal(report.integrations[0]?.message.agentTaskQueueEvidence, 1);
   assert.deepEqual(report.integrations[0]?.blockers, []);
   assert.doesNotMatch(JSON.stringify(report), /A_SECRET|T_SECRET|C_SECRET|D_SECRET|U_SECRET|F_SECRET|url_private|files\.slack\.com|EvMessage|EvApproval|1783400000/);
 });
@@ -181,6 +184,108 @@ test("Slack evidence reports actionable blockers when message smoke evidence is 
   assert.equal(report.integrations[0]?.requiredSatisfied, false);
   assert.ok(report.integrations[0]?.blockers.includes("channel_binding_missing"));
   assert.ok(report.integrations[0]?.blockers.includes("processed_inbound_event_evidence_missing"));
+});
+
+test("Slack evidence blocks agent-scoped message smoke without task queue proof", () => {
+  const report = buildSlackEvidenceReport({
+    workspaceId: "workspace-1",
+    strict: true,
+    required: "message",
+    dependencies: {
+      listIntegrations: () => [makeIntegration()],
+      listChannelBindings: () => [makeChannelBinding()],
+      listUserBindings: () => [makeUserBinding()],
+      listEvents: () => [
+        makeEvent({
+          eventType: "event_callback.app_mention",
+          status: "processed",
+        }),
+      ],
+      listMessageMappings: () => [
+        makeMapping({
+          direction: "inbound",
+          metadataJson: {
+            provider: "slack",
+            agentId: "Atlas",
+          },
+        }),
+        makeMapping({
+          direction: "outbound",
+          externalMessageId: "1783400002.000100",
+          externalThreadId: "1783400000.000100",
+          metadataJson: {
+            provider: "slack",
+            externalChatReference: "ref_safechat",
+          },
+        }),
+      ],
+      listOutbox: () => [
+        makeOutbox({
+          status: "sent",
+          metadataJson: {
+            provider: "slack",
+            outboxSource: "agent_reply",
+          },
+        }),
+      ],
+    },
+  });
+
+  assert.equal(report.strictSatisfied, false);
+  assert.equal(report.integrations[0]?.message.agentTaskQueueEvidence, 0);
+  assert.ok(report.integrations[0]?.blockers.includes("agent_task_queue_evidence_missing"));
+});
+
+test("Slack evidence rejects task queue proof from a different agent", () => {
+  const report = buildSlackEvidenceReport({
+    workspaceId: "workspace-1",
+    strict: true,
+    required: "message",
+    dependencies: {
+      listIntegrations: () => [makeIntegration({ agentId: "Atlas" })],
+      listChannelBindings: () => [makeChannelBinding()],
+      listUserBindings: () => [makeUserBinding()],
+      listEvents: () => [
+        makeEvent({
+          eventType: "event_callback.app_mention",
+          status: "processed",
+        }),
+      ],
+      listMessageMappings: () => [
+        makeMapping({
+          direction: "inbound",
+          metadataJson: {
+            provider: "slack",
+            agentId: "Nova",
+            taskQueueId: "task-nova",
+          },
+        }),
+        makeMapping({
+          direction: "outbound",
+          externalMessageId: "1783400002.000100",
+          externalThreadId: "1783400000.000100",
+          metadataJson: {
+            provider: "slack",
+            externalChatReference: "ref_safechat",
+          },
+        }),
+      ],
+      listOutbox: () => [
+        makeOutbox({
+          status: "sent",
+          metadataJson: {
+            provider: "slack",
+            outboxSource: "agent_reply",
+          },
+        }),
+      ],
+    },
+  });
+
+  assert.equal(report.strictSatisfied, false);
+  assert.equal(report.integrations[0]?.message.agentTaskQueueEvidence, 0);
+  assert.ok(report.integrations[0]?.blockers.includes("agent_task_queue_evidence_missing"));
+  assert.doesNotMatch(JSON.stringify(report), /task-nova|1783400000/);
 });
 
 test("Slack evidence files gate stays blocked until file storage and upload proof exists", () => {
@@ -213,6 +318,8 @@ test("Slack evidence files gate stays blocked until file storage and upload proo
           direction: "inbound",
           metadataJson: {
             provider: "slack",
+            agentId: "Atlas",
+            taskQueueId: "task-safe-1",
             slackFileCount: 1,
             slackFiles: [{
               fileRef: "ref_safefile",
@@ -277,6 +384,8 @@ test("Slack evidence files gate flags unsafe raw Slack file metadata", () => {
           direction: "inbound",
           metadataJson: {
             provider: "slack",
+            agentId: "Atlas",
+            taskQueueId: "task-safe-1",
             slackFileCount: 1,
             slackStoredAttachmentCount: 1,
             slackFileDownloadStatus: "stored_attachment",
