@@ -1019,8 +1019,15 @@ rawPayload = summarized payload or original safe subset
 - [ ] 抽出 common setup notice / identity notice。
 - [ ] 抽出 common integration settings cards。
 - [ ] 抽出 common health/outbox panel。
-- [ ] 抽出 common redacted external id reference。
+- [x] 抽出 common redacted external id reference。
 - [ ] 抽出 common worker metrics shape。
+
+证据：
+
+- `packages/services/src/integrations/core/references.ts` 提供 provider-neutral `buildExternalIdHash(...)`、`buildExternalIdReference(...)`、`buildOptionalExternalIdReference(...)`、`buildLabeledExternalIdReference(...)`。
+- Slack `buildSlackReference(...)` 现在委托 common helper，保持既有 `ref_<8 hex>` 格式。
+- Feishu inbound/event/thread safe references 现在委托 common helper，保持既有 `event <16 hex>` / `<16 hex>` 格式。
+- `packages/services/src/integrations/core/references.test.ts` 覆盖稳定 hash、可选引用和 labeled reference。
 
 验收：
 

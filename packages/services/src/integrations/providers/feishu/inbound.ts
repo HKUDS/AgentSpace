@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import {
   createExternalMessageOutboxSync,
   createExternalMessageMappingSync,
@@ -20,7 +19,11 @@ import {
   type QueuedTaskRecord,
 } from "@agent-space/db";
 import type { ChannelRecord, MessageAttachment } from "@agent-space/domain/workspace";
-import type { ExternalMessageEnvelope, IntegrationRuntimeContext } from "../../core/index.ts";
+import {
+  buildExternalIdHash,
+  type ExternalMessageEnvelope,
+  type IntegrationRuntimeContext,
+} from "../../core/index.ts";
 import { sendContactMessageWithAttachmentsSync } from "../../../contacts/contacts.ts";
 import { sendChannelHumanMessageSync } from "../../../messages/messages.ts";
 import { canWriteChannelForActorSync } from "../../../channel-access/channel-access.ts";
@@ -1635,7 +1638,7 @@ function createFeishuInboundMapping(input: {
 }
 
 function shortHash(value: string): string {
-  return createHash("sha256").update(value).digest("hex").slice(0, 16);
+  return buildExternalIdHash(value, 16);
 }
 
 function buildFeishuInboundSafeThreadReference(message: ExternalMessageEnvelope): string | undefined {

@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import {
   listExternalThreadBindingsSync,
   readExternalThreadBindingSync,
@@ -7,7 +6,7 @@ import {
   type ExternalIntegrationRecord,
   type ExternalThreadBindingRecord,
 } from "@agent-space/db";
-import type { ExternalMessageEnvelope } from "../../core/index.ts";
+import { buildExternalIdHash, type ExternalMessageEnvelope } from "../../core/index.ts";
 import { FEISHU_PROVIDER_ID } from "./constants.ts";
 
 export interface RecordFeishuThreadBindingInput {
@@ -142,5 +141,5 @@ function uniqueNonEmpty(values: readonly string[]): string[] {
 }
 
 function shortHash(value: string): string {
-  return createHash("sha256").update(value).digest("hex").slice(0, 16);
+  return buildExternalIdHash(value, 16);
 }

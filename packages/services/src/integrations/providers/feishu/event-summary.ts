@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { buildLabeledExternalIdReference } from "../../core/index.ts";
 import { FEISHU_PROVIDER_ID } from "./constants.ts";
 import {
   asRecord,
@@ -87,6 +88,7 @@ function sha256Text(value: string): string {
 }
 
 function buildSafeExternalReference(kind: string, value: string | undefined): string | undefined {
-  const normalized = value?.trim();
-  return normalized ? `${kind} ${sha256Text(normalized).slice(0, 16)}` : undefined;
+  return buildLabeledExternalIdReference(kind, value, {
+    hashLength: 16,
+  });
 }

@@ -30,6 +30,13 @@ export {
   listDueExternalOutboundMessagesSync,
 } from "./outbox.ts";
 export {
+  buildExternalIdHash,
+  buildExternalIdReference,
+  buildLabeledExternalIdReference,
+  buildOptionalExternalIdReference,
+  type ExternalReferenceOptions,
+} from "./references.ts";
+export {
   createFakeIntegrationProviderAdapter,
   FAKE_INTEGRATION_PROVIDER_ID,
   type FakeIntegrationProviderAdapterOptions,

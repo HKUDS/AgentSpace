@@ -1,4 +1,5 @@
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
+import { buildExternalIdReference } from "../../core/index.ts";
 import {
   SLACK_SIGNATURE_TOLERANCE_SECONDS,
   SLACK_SIGNATURE_VERSION,
@@ -266,7 +267,11 @@ export function summarizeSlackInboundFilesPayload(payload: Record<string, unknow
 }
 
 export function buildSlackReference(value: string): string {
-  return `ref_${createHash("sha256").update(value, "utf8").digest("hex").slice(0, 8)}`;
+  return buildExternalIdReference(value, {
+    prefix: "ref",
+    separator: "_",
+    hashLength: 8,
+  });
 }
 
 export function asRecord(value: unknown): Record<string, unknown> | undefined {
