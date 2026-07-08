@@ -1064,7 +1064,13 @@ rawPayload = summarized payload or original safe subset
 
 - [x] Feishu 功能不回退。
 - [x] Slack 和 Feishu 共用明确 helper，而不是复制大块逻辑。
-- [ ] 新 provider 接入需要改的文件数明显减少。
+- [x] 新 provider 接入需要改的文件数明显减少。
+
+证据：
+
+- `packages/services/src/integrations/core/provider-onboarding.ts` 提供 provider-neutral contract checker 和 message-transport provider onboarding checklist；第三个 IM provider 可用同一个 checker 验证 descriptor / message transport / data-plane capability 是否一致，不再复制 Slack/飞书 adapter contract 断言。
+- checklist 把必需 provider-owned 文件、少量 shared touch points、可复用 core/web/CLI 模块分开列出；带 Socket Mode / OAuth / attachments / Web settings / CLI 的完整消息 provider 估算 provider-owned 文件数为 23，且不需要修改 `packages/services/src/integrations/core/*` 这些公共文件。
+- `packages/services/src/integrations/core/provider-onboarding.test.ts` 覆盖合法 fake adapter、坏 adapter actionable issues、第三个 `teams` provider onboarding checklist；Slack adapter test 也接入 `validateIntegrationProviderAdapterContract(...)`，确保 Slack 当前实现符合通用 contract。
 
 ## 测试计划
 

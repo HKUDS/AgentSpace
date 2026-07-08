@@ -62,6 +62,13 @@ export {
   type ExternalWorkerMetrics,
 } from "./worker-metrics.ts";
 export {
+  buildMessageTransportProviderOnboardingChecklist,
+  validateIntegrationProviderAdapterContract,
+  type IntegrationProviderContractIssue,
+  type IntegrationProviderContractReport,
+  type MessageTransportProviderOnboardingChecklist,
+} from "./provider-onboarding.ts";
+export {
   createFakeIntegrationProviderAdapter,
   FAKE_INTEGRATION_PROVIDER_ID,
   type FakeIntegrationProviderAdapterOptions,

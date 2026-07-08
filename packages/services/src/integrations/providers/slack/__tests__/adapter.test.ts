@@ -4,6 +4,7 @@ import {
   clearIntegrationProviderAdaptersForTests,
   listIntegrationProviderAdapters,
   readIntegrationProviderAdapter,
+  validateIntegrationProviderAdapterContract,
 } from "../../../core/index.ts";
 import {
   FEISHU_PROVIDER_ID,
@@ -32,6 +33,9 @@ test("Slack provider descriptor exposes only message transport capability", () =
   assert.equal(slackIntegrationProviderAdapter.descriptor, SLACK_PROVIDER_DESCRIPTOR);
   assert.equal(slackIntegrationProviderAdapter.messageTransport?.provider, SLACK_PROVIDER_ID);
   assert.equal(slackIntegrationProviderAdapter.documentProvider, undefined);
+  const contract = validateIntegrationProviderAdapterContract(slackIntegrationProviderAdapter);
+  assert.equal(contract.ok, true);
+  assert.deepEqual(contract.issues, []);
 });
 
 test("Slack provider registration coexists with Feishu in the integration registry", () => {
