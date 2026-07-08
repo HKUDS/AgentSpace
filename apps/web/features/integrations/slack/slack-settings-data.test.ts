@@ -29,6 +29,29 @@ vi.mock("@agent-space/db", () => ({
 }));
 
 vi.mock("@agent-space/services", () => ({
+  buildSlackAgentViewAppManifest: (input: { appUrl?: string; socketMode?: boolean } = {}) => ({
+    features: {
+      app_home: {
+        messages_tab_enabled: true,
+      },
+      agent_view: {},
+    },
+    oauth_config: {
+      scopes: {
+        bot: ["app_mentions:read", "assistant:write", "chat:write"],
+      },
+    },
+    settings: {
+      event_subscriptions: {
+        request_url: `${input.appUrl ?? "https://agent.example"}/api/integrations/slack/events`,
+        bot_events: ["app_mention", "message.im", "app_home_opened"],
+      },
+      interactivity: {
+        request_url: `${input.appUrl ?? "https://agent.example"}/api/integrations/slack/interactions`,
+      },
+      socket_mode_enabled: Boolean(input.socketMode),
+    },
+  }),
   buildSlackReference: (value: string) => {
     const first = value.charCodeAt(0).toString(16);
     const last = value.charCodeAt(value.length - 1).toString(16);
@@ -223,10 +246,12 @@ describe("Slack settings data", () => {
   });
 
   it("builds the create-integration guide from shared Slack setup constants", () => {
-    expect(buildSlackIntegrationCreationGuide({
+    const guide = buildSlackIntegrationCreationGuide({
       workspaceId: "workspace-1",
       appUrl: "https://agent.test",
-    })).toEqual({
+    });
+
+    expect(guide).toMatchObject({
       requiredCredentialFields: ["bot_token", "signing_secret"],
       requiredEvents: ["app_mention", "message.im", "app_home_opened"],
       requiredScopes: ["app_mentions:read", "chat:write"],
@@ -250,6 +275,42 @@ describe("Slack settings data", () => {
         outboxDrain: "agent-space integrations slack outbox drain --workspace-id workspace-1 --integration created-integration-id --json",
       },
     });
+    const manifest = JSON.parse(guide.manifestJson) as {
+      features?: {
+        agent_view?: unknown;
+        app_home?: { messages_tab_enabled?: boolean };
+      };
+      oauth_config?: { scopes?: { bot?: string[] } };
+      settings?: {
+        event_subscriptions?: {
+          request_url?: string;
+          bot_events?: string[];
+        };
+        interactivity?: { request_url?: string };
+        socket_mode_enabled?: boolean;
+      };
+    };
+    expect(manifest.features?.agent_view).toBeDefined();
+    expect(manifest.features?.app_home?.messages_tab_enabled).toBe(true);
+    expect(manifest.oauth_config?.scopes?.bot).toEqual(expect.arrayContaining([
+      "app_mentions:read",
+      "assistant:write",
+      "chat:write",
+    ]));
+    expect(manifest.settings?.event_subscriptions?.request_url).toBe(
+      "https://agent.test/api/integrations/slack/events?workspaceId=workspace-1&integrationId=created-integration-id",
+    );
+    expect(manifest.settings?.event_subscriptions?.bot_events).toEqual(expect.arrayContaining([
+      "app_mention",
+      "message.im",
+      "app_home_opened",
+    ]));
+    expect(manifest.settings?.interactivity?.request_url).toBe(
+      "https://agent.test/api/integrations/slack/interactions?workspaceId=workspace-1&integrationId=created-integration-id",
+    );
+    expect(manifest.settings?.socket_mode_enabled).toBe(false);
+    expect(guide.manifestJson).not.toContain("xoxb");
+    expect(guide.manifestJson).not.toContain("signing");
   });
 });
 

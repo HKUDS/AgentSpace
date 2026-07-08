@@ -9,6 +9,7 @@ import {
   type WorkspaceRole,
 } from "@agent-space/db";
 import {
+  buildSlackAgentViewAppManifest,
   buildSlackReference,
   SLACK_DEFAULT_SCOPES,
   SLACK_EVENT_CALLBACK_PATH,
@@ -241,6 +242,11 @@ export function buildSlackIntegrationCreationGuide(input: {
     ...(trimmedAppUrl ? { oauthStartUrl: buildPublicAppUrl(SLACK_OAUTH_START_PATH, trimmedAppUrl) } : {}),
     oauthCallbackUrlTemplate,
     developerConsoleUrl: SLACK_DEVELOPER_CONSOLE_URL,
+    manifestJson: buildSlackCreationManifestJson({
+      callbackUrlTemplate,
+      interactionCallbackUrlTemplate,
+      appUrl: trimmedAppUrl,
+    }),
     commands: {
       create: `agent-space integrations slack create --workspace-id ${input.workspaceId} --app-id CHANGE_ME_SLACK_APP_ID --team-id CHANGE_ME_SLACK_TEAM_ID --env-file scripts/slack/.env --bot-token-env SLACK_BOT_TOKEN --signing-secret-env SLACK_SIGNING_SECRET --json`,
       bindAgentBot: `agent-space integrations slack bind-agent-bot --workspace-id ${input.workspaceId} --agent CHANGE_ME_AGENTSPACE_AGENT_NAME --app-id CHANGE_ME_SLACK_APP_ID --team-id CHANGE_ME_SLACK_TEAM_ID --env-file scripts/slack/.env --bot-token-env SLACK_BOT_TOKEN --signing-secret-env SLACK_SIGNING_SECRET --app-level-token-env SLACK_APP_TOKEN --json`,
@@ -250,6 +256,22 @@ export function buildSlackIntegrationCreationGuide(input: {
       outboxDrain: `agent-space integrations slack outbox drain --workspace-id ${input.workspaceId} --integration created-integration-id --json`,
     },
   };
+}
+
+function buildSlackCreationManifestJson(input: {
+  callbackUrlTemplate: string;
+  interactionCallbackUrlTemplate: string;
+  appUrl?: string;
+}): string {
+  const manifest = buildSlackAgentViewAppManifest({
+    appName: "AgentSpace",
+    botDisplayName: "agentspace",
+    appUrl: input.appUrl,
+    socketMode: false,
+  });
+  manifest.settings.event_subscriptions.request_url = input.callbackUrlTemplate;
+  manifest.settings.interactivity.request_url = input.interactionCallbackUrlTemplate;
+  return JSON.stringify(manifest, null, 2);
 }
 
 export function listSlackAvailableChannels(input: {

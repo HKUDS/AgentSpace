@@ -41,6 +41,9 @@ describe("SlackIntegrationSettingsPanel", () => {
     expect(screen.getByText("Outbound Failures")).toBeInTheDocument();
     expect(screen.getByText("slack.outbound.missing_scope")).toBeInTheDocument();
     expect(screen.getByText("Slack Acceptance Checks")).toBeInTheDocument();
+    expect(screen.getByText("Slack App Manifest")).toBeInTheDocument();
+    expect(screen.getByText("Copy Manifest")).toBeInTheDocument();
+    expect(screen.getByText(/"request_url": "https:\/\/agent\.test\/api\/integrations\/slack\/events/)).toBeInTheDocument();
   });
 
   it("hides admin-only Slack integration data from members", () => {
@@ -229,6 +232,13 @@ const creationGuide: SlackIntegrationCreationGuide = {
   oauthStartUrl: "https://agent.test/api/integrations/slack/oauth/start",
   oauthCallbackUrlTemplate: "https://agent.test/api/integrations/slack/oauth/callback",
   developerConsoleUrl: "https://api.slack.com/apps",
+  manifestJson: JSON.stringify({
+    settings: {
+      event_subscriptions: {
+        request_url: "https://agent.test/api/integrations/slack/events?workspaceId=workspace-1&integrationId=created-integration-id",
+      },
+    },
+  }, null, 2),
   commands: {
     create: "agent-space integrations slack create --workspace-id workspace-1 --json",
     bindAgentBot: "agent-space integrations slack bind-agent-bot --workspace-id workspace-1 --agent CHANGE_ME --json",

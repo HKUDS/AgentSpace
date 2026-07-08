@@ -359,6 +359,20 @@ function SlackCreateIntegrationPanel({
                 ))}
               </ul>
             </section>
+            <section>
+              <strong>{tx("Slack App Manifest", "Slack App Manifest")}</strong>
+              <pre className="feishu-manifest-preview"><code>{creationGuide.manifestJson}</code></pre>
+              <button
+                className="action-button"
+                onClick={() => {
+                  copyToClipboard(creationGuide.manifestJson);
+                  setFeedback(tx("Slack App Manifest 已复制。", "Slack app manifest copied."));
+                }}
+                type="button"
+              >
+                {tx("复制 Manifest", "Copy Manifest")}
+              </button>
+            </section>
             <SlackCommandList commands={creationGuide.commands} setFeedback={setFeedback} tx={tx} />
           </div>
         ) : null}

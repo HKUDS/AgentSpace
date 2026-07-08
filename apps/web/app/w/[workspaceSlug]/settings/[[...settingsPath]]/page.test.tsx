@@ -38,6 +38,18 @@ const {
   mockListFeishuIntegrationSettingsItems: vi.fn(),
 }));
 
+const {
+  mockBuildSlackIntegrationCreationGuide,
+  mockListSlackAvailableChannels,
+  mockListSlackAvailableUsers,
+  mockListSlackIntegrationSettingsItems,
+} = vi.hoisted(() => ({
+  mockBuildSlackIntegrationCreationGuide: vi.fn(),
+  mockListSlackAvailableChannels: vi.fn(),
+  mockListSlackAvailableUsers: vi.fn(),
+  mockListSlackIntegrationSettingsItems: vi.fn(),
+}));
+
 const { mockGetCurrentSession } = vi.hoisted(() => ({
   mockGetCurrentSession: vi.fn(),
 }));
@@ -96,6 +108,15 @@ vi.mock("@/features/integrations/feishu/feishu-settings-data", () => ({
   listFeishuIntegrationSettingsItems: mockListFeishuIntegrationSettingsItems,
 }));
 
+vi.mock("@/features/integrations/slack/slack-settings-data", () => ({
+  buildSlackIntegrationCreationGuide: mockBuildSlackIntegrationCreationGuide,
+  canManageSlackIntegrations: (role?: "owner" | "admin" | "member") =>
+    role === undefined || role === "owner" || role === "admin",
+  listSlackAvailableChannels: mockListSlackAvailableChannels,
+  listSlackAvailableUsers: mockListSlackAvailableUsers,
+  listSlackIntegrationSettingsItems: mockListSlackIntegrationSettingsItems,
+}));
+
 import WorkspaceSettingsPage from "./page";
 import { WorkspaceInitialModuleData } from "@/features/dashboard/workspace-initial-module-data";
 
@@ -121,6 +142,10 @@ describe("workspace settings route", () => {
     mockListFeishuAvailableUsers.mockReset();
     mockListFeishuIntegrationSettingsItems.mockReset();
     mockBuildFeishuIntegrationCreationGuide.mockReset();
+    mockListSlackAvailableChannels.mockReset();
+    mockListSlackAvailableUsers.mockReset();
+    mockListSlackIntegrationSettingsItems.mockReset();
+    mockBuildSlackIntegrationCreationGuide.mockReset();
     mockReadWorkspaceSync.mockReset();
     mockReadUserSync.mockReset();
 
@@ -152,6 +177,9 @@ describe("workspace settings route", () => {
     mockListFeishuAvailableChannels.mockReturnValue([{ name: "general", kind: "group" }]);
     mockListFeishuAvailableUsers.mockReturnValue([{ userId: "user-1", displayName: "Mina", role: "owner" }]);
     mockListFeishuIntegrationSettingsItems.mockReturnValue([{ id: "feishu-1" }]);
+    mockListSlackAvailableChannels.mockReturnValue([{ name: "general", kind: "group" }]);
+    mockListSlackAvailableUsers.mockReturnValue([{ userId: "user-1", displayName: "Mina", role: "owner" }]);
+    mockListSlackIntegrationSettingsItems.mockReturnValue([{ id: "slack-1" }]);
     mockBuildFeishuIntegrationCreationGuide.mockReturnValue({
       requiredCredentialFields: ["app_id", "app_secret", "verification_token"],
       requiredEvents: ["im.message.receive_v1", "im.chat.member.bot.added_v1", "card.action.trigger"],
@@ -165,6 +193,15 @@ describe("workspace settings route", () => {
           required: ["app_id", "app_secret"],
         },
       ],
+    });
+    mockBuildSlackIntegrationCreationGuide.mockReturnValue({
+      requiredCredentialFields: ["bot_token", "signing_secret"],
+      requiredEvents: ["app_mention", "message.im", "app_home_opened"],
+      requiredScopes: ["app_mentions:read", "chat:write"],
+      eventCallbackPath: "/api/integrations/slack/events",
+      interactionCallbackPath: "/api/integrations/slack/interactions",
+      developerConsoleUrl: "https://api.slack.com/apps",
+      manifestJson: "{}",
     });
     mockReadUserSync.mockReturnValue({ displayName: "Mina" });
     mockGetWorkspacePermissionCenterSync.mockReturnValue({
@@ -272,7 +309,7 @@ describe("workspace settings route", () => {
     expect(mockListSessionsForUserSync).not.toHaveBeenCalled();
   });
 
-  it("loads only Feishu integration data for the integrations section", async () => {
+  it("loads only integration data for the integrations section", async () => {
     const page = await WorkspaceSettingsPage({
       params: Promise.resolve({ workspaceSlug: "mars-labs", settingsPath: ["integrations"] }),
       searchParams: Promise.resolve({}),
@@ -298,6 +335,18 @@ describe("workspace settings route", () => {
       ],
     });
     expect(data.feishuIntegrations).toEqual([{ id: "feishu-1" }]);
+    expect(data.slackAvailableChannels).toEqual([{ name: "general", kind: "group" }]);
+    expect(data.slackAvailableUsers).toEqual([{ userId: "user-1", displayName: "Mina", role: "owner" }]);
+    expect(data.slackIntegrationCreationGuide).toEqual({
+      requiredCredentialFields: ["bot_token", "signing_secret"],
+      requiredEvents: ["app_mention", "message.im", "app_home_opened"],
+      requiredScopes: ["app_mentions:read", "chat:write"],
+      eventCallbackPath: "/api/integrations/slack/events",
+      interactionCallbackPath: "/api/integrations/slack/interactions",
+      developerConsoleUrl: "https://api.slack.com/apps",
+      manifestJson: "{}",
+    });
+    expect(data.slackIntegrations).toEqual([{ id: "slack-1" }]);
     expect(data.members).toEqual([]);
     expect(data.invitations).toEqual([]);
     expect(data.sessions).toEqual([]);
@@ -319,6 +368,21 @@ describe("workspace settings route", () => {
       },
     });
     expect(mockBuildFeishuIntegrationCreationGuide).toHaveBeenCalledTimes(1);
+    expect(mockListSlackAvailableChannels).toHaveBeenCalledWith({
+      workspaceId: "workspace-mars",
+    });
+    expect(mockListSlackAvailableUsers).toHaveBeenCalledWith({
+      workspaceId: "workspace-mars",
+    });
+    expect(mockListSlackIntegrationSettingsItems).toHaveBeenCalledWith({
+      workspaceId: "workspace-mars",
+      appUrl: undefined,
+      viewer: {
+        role: "owner",
+        userId: "user-1",
+      },
+    });
+    expect(mockBuildSlackIntegrationCreationGuide).toHaveBeenCalledTimes(1);
     expect(mockListWorkspaceMemberUsersSync).not.toHaveBeenCalled();
     expect(mockListWorkspaceInvitationsSync).not.toHaveBeenCalled();
     expect(mockListSessionsForUserSync).not.toHaveBeenCalled();
@@ -327,6 +391,10 @@ describe("workspace settings route", () => {
   it("loads only self-service Feishu identity data for members", async () => {
     mockGetWorkspaceContextForIdentifier.mockResolvedValue(buildWorkspaceContext("member"));
     mockListFeishuAvailableUsers.mockReturnValue([
+      { userId: "user-1", displayName: "Mina", role: "member" },
+      { userId: "user-2", displayName: "Alex", role: "member" },
+    ]);
+    mockListSlackAvailableUsers.mockReturnValue([
       { userId: "user-1", displayName: "Mina", role: "member" },
       { userId: "user-2", displayName: "Alex", role: "member" },
     ]);
@@ -340,6 +408,10 @@ describe("workspace settings route", () => {
     expect(data.initialSection).toBe("integrations");
     expect(data.feishuAvailableChannels).toEqual([]);
     expect(data.feishuAvailableUsers).toEqual([{ userId: "user-1", displayName: "Mina", role: "member" }]);
+    expect(data.feishuIntegrationCreationGuide).toBeUndefined();
+    expect(data.slackAvailableChannels).toEqual([]);
+    expect(data.slackAvailableUsers).toEqual([{ userId: "user-1", displayName: "Mina", role: "member" }]);
+    expect(data.slackIntegrationCreationGuide).toBeUndefined();
     expect(mockListFeishuAvailableChannels).not.toHaveBeenCalled();
     expect(mockListFeishuIntegrationSettingsItems).toHaveBeenCalledWith({
       workspaceId: "workspace-mars",
@@ -349,6 +421,16 @@ describe("workspace settings route", () => {
         userId: "user-1",
       },
     });
+    expect(mockListSlackAvailableChannels).not.toHaveBeenCalled();
+    expect(mockListSlackIntegrationSettingsItems).toHaveBeenCalledWith({
+      workspaceId: "workspace-mars",
+      appUrl: undefined,
+      viewer: {
+        role: "member",
+        userId: "user-1",
+      },
+    });
+    expect(mockBuildSlackIntegrationCreationGuide).not.toHaveBeenCalled();
   });
 
   it("loads only permission-center data for the permissions section", async () => {

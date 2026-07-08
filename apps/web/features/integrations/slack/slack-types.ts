@@ -153,6 +153,7 @@ export interface SlackIntegrationCreationGuide {
   oauthStartUrl?: string;
   oauthCallbackUrlTemplate: string;
   developerConsoleUrl: string;
+  manifestJson: string;
   commands: {
     create: string;
     bindAgentBot: string;

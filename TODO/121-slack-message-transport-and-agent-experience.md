@@ -696,14 +696,14 @@ deploy/slack-worker/slack-worker.env.example
 - [ ] 复核 Slack 官方文档和 SDK 版本。
 - [x] 安装 `@slack/web-api@7.19.0`，验证 Node 24 / TypeScript / ESM import。
 - [ ] 确认 `@slack/socket-mode` 是否足够轻量，是否比手写 WebSocket + `apps.connections.open` 更合适。
-- [ ] 输出 Slack app manifest 草案和 self-hosted setup guide。
+- [x] 输出 Slack app manifest 草案和 self-hosted setup guide。
 - [x] 确认 MVP 同时支持手动 token 和 OAuth hosted install。
 
 验收：
 
 - [ ] Spike 文档说明 SDK 选择。
-- [ ] 无 secret 输出。
-- [ ] 明确 MVP scopes 和 event subscriptions。
+- [x] 无 secret 输出。
+- [x] 明确 MVP scopes 和 event subscriptions。
 
 ### Phase 1：provider skeleton
 
@@ -896,16 +896,16 @@ rawPayload = summarized payload or original safe subset
 
 ### Phase 9：Web settings UI
 
-- [ ] 新增 Slack settings section。
-- [ ] 或先把现有 Integrations 页改成 Feishu / Slack tabs。
-- [ ] Create Slack integration dialog。
-- [ ] Manifest/callback URL copy section。
-- [ ] Health panel。
-- [ ] Channel bindings panel。
-- [ ] User bindings panel。
-- [ ] Recent events / outbox failures panel。
-- [ ] i18n 中文/英文文案。
-- [ ] 权限：owner/admin 可管理，member 只能看自己的 user binding。
+- [x] 新增 Slack settings section。
+- [x] 现有 Integrations 页同时装载并渲染 Feishu / Slack sections。
+- [x] Create Slack integration form。
+- [x] Manifest/callback URL copy section。
+- [x] Health panel。
+- [x] Channel bindings panel。
+- [x] User bindings panel。
+- [x] Recent events / outbox failures panel。
+- [x] i18n 中文/英文文案。
+- [x] 权限：owner/admin 可管理，member 只能看自己的 user binding。
 
 验收：
 
