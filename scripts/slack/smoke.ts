@@ -98,6 +98,7 @@ interface SlackSmokeEvidenceVerificationOutput {
     satisfiedModes: SlackSmokeLiveMode[];
     missingModes: SlackSmokeLiveMode[];
     contextMatched: boolean;
+    malformedReferenceCount: number;
   };
   expectedContext?: SlackSmokeContext;
   issues: string[];
@@ -1186,6 +1187,10 @@ function verifySlackSmokeEvidenceFile(path: string, input: {
   if (artifactText) {
     issues.push(...findSlackSmokeEvidenceRedactionIssues(artifactText));
   }
+  const malformedReferenceCount = countMalformedSlackSmokeEvidenceResultReferences(runs);
+  if (malformedReferenceCount > 0) {
+    issues.push("slack_live_smoke_reference_malformed");
+  }
 
   const uniqueIssues = [...new Set(issues)];
   const missingModes = SLACK_SMOKE_REQUIRED_LIVE_MODES.filter((mode) => !satisfiedModes.includes(mode));
@@ -1203,6 +1208,7 @@ function verifySlackSmokeEvidenceFile(path: string, input: {
       satisfiedModes,
       missingModes,
       contextMatched,
+      malformedReferenceCount,
     },
     issues: uniqueIssues,
   };
@@ -1273,14 +1279,45 @@ function hasSafeSlackSmokeEvidenceResultReference(
   if (!value) {
     return false;
   }
-  const hashPattern = "ref_[a-f0-9]{8}";
-  const safe = kind
-    ? new RegExp(`^${kind} ${hashPattern}$`).test(value)
-    : new RegExp(`^${hashPattern}$`).test(value);
+  const safe = isSafeSlackSmokeEvidenceReferenceValue(value, kind);
   if (!safe) {
     issues.push(`${issuePrefix}_unsafe`);
   }
   return safe;
+}
+
+function isSafeSlackSmokeEvidenceReferenceValue(value: string, kind: string | undefined): boolean {
+  const hashPattern = "ref_[a-f0-9]{8}";
+  return kind
+    ? new RegExp(`^${kind} ${hashPattern}$`).test(value)
+    : new RegExp(`^${hashPattern}$`).test(value);
+}
+
+function countMalformedSlackSmokeEvidenceResultReferences(runs: Record<string, unknown>[]): number {
+  const referenceKeys: Record<string, string | undefined> = {
+    channelReference: "channel",
+    messageReference: "message",
+    botUserReference: "user",
+    fileReference: "file",
+    channelRef: undefined,
+    messageRef: undefined,
+    botUserRef: undefined,
+    fileRef: undefined,
+  };
+  let count = 0;
+  for (const run of runs) {
+    const liveResult = readRecord(run.liveResult);
+    if (!liveResult) {
+      continue;
+    }
+    for (const [key, kind] of Object.entries(referenceKeys)) {
+      const value = readString(liveResult[key]);
+      if (value && !isSafeSlackSmokeEvidenceReferenceValue(value, kind)) {
+        count += 1;
+      }
+    }
+  }
+  return count;
 }
 
 function readSlackSmokeEvidenceRecordContext(record: Record<string, unknown> | undefined): SlackSmokeContext | undefined {

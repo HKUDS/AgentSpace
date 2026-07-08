@@ -1158,7 +1158,7 @@ rawPayload = summarized payload or original safe subset
 - `npm run smoke:slack` / `npm run smoke:slack:verify` 的 package scripts 现在会在脚本路径后插入 `--`，避免 Node 原生 `--env-file` 抢先读取 smoke harness 参数；缺少 `scripts/slack/.env` 时会返回结构化 `slack.smoke.env_file_read_failed` JSON blocker。
 - final evidence gate 也要求 live run 具备对应的安全引用：`post_message` 需要 channel/message reference，`app_mention` 需要 channel/message/bot user reference，`file_upload` 需要 channel/file reference，避免仅凭 `ok=true` 的不完整 artifact 通过。
 - final evidence 和 `smoke:slack:verify` 现在还要求 live artifact 的 result references 使用 `kind ref_...` 或 `ref_...` 哈希格式；畸形占位字符串不能仅凭字段存在通过 live proof。
-- final evidence summary 现在会单独统计 `malformedReferenceCount` 并输出 `slack_live_smoke_reference_malformed`，区分“字段存在但 reference 形状不可信”和 raw Slack ID/token 泄露。
+- final evidence 和 `smoke:slack:verify` summary 现在会单独统计 `malformedReferenceCount` 并输出 `slack_live_smoke_reference_malformed`，区分“字段存在但 reference 形状不可信”和 raw Slack ID/token 泄露。
 - live smoke artifact 的 channel/message/bot user/file `*Reference` 现在统一输出 `kind ref_...`，不再使用 `C123...LIVE` / `1783...0100` 这类首尾片段；smoke verifier 与 strict final evidence 都会把旧式 Slack ID / message ts 片段判为 unsafe。
 - live `app_mention` artifact 现在还会写入和服务端同算法的脱敏 `messageRef`；strict final evidence 会按 integration 将该 ref 与本地 fresh inbound mapping 的 `externalMessageId`、outbound mapping / sent outbox 的 Slack thread id 关联，缺任一边都会以 `slack_live_app_mention_inbound_mapping_missing` / `slack_live_app_mention_outbound_reply_missing` 阻断，避免只证明 Slack 里发过 mention、但没有证明 AgentSpace 收到并回帖。
 - Slack message evidence 现在只把 `agent_reply` / `direct_outbound_message` 这类真实消息回复 source 计入 outbound mapping / sent outbox 证明；app home welcome、suggested prompts、approval status card 或 file upload 不再能单独满足“Agent 回复回写 Slack thread”。

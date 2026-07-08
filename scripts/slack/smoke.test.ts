@@ -1048,14 +1048,17 @@ test("Slack smoke evidence verifier rejects incomplete or unsafe artifacts", asy
       valid?: boolean;
       summary?: {
         missingModes?: string[];
+        malformedReferenceCount?: number;
       };
       issues?: string[];
     };
     assert.equal(output.valid, false);
     assert.ok(output.summary?.missingModes?.includes("app_mention"));
     assert.ok(output.summary?.missingModes?.includes("file_upload"));
+    assert.ok((output.summary?.malformedReferenceCount ?? 0) > 0);
     assert.ok(output.issues?.includes("live_mode_app_mention_message_ref_missing"));
     assert.ok(output.issues?.includes("live_mode_file_upload_channel_reference_unsafe"));
+    assert.ok(output.issues?.includes("slack_live_smoke_reference_malformed"));
     assert.ok(output.issues?.includes("raw_slack_identifier_in_evidence"));
     assert.ok(output.issues?.includes("raw_slack_identifier_fragment_in_evidence"));
     assert.ok(output.issues?.includes("raw_slack_message_ts_in_evidence"));
