@@ -34,6 +34,7 @@ import { readWorkspaceStateSync } from "../../../shared/state-io.ts";
 import type { SlackInboundAttachmentDownloader } from "./attachments.ts";
 import { SLACK_PROVIDER_ID } from "./constants.ts";
 import {
+  buildSlackReference,
   isSlackAgentContextChangedEvent,
   resolveSlackEventId,
   resolveSlackEventReceivedAt,
@@ -474,7 +475,9 @@ function dispatchPreparedSlackInboundEventSync(input: SlackInboundPreparedDispat
         actor: {
           actorType: "user",
           userId: input.userBinding.userId,
-          externalActorReference: `slack:${input.message.externalSenderId}`,
+          externalActorReference: input.message.externalSenderId
+            ? buildSlackReference(input.message.externalSenderId)
+            : undefined,
           agentId: input.integration?.agentId,
           botBindingId: input.integration?.agentId ? input.integration.id : undefined,
         },

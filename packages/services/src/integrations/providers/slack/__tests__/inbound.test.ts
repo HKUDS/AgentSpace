@@ -398,12 +398,15 @@ test("dispatches bound Slack messages through AgentSpace and records inbound map
       actor: {
         actorType: "user",
         userId: "user-1",
-        externalActorReference: "slack:U456",
+        externalActorReference: resultExternalActorReference(sentMessages[0]?.externalInput),
         agentId: undefined,
         botBindingId: undefined,
       },
     },
   });
+  assert.match(resultExternalActorReference(sentMessages[0]?.externalInput), /^ref_[a-f0-9]{8}$/);
+  assert.notEqual(resultExternalActorReference(sentMessages[0]?.externalInput), "slack:U456");
+  assert.doesNotMatch(JSON.stringify(sentMessages[0]?.externalInput?.actor), /U456/);
   assert.equal(mappingInputs.length, 1);
   assert.deepEqual(mappingInputs[0], {
     workspaceId: "workspace-1",
@@ -726,11 +729,14 @@ test("dispatches agent-scoped Slack bot mentions as AgentSpace @agent messages",
     actor: {
       actorType: "user",
       userId: "user-1",
-      externalActorReference: "slack:U456",
+      externalActorReference: resultExternalActorReference(sentMessages[0]?.externalInput),
       agentId: "Atlas",
       botBindingId: integrationId,
     },
   });
+  assert.match(resultExternalActorReference(sentMessages[0]?.externalInput), /^ref_[a-f0-9]{8}$/);
+  assert.notEqual(resultExternalActorReference(sentMessages[0]?.externalInput), "slack:U456");
+  assert.doesNotMatch(JSON.stringify(sentMessages[0]?.externalInput?.actor), /U456/);
 
   assert.equal(mappingInputs.length, 1);
   assert.equal(mappingInputs[0]?.agentSpaceMessageId, result.agentSpaceMessageId);
@@ -1110,6 +1116,11 @@ test("queues a Slack notice when the target agent runtime is unavailable", () =>
   assert.equal(noticeMetadata?.reasonCode, "slack.agent_runtime_unavailable");
   assert.doesNotMatch(JSON.stringify(noticeMetadata), /C123|U456|1783400010\.000100/);
 });
+
+function resultExternalActorReference(externalInput: Record<string, unknown> | undefined): string {
+  const actor = externalInput?.actor as Record<string, unknown> | undefined;
+  return typeof actor?.externalActorReference === "string" ? actor.externalActorReference : "";
+}
 
 function buildSlackMentionPayload(input: {
   eventId: string;
