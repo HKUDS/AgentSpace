@@ -228,12 +228,12 @@ test("Slack smoke dry-run accepts filled non-secret env", () => {
     const liveAppMentionCommand =
       "SLACK_SMOKE_LIVE_MODE=app_mention npm run smoke:slack -- --env-file scripts/slack/.env --live --evidence runtime-output/slack-smoke/live.json --json";
     const drainOutboxCommand =
-      "agent-space integrations slack outbox drain --workspace-id $AGENT_SPACE_WORKSPACE_ID --integration $AGENT_SPACE_SLACK_INTEGRATION_ID --json";
+      "agent-space integrations slack outbox drain --workspace-id default --integration slack-1 --json";
     const liveFileUploadCommand =
       "SLACK_SMOKE_LIVE_MODE=file_upload npm run smoke:slack -- --env-file scripts/slack/.env --live --evidence runtime-output/slack-smoke/live.json --json";
     const verifyEvidenceCommand = "npm run smoke:slack:verify -- --env-file scripts/slack/.env --json";
     const finalEvidenceCommand =
-      "agent-space integrations slack evidence --workspace-id $AGENT_SPACE_WORKSPACE_ID --integration $AGENT_SPACE_SLACK_INTEGRATION_ID --live-smoke-evidence runtime-output/slack-smoke/live.json --strict --require all --json";
+      "agent-space integrations slack evidence --workspace-id default --integration slack-1 --live-smoke-evidence runtime-output/slack-smoke/live.json --strict --require all --json";
     const commandIndexes = [
       livePostMessageCommand,
       liveAppMentionCommand,
@@ -1017,8 +1017,8 @@ test("Slack smoke live evidence artifact accumulates redacted post, app mention,
     assert.match(verificationOutput.manualActions?.[0]?.detail ?? "", /app-home welcome/);
     assert.match(verificationOutput.manualActions?.[1]?.detail ?? "", /approval status outbox/);
     assert.deepEqual(verificationOutput.nextCommands, [
-      "agent-space integrations slack outbox drain --workspace-id $AGENT_SPACE_WORKSPACE_ID --integration $AGENT_SPACE_SLACK_INTEGRATION_ID --json",
-      `agent-space integrations slack evidence --workspace-id $AGENT_SPACE_WORKSPACE_ID --integration $AGENT_SPACE_SLACK_INTEGRATION_ID --live-smoke-evidence ${evidencePath} --strict --require all --json`,
+      "agent-space integrations slack outbox drain --workspace-id default --integration slack-1 --json",
+      `agent-space integrations slack evidence --workspace-id default --integration slack-1 --live-smoke-evidence ${evidencePath} --strict --require all --json`,
     ]);
 
     const wrongEnvPath = join(directory, ".wrong.env");
@@ -1158,10 +1158,10 @@ test("Slack smoke evidence verifier rejects live runs from different channels", 
     const expectedCommands = [
       `npm run smoke:slack -- --env-file ${envPath} --live --evidence ${evidencePath} --json`,
       `SLACK_SMOKE_LIVE_MODE=app_mention npm run smoke:slack -- --env-file ${envPath} --live --evidence ${evidencePath} --json`,
-      "agent-space integrations slack outbox drain --workspace-id $AGENT_SPACE_WORKSPACE_ID --integration $AGENT_SPACE_SLACK_INTEGRATION_ID --json",
+      "agent-space integrations slack outbox drain --workspace-id default --integration slack-1 --json",
       `SLACK_SMOKE_LIVE_MODE=file_upload npm run smoke:slack -- --env-file ${envPath} --live --evidence ${evidencePath} --json`,
       `npm run smoke:slack:verify -- --verify-evidence ${evidencePath} --env-file ${envPath} --json`,
-      `agent-space integrations slack evidence --workspace-id $AGENT_SPACE_WORKSPACE_ID --integration $AGENT_SPACE_SLACK_INTEGRATION_ID --live-smoke-evidence ${evidencePath} --strict --require all --json`,
+      `agent-space integrations slack evidence --workspace-id default --integration slack-1 --live-smoke-evidence ${evidencePath} --strict --require all --json`,
     ];
     assert.deepEqual(output.nextCommands, expectedCommands);
     assert.doesNotMatch(result.stdout, /ACHANNELMATCH|TCHANNELMATCH|CONE|CTWO|UBOTCHANNEL|FCHANNELMATCH|178340010/);

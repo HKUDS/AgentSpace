@@ -180,6 +180,8 @@ async function main(): Promise<void> {
 }
 
 export function buildSlackSmokeDryRunOutput(env: Record<string, string | undefined>): SlackSmokeOutput {
+  const context = buildSlackSmokeContext(env);
+  const cliTargetFlags = buildSlackSmokeCliTargetFlags(context);
   const items = REQUIRED_ENV.map((key): SlackSmokeEnvItem => {
     const value = env[key]?.trim();
     const ready = Boolean(value) && !isPlaceholderValue(value) && isWellFormedEnvValue(key, value);
@@ -198,7 +200,7 @@ export function buildSlackSmokeDryRunOutput(env: Record<string, string | undefin
     mode: "dry-run",
     live: false,
     ready: missingRequired.length === 0,
-    context: buildSlackSmokeContext(env),
+    context,
     summary: {
       required: items.length,
       passed: items.filter((item) => item.status === "pass").length,
@@ -208,16 +210,16 @@ export function buildSlackSmokeDryRunOutput(env: Record<string, string | undefin
     items,
     manualActions: buildSlackSmokeManualActions(),
     nextCommands: [
-      "agent-space integrations slack health-check --workspace-id $AGENT_SPACE_WORKSPACE_ID --integration $AGENT_SPACE_SLACK_INTEGRATION_ID --json",
-      "agent-space integrations slack readiness --workspace-id $AGENT_SPACE_WORKSPACE_ID --integration $AGENT_SPACE_SLACK_INTEGRATION_ID --strict --json",
+      `agent-space integrations slack health-check ${cliTargetFlags} --json`,
+      `agent-space integrations slack readiness ${cliTargetFlags} --strict --json`,
       "npm run smoke:slack -- --env-file scripts/slack/.env --replay-webhook --json",
       "npm run smoke:slack -- --env-file scripts/slack/.env --live --evidence runtime-output/slack-smoke/live.json --json",
       "SLACK_SMOKE_LIVE_MODE=app_mention npm run smoke:slack -- --env-file scripts/slack/.env --live --evidence runtime-output/slack-smoke/live.json --json",
-      "agent-space integrations slack outbox drain --workspace-id $AGENT_SPACE_WORKSPACE_ID --integration $AGENT_SPACE_SLACK_INTEGRATION_ID --json",
+      `agent-space integrations slack outbox drain ${cliTargetFlags} --json`,
       "SLACK_SMOKE_LIVE_MODE=file_upload npm run smoke:slack -- --env-file scripts/slack/.env --live --evidence runtime-output/slack-smoke/live.json --json",
       "npm run smoke:slack:verify -- --env-file scripts/slack/.env --json",
-      "agent-space integrations slack evidence --workspace-id $AGENT_SPACE_WORKSPACE_ID --integration $AGENT_SPACE_SLACK_INTEGRATION_ID --strict --require message --json",
-      "agent-space integrations slack evidence --workspace-id $AGENT_SPACE_WORKSPACE_ID --integration $AGENT_SPACE_SLACK_INTEGRATION_ID --live-smoke-evidence runtime-output/slack-smoke/live.json --strict --require all --json",
+      `agent-space integrations slack evidence ${cliTargetFlags} --strict --require message --json`,
+      `agent-space integrations slack evidence ${cliTargetFlags} --live-smoke-evidence runtime-output/slack-smoke/live.json --strict --require all --json`,
     ],
   };
 }
@@ -1284,6 +1286,7 @@ function buildSlackSmokeEvidenceVerificationNextCommands(input: {
 }): string[] {
   const commands: string[] = [];
   const envFilePath = input.envFilePath ?? "scripts/slack/.env";
+  const cliTargetFlags = buildSlackSmokeCliTargetFlags(input.expectedContext);
   if (!slackSmokeEvidenceContextComplete(input.expectedContext)) {
     commands.push(`npm run smoke:slack -- --env-file ${envFilePath} --check-env --json`);
   }
@@ -1297,15 +1300,31 @@ function buildSlackSmokeEvidenceVerificationNextCommands(input: {
   for (const mode of modesToRun) {
     commands.push(buildSlackSmokeLiveCommand(mode, input.evidencePath, envFilePath));
     if (mode === "app_mention") {
-      commands.push("agent-space integrations slack outbox drain --workspace-id $AGENT_SPACE_WORKSPACE_ID --integration $AGENT_SPACE_SLACK_INTEGRATION_ID --json");
+      commands.push(`agent-space integrations slack outbox drain ${cliTargetFlags} --json`);
     }
   }
   if (!input.valid) {
     commands.push(`npm run smoke:slack:verify -- --verify-evidence ${input.evidencePath} --env-file ${envFilePath} --json`);
   }
-  commands.push("agent-space integrations slack outbox drain --workspace-id $AGENT_SPACE_WORKSPACE_ID --integration $AGENT_SPACE_SLACK_INTEGRATION_ID --json");
-  commands.push(`agent-space integrations slack evidence --workspace-id $AGENT_SPACE_WORKSPACE_ID --integration $AGENT_SPACE_SLACK_INTEGRATION_ID --live-smoke-evidence ${input.evidencePath} --strict --require all --json`);
+  commands.push(`agent-space integrations slack outbox drain ${cliTargetFlags} --json`);
+  commands.push(`agent-space integrations slack evidence ${cliTargetFlags} --live-smoke-evidence ${input.evidencePath} --strict --require all --json`);
   return Array.from(new Set(commands));
+}
+
+function buildSlackSmokeCliTargetFlags(context: SlackSmokeContext | undefined): string {
+  const workspaceId = context?.workspaceId
+    ? formatSlackSmokeShellToken(context.workspaceId)
+    : "$AGENT_SPACE_WORKSPACE_ID";
+  const integrationId = context?.integrationId
+    ? formatSlackSmokeShellToken(context.integrationId)
+    : "$AGENT_SPACE_SLACK_INTEGRATION_ID";
+  return `--workspace-id ${workspaceId} --integration ${integrationId}`;
+}
+
+function formatSlackSmokeShellToken(value: string): string {
+  return /^[A-Za-z0-9_./:-]+$/.test(value)
+    ? value
+    : `'${value.replace(/'/g, "'\\''")}'`;
 }
 
 function buildSlackSmokeLiveCommand(mode: SlackSmokeLiveMode, evidencePath: string, envFilePath: string): string {
