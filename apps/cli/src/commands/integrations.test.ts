@@ -221,6 +221,99 @@ test("full CLI slack help does not load daemon runtime bundles", () => {
   assert.doesNotMatch(result.stderr, /agent-space-daemon/);
 });
 
+test("full CLI slack smoke-plan returns structured blockers without daemon runtime bundles", () => {
+  const repositoryRoot = mkdtempSync(join(tmpdir(), "agent-space-slack-cli-smoke-plan-"));
+  try {
+    writeFileSync(join(repositoryRoot, "Target.md"), "# test repository\n");
+    const result = spawnSync(process.execPath, [
+      "--experimental-strip-types",
+      "apps/cli/src/index.ts",
+      "integrations",
+      "slack",
+      "smoke-plan",
+      "--workspace-id",
+      "default",
+      "--app-url",
+      "https://agentspace.test",
+      "--strict",
+      "--require",
+      "all",
+      "--json",
+    ], {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        AGENT_SPACE_REPOSITORY_ROOT: repositoryRoot,
+      },
+    });
+
+    assert.equal(result.status, 1, result.stderr);
+    const output = JSON.parse(result.stdout) as {
+      ok?: boolean;
+      command?: string;
+      errorCode?: string;
+      errorMessage?: string;
+      nextSteps?: string[];
+    };
+    assert.equal(output.ok, false);
+    assert.equal(output.command, "integrations");
+    assert.equal(output.errorCode, "agent_space_cli.database_url_missing");
+    assert.match(output.errorMessage ?? "", /PostgreSQL database URL is required/);
+    assert.equal(output.nextSteps?.length, 1);
+    assert.doesNotMatch(result.stderr, /Dynamic require|agent-space-daemon/);
+    assert.doesNotMatch(result.stdout, /Dynamic require|agent-space-daemon/);
+  } finally {
+    rmSync(repositoryRoot, { recursive: true, force: true });
+  }
+});
+
+test("full CLI slack evidence returns structured setup blockers without daemon runtime bundles", () => {
+  const repositoryRoot = mkdtempSync(join(tmpdir(), "agent-space-slack-cli-evidence-"));
+  try {
+    writeFileSync(join(repositoryRoot, "Target.md"), "# test repository\n");
+    const liveSmokeEvidencePath = join(repositoryRoot, "runtime-output", "slack-smoke", "missing-live.json");
+    const result = spawnSync(process.execPath, [
+      "--experimental-strip-types",
+      "apps/cli/src/index.ts",
+      "integrations",
+      "slack",
+      "evidence",
+      "--workspace-id",
+      "default",
+      "--live-smoke-evidence",
+      liveSmokeEvidencePath,
+      "--strict",
+      "--require",
+      "all",
+      "--json",
+    ], {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        AGENT_SPACE_REPOSITORY_ROOT: repositoryRoot,
+      },
+    });
+
+    assert.equal(result.status, 1, result.stderr);
+    const output = JSON.parse(result.stdout) as {
+      ok?: boolean;
+      command?: string;
+      errorCode?: string;
+      errorMessage?: string;
+    };
+    assert.equal(output.ok, false);
+    assert.equal(output.command, "integrations");
+    assert.equal(output.errorCode, "agent_space_cli.database_url_missing");
+    assert.match(output.errorMessage ?? "", /PostgreSQL database URL is required/);
+    assert.doesNotMatch(result.stderr, /Dynamic require|agent-space-daemon/);
+    assert.doesNotMatch(result.stdout, /Dynamic require|agent-space-daemon/);
+  } finally {
+    rmSync(repositoryRoot, { recursive: true, force: true });
+  }
+});
+
 test("Slack command dispatcher routes subcommands without external services", async () => {
   const calls: Array<{
     action: string;

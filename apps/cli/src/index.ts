@@ -120,8 +120,48 @@ if (isMain) {
       process.exit(code);
     })
     .catch((error: unknown) => {
-      const message = error instanceof Error ? error.message : String(error);
-      console.error(message);
+      const args = stripPnpmSeparator(process.argv.slice(2));
+      const { format } = parseFormat(args);
+      const report = buildCliUnhandledErrorReport(error, args[0]);
+      if (format === "json") {
+        console.log(JSON.stringify(report, null, 2));
+      } else {
+        console.error(report.errorMessage);
+      }
       process.exit(1);
     });
+}
+
+function buildCliUnhandledErrorReport(error: unknown, command: string | undefined): {
+  ok: false;
+  command?: string;
+  errorCode: "agent_space_cli.database_url_missing" | "agent_space_cli.unhandled_error";
+  errorMessage: string;
+  nextSteps: string[];
+} {
+  const errorMessage = sanitizeCliErrorMessage(error instanceof Error ? error.message : String(error));
+  const databaseUrlMissing = errorMessage.includes("PostgreSQL database URL is required");
+  return {
+    ok: false,
+    ...(command ? { command } : {}),
+    errorCode: databaseUrlMissing
+      ? "agent_space_cli.database_url_missing"
+      : "agent_space_cli.unhandled_error",
+    errorMessage,
+    nextSteps: databaseUrlMissing
+      ? [
+        "Set AGENT_SPACE_DEPLOYMENT_MODE with SELF_HOSTED_DATABASE_URL or NEON_DATABASE_URL, or define AGENT_SPACE_PG_URL / DATABASE_URL.",
+      ]
+      : [
+        "Rerun the command with --help to verify usage, then check the command-specific setup prerequisites.",
+      ],
+  };
+}
+
+function sanitizeCliErrorMessage(message: string): string {
+  return message
+    .replace(/\b(xox[abprs]?|xapp)-[A-Za-z0-9-]+\b/gi, "[redacted]")
+    .replace(/\b(Bearer\s+)[A-Za-z0-9._~+/=-]+\b/gi, "$1[redacted]")
+    .replace(/\b(postgres(?:ql)?:\/\/[^:\s/@]+:)[^@\s]+@/gi, "$1***@")
+    .slice(0, 1000);
 }

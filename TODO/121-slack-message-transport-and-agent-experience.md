@@ -1159,7 +1159,7 @@ rawPayload = summarized payload or original safe subset
 - strict final evidence 要求累积 artifact 的每条 live run 都自带 workspace/integration/app/team context，且逐条满足 24 小时 freshness；只有旧版单 run artifact 才允许回退使用顶层 context，避免历史 contextless 或 stale runs 在追加新 run 后被误复用。
 - strict Slack evidence 会忽略超过 24 小时的本地 event / mapping / outbox 证据；如果旧记录本可满足门禁但 fresh 证据不足，最终报告会以 `local_evidence_stale` 阻断，避免用历史 smoke 误通过验收。
 - strict Slack evidence 还要求最近 24 小时内的 healthy health-check；如果 credential/scope/socket 状态已退化或 health-check 过期，最终报告会以 `health_check_required_or_unhealthy` / `health_check_stale_or_missing` 阻断。
-- 真实 `agent-space integrations slack --help` 入口现在按需加载 CLI 命令模块，不会为了 Slack setup/help 路径加载 `agent-space-daemon` runtime bundle；`apps/cli/src/commands/integrations.test.ts` 覆盖该启动路径，避免 daemon bundle 的 Slack SDK 动态 require 阻断验收命令。
+- 真实 `agent-space integrations slack --help`、`smoke-plan --strict --require all --json` 和 `evidence --strict --require all --json` 入口现在按需加载 CLI 命令模块，不会为了 Slack setup/help/evidence 路径加载 `agent-space-daemon` runtime bundle；CLI 顶层 `--json` 异常 fallback 会把缺 DB 配置等基础阻断输出为结构化 `agent_space_cli.*` JSON，`apps/cli/src/commands/integrations.test.ts` 覆盖这些启动路径，避免 daemon bundle 的 Slack SDK 动态 require 或空 stdout 阻断验收命令。
 - `packages/services/src/integrations/providers/slack/__tests__/evidence.test.ts` 覆盖 strict all 需要 redacted live smoke evidence；`scripts/slack/smoke.test.ts` 覆盖同一 artifact 累积 `post_message` + `app_mention` + `file_upload` 三次 live runs。
 
 ## 验收标准
