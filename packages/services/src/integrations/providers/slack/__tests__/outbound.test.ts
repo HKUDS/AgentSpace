@@ -3,9 +3,11 @@ import test from "node:test";
 import {
   buildSlackAgentStatusCardOutboundMessage,
   buildSlackAppHomeOpenedWelcomeOutboundMessage,
+  buildSlackAssistantSuggestedPromptsOutboundMessage,
   buildSlackTextOutboundMessage,
   resolveSlackReplyTargetExternalMessageId,
   selectSlackOutboundChannelBindingForReply,
+  sendSlackAssistantSuggestedPrompts,
   sendSlackChatPostMessage,
 } from "../outbound.ts";
 
@@ -130,6 +132,59 @@ test("builds Slack app_home_opened welcome messages", () => {
   assert.equal(payload.blocks?.[0]?.type, "section");
   assert.match(payload.blocks?.[0]?.text?.text ?? "", /AgentSpace is ready for Atlas/);
   assert.match(JSON.stringify(payload.blocks), /Workspace permissions/);
+});
+
+test("builds Slack assistant suggested prompt payloads", () => {
+  const outbound = buildSlackAssistantSuggestedPromptsOutboundMessage({
+    targetExternalChatId: "D123",
+    agentId: "Atlas",
+    prompts: [{
+      title: "Review approvals",
+      message: "Show pending approvals.",
+    }],
+  });
+
+  assert.equal(outbound.targetExternalChatId, "D123");
+  assert.deepEqual(outbound.payload, {
+    method: "assistant.threads.setSuggestedPrompts",
+    channel_id: "D123",
+    title: "Suggested prompts",
+    prompts: [{
+      title: "Review approvals",
+      message: "Show pending approvals.",
+    }],
+  });
+});
+
+test("sends Slack assistant suggested prompt payloads", async () => {
+  const calls: Array<{
+    url: string;
+    init?: RequestInit;
+  }> = [];
+  const result = await sendSlackAssistantSuggestedPrompts({
+    botToken: "xoxb-test",
+    payload: {
+      method: "assistant.threads.setSuggestedPrompts",
+      channel_id: "D123",
+      title: "Suggested prompts",
+      prompts: [{
+        title: "Plan next steps",
+        message: "Help me plan.",
+      }],
+    },
+    fetchImpl: async (url, init) => {
+      calls.push({ url: String(url), init });
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    },
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0]?.url, "https://slack.com/api/assistant.threads.setSuggestedPrompts");
+  const body = JSON.parse(String(calls[0]?.init?.body ?? "{}")) as Record<string, unknown>;
+  assert.equal(body.channel_id, "D123");
+  assert.equal(body.method, undefined);
+  assert.equal((calls[0]?.init?.headers as Record<string, string>).Authorization, "Bearer xoxb-test");
 });
 
 test("sends Slack chat.postMessage Block Kit payloads", async () => {

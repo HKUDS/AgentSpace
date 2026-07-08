@@ -64,6 +64,7 @@ export type SlackAppHomeOpenedWelcomeQueueResult =
   | {
     status: "queued";
     outbox: ExternalMessageOutboxRecord;
+    suggestedPromptsOutbox: ExternalMessageOutboxRecord;
     mapping: ExternalMessageMappingRecord;
   }
   | {
@@ -86,6 +87,21 @@ export interface SlackBlockKitOutboundPayload extends SlackTextOutboundPayload {
 
 export type SlackChatPostMessagePayload = SlackTextOutboundPayload | SlackBlockKitOutboundPayload;
 
+export interface SlackAssistantSuggestedPrompt {
+  title: string;
+  message: string;
+}
+
+export interface SlackAssistantSuggestedPromptsPayload extends Record<string, unknown> {
+  method: "assistant.threads.setSuggestedPrompts";
+  channel_id: string;
+  prompts: SlackAssistantSuggestedPrompt[];
+  title?: string;
+  thread_ts?: string;
+}
+
+export type SlackOutboundApiPayload = SlackChatPostMessagePayload | SlackAssistantSuggestedPromptsPayload;
+
 export type SlackAgentStatusCardStatus =
   | "thinking"
   | "complete"
@@ -98,14 +114,17 @@ export interface SlackApprovalBlockActionPayload {
   token: string;
 }
 
-export interface SlackApiPostMessageResult {
+export interface SlackApiMethodResult {
   ok: boolean;
-  channel?: string;
-  ts?: string;
   errorCode?: string;
   errorMessage?: string;
   retryAfterSeconds?: number;
   status: number;
+}
+
+export interface SlackApiPostMessageResult extends SlackApiMethodResult {
+  channel?: string;
+  ts?: string;
 }
 
 export function buildSlackTextOutboundMessage(input: {
@@ -184,6 +203,28 @@ export function buildSlackAppHomeOpenedWelcomeOutboundMessage(input: {
       },
     ],
   });
+}
+
+export function buildSlackAssistantSuggestedPromptsOutboundMessage(input: {
+  targetExternalChatId: string;
+  title?: string;
+  prompts?: SlackAssistantSuggestedPrompt[];
+  targetExternalThreadId?: string;
+  agentId?: string | null;
+}): ExternalOutboundMessagePayload {
+  const prompts = normalizeSlackAssistantSuggestedPrompts(input.prompts, input.agentId);
+  const title = input.title?.trim() || "Suggested prompts";
+  return {
+    targetExternalChatId: input.targetExternalChatId,
+    targetExternalThreadId: input.targetExternalThreadId,
+    payload: {
+      method: "assistant.threads.setSuggestedPrompts",
+      channel_id: input.targetExternalChatId,
+      prompts,
+      title: truncateSlackBlockText(title),
+      ...(input.targetExternalThreadId ? { thread_ts: input.targetExternalThreadId } : {}),
+    } satisfies SlackAssistantSuggestedPromptsPayload,
+  };
 }
 
 export function buildSlackAgentStatusBlocks(input: {
@@ -400,7 +441,54 @@ export function queueSlackAppHomeOpenedWelcomeOutboxSync(input: {
       agentContext: input.agentContext,
     },
   });
-  return { status: "queued", outbox, mapping };
+  const suggestedPromptsOutbox = queueSlackAssistantSuggestedPromptsOutboxSync({
+    workspaceId: input.workspaceId,
+    integration: input.integration,
+    externalChatId: input.externalChatId,
+    externalUserId: input.externalUserId,
+    source: "app_home_opened",
+    agentContext: input.agentContext,
+  });
+  return { status: "queued", outbox, suggestedPromptsOutbox, mapping };
+}
+
+export function queueSlackAssistantSuggestedPromptsOutboxSync(input: {
+  workspaceId: string;
+  integration: Pick<ExternalIntegrationRecord, "id" | "agentId">;
+  externalChatId: string;
+  externalUserId?: string;
+  externalThreadId?: string;
+  source: "app_home_opened" | "manual";
+  title?: string;
+  prompts?: SlackAssistantSuggestedPrompt[];
+  agentContext?: SlackAgentContextSummary;
+}): ExternalMessageOutboxRecord {
+  const outbound = buildSlackAssistantSuggestedPromptsOutboundMessage({
+    targetExternalChatId: input.externalChatId,
+    targetExternalThreadId: input.externalThreadId,
+    title: input.title ?? "Suggested prompts",
+    prompts: input.prompts,
+    agentId: input.integration.agentId,
+  });
+  return enqueueExternalOutboundMessageSync({
+    context: {
+      workspaceId: input.workspaceId,
+      integrationId: input.integration.id,
+      provider: SLACK_PROVIDER_ID,
+    },
+    outbound,
+    metadataJson: {
+      ...buildSlackQueuedOutboxMetadata({
+        source: "assistant_suggested_prompts",
+        outbound,
+        integration: input.integration,
+      }),
+      assistantMethod: "assistant.threads.setSuggestedPrompts",
+      promptSource: input.source,
+      externalUserReference: formatSlackOutboundReference(input.externalUserId),
+      agentContext: input.agentContext,
+    },
+  });
 }
 
 export function queueSlackChannelReplyOutboxSync(input: {
@@ -605,6 +693,30 @@ export async function processSlackOutboxMessage(input: {
   });
   const credentials = readSlackIntegrationCredentials(input.integration);
   const payload = readSlackOutboundPayload(locked.payloadJson);
+  if (isSlackAssistantSuggestedPromptsPayload(payload)) {
+    const response = await sendSlackAssistantSuggestedPrompts({
+      botToken: credentials.botToken,
+      payload,
+      baseUrl: input.baseUrl,
+      fetchImpl: input.fetchImpl,
+    });
+    if (response.ok) {
+      completeExternalMessageOutboxSync({
+        workspaceId: input.workspaceId,
+        outboxId: locked.id,
+      });
+      return {
+        outboxId: locked.id,
+        status: "sent",
+      };
+    }
+    return failSlackOutboxWithResponse({
+      workspaceId: input.workspaceId,
+      locked,
+      response,
+      defaultErrorMessage: "Slack assistant.threads.setSuggestedPrompts failed.",
+    });
+  }
   const response = await sendSlackChatPostMessage({
     botToken: credentials.botToken,
     payload,
@@ -638,27 +750,12 @@ export async function processSlackOutboxMessage(input: {
     };
   }
 
-  const retryable = isSlackOutboundErrorRetryable(response);
-  const terminal = !retryable || locked.attempts >= SLACK_OUTBOX_MAX_ATTEMPTS;
-  const nextAttemptAt = retryable && !terminal
-    ? computeSlackOutboxNextAttemptAt(response.retryAfterSeconds)
-    : undefined;
-  failExternalMessageOutboxSync({
+  return failSlackOutboxWithResponse({
     workspaceId: input.workspaceId,
-    outboxId: locked.id,
-    lastError: response.errorMessage ?? response.errorCode ?? "Slack outbound message failed.",
-    nextAttemptAt,
-    terminal,
+    locked,
+    response,
+    defaultErrorMessage: "Slack outbound message failed.",
   });
-  return {
-    outboxId: locked.id,
-    status: "failed",
-    errorCode: response.errorCode,
-    errorMessage: response.errorMessage,
-    retryable,
-    terminal,
-    nextAttemptAt,
-  };
 }
 
 export async function sendSlackChatPostMessage(input: {
@@ -718,12 +815,76 @@ export async function sendSlackChatPostMessage(input: {
   };
 }
 
+export async function sendSlackAssistantSuggestedPrompts(input: {
+  botToken: string;
+  payload: SlackAssistantSuggestedPromptsPayload;
+  baseUrl?: string;
+  fetchImpl?: typeof fetch;
+}): Promise<SlackApiMethodResult> {
+  const botToken = input.botToken.trim();
+  if (!botToken) {
+    return {
+      ok: false,
+      status: 0,
+      errorCode: "slack.bot_token_missing",
+      errorMessage: "Slack bot token is missing.",
+    };
+  }
+  const fetchImpl = input.fetchImpl ?? fetch;
+  const body = {
+    channel_id: input.payload.channel_id,
+    prompts: input.payload.prompts,
+    ...(input.payload.title ? { title: input.payload.title } : {}),
+    ...(input.payload.thread_ts ? { thread_ts: input.payload.thread_ts } : {}),
+  };
+  const response = await fetchImpl(`${input.baseUrl ?? "https://slack.com/api"}/assistant.threads.setSuggestedPrompts`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${botToken}`,
+      "content-type": "application/json; charset=utf-8",
+    },
+    body: JSON.stringify(body),
+  });
+  if (response.status === 429) {
+    const retryAfter = Number(response.headers.get("retry-after") ?? "");
+    return {
+      ok: false,
+      status: response.status,
+      errorCode: "slack.rate_limited",
+      errorMessage: "Slack rate limited assistant.threads.setSuggestedPrompts.",
+      retryAfterSeconds: Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : undefined,
+    };
+  }
+  let data: Record<string, unknown> = {};
+  try {
+    data = await response.json() as Record<string, unknown>;
+  } catch {
+    data = {};
+  }
+  if (response.ok && data.ok === true) {
+    return {
+      ok: true,
+      status: response.status,
+    };
+  }
+  const errorCode = typeof data.error === "string" ? data.error : `http_${response.status}`;
+  return {
+    ok: false,
+    status: response.status,
+    errorCode,
+    errorMessage: `Slack assistant.threads.setSuggestedPrompts failed: ${errorCode}`,
+  };
+}
+
 export function computeSlackOutboxNextAttemptAt(retryAfterSeconds = 60): string {
   return new Date(Date.now() + Math.max(1, retryAfterSeconds) * 1000).toISOString();
 }
 
-function readSlackOutboundPayload(value: string): SlackChatPostMessagePayload {
+function readSlackOutboundPayload(value: string): SlackOutboundApiPayload {
   const parsed = JSON.parse(value) as Record<string, unknown>;
+  if (parsed.method === "assistant.threads.setSuggestedPrompts") {
+    return readSlackAssistantSuggestedPromptsPayload(parsed);
+  }
   const channel = typeof parsed.channel === "string" ? parsed.channel.trim() : "";
   const text = typeof parsed.text === "string" ? parsed.text : "";
   const threadTs = typeof parsed.thread_ts === "string" ? parsed.thread_ts.trim() : undefined;
@@ -739,8 +900,48 @@ function readSlackOutboundPayload(value: string): SlackChatPostMessagePayload {
   };
 }
 
+function readSlackAssistantSuggestedPromptsPayload(
+  parsed: Record<string, unknown>,
+): SlackAssistantSuggestedPromptsPayload {
+  const channelId = typeof parsed.channel_id === "string" ? parsed.channel_id.trim() : "";
+  const threadTs = typeof parsed.thread_ts === "string" ? parsed.thread_ts.trim() : undefined;
+  const title = typeof parsed.title === "string" ? parsed.title.trim() : undefined;
+  const prompts = normalizeSlackAssistantSuggestedPrompts(Array.isArray(parsed.prompts)
+    ? parsed.prompts.flatMap((prompt): SlackAssistantSuggestedPrompt[] => {
+        if (!prompt || typeof prompt !== "object" || Array.isArray(prompt)) {
+          return [];
+        }
+        const record = prompt as Record<string, unknown>;
+        return typeof record.title === "string" && typeof record.message === "string"
+          ? [{ title: record.title, message: record.message }]
+          : [];
+      })
+    : undefined);
+  if (!channelId || prompts.length === 0) {
+    throw new Error("slack.assistant_suggested_prompts_payload_invalid");
+  }
+  return {
+    method: "assistant.threads.setSuggestedPrompts",
+    channel_id: channelId,
+    prompts,
+    ...(title ? { title: truncateSlackBlockText(title) } : {}),
+    ...(threadTs ? { thread_ts: threadTs } : {}),
+  };
+}
+
+function isSlackAssistantSuggestedPromptsPayload(
+  payload: SlackOutboundApiPayload,
+): payload is SlackAssistantSuggestedPromptsPayload {
+  return "method" in payload && payload.method === "assistant.threads.setSuggestedPrompts";
+}
+
 function buildSlackQueuedOutboxMetadata(input: {
-  source: "direct_outbound_message" | "agent_reply" | "agent_status_card" | "app_home_opened_welcome";
+  source:
+    | "direct_outbound_message"
+    | "agent_reply"
+    | "agent_status_card"
+    | "app_home_opened_welcome"
+    | "assistant_suggested_prompts";
   outbound: Pick<ExternalOutboundMessagePayload, "targetExternalChatId" | "targetExternalThreadId">;
   integration?: Pick<ExternalIntegrationRecord, "id" | "agentId"> | null;
   attachmentCount?: number;
@@ -763,6 +964,62 @@ function buildSlackAppHomeOpenedWelcomeExternalMessageId(input: {
   externalUserId: string;
 }): string {
   return `slack-app-home-welcome-${buildSlackReference(`${input.externalChatId}:${input.externalUserId}`).slice(4)}`;
+}
+
+function normalizeSlackAssistantSuggestedPrompts(
+  prompts: SlackAssistantSuggestedPrompt[] | undefined,
+  agentId?: string | null,
+): SlackAssistantSuggestedPrompt[] {
+  const agentLabel = readString(agentId) ?? "AgentSpace";
+  const source = prompts && prompts.length > 0
+    ? prompts
+    : [
+        {
+          title: "Plan next steps",
+          message: `Ask ${agentLabel} to turn this request into concrete next actions.`,
+        },
+        {
+          title: "Summarize context",
+          message: `Ask ${agentLabel} to summarize the relevant AgentSpace context.`,
+        },
+        {
+          title: "Review approvals",
+          message: `Ask ${agentLabel} what approvals or human decisions are still needed.`,
+        },
+      ];
+  return source.map((prompt) => ({
+    title: truncateSlackBlockText(prompt.title.trim()).slice(0, 75).trimEnd(),
+    message: truncateSlackBlockText(prompt.message.trim()),
+  })).filter((prompt) => prompt.title && prompt.message).slice(0, 4);
+}
+
+function failSlackOutboxWithResponse(input: {
+  workspaceId: string;
+  locked: ExternalMessageOutboxRecord;
+  response: SlackApiMethodResult;
+  defaultErrorMessage: string;
+}): SlackOutboxProcessResult {
+  const retryable = isSlackOutboundErrorRetryable(input.response);
+  const terminal = !retryable || input.locked.attempts >= SLACK_OUTBOX_MAX_ATTEMPTS;
+  const nextAttemptAt = retryable && !terminal
+    ? computeSlackOutboxNextAttemptAt(input.response.retryAfterSeconds)
+    : undefined;
+  failExternalMessageOutboxSync({
+    workspaceId: input.workspaceId,
+    outboxId: input.locked.id,
+    lastError: input.response.errorMessage ?? input.response.errorCode ?? input.defaultErrorMessage,
+    nextAttemptAt,
+    terminal,
+  });
+  return {
+    outboxId: input.locked.id,
+    status: "failed",
+    errorCode: input.response.errorCode,
+    errorMessage: input.response.errorMessage,
+    retryable,
+    terminal,
+    nextAttemptAt,
+  };
 }
 
 interface SlackOutboundIntegrationCandidate {
@@ -969,7 +1226,7 @@ function readString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
-function isSlackOutboundErrorRetryable(response: SlackApiPostMessageResult): boolean {
+function isSlackOutboundErrorRetryable(response: SlackApiMethodResult): boolean {
   if (response.status === 429 || response.status >= 500 || response.status === 0) {
     return true;
   }

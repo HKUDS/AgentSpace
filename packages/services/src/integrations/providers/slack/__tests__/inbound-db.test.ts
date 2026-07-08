@@ -209,11 +209,21 @@ test("agent-scoped Slack bots in the same Slack channel route to their own Agent
     workspaceId: DEFAULT_WORKSPACE_ID,
     integrationId: atlasIntegration.id,
   }).filter((item) => item.targetExternalChatId === "D_ATLAS");
-  assert.equal(welcomeOutbox.length, 1);
-  const welcomeMetadata = JSON.parse(welcomeOutbox[0]?.metadataJson ?? "{}") as Record<string, unknown>;
+  assert.equal(welcomeOutbox.length, 2);
+  const parsedOutbox = welcomeOutbox.map((item) => ({
+    item,
+    metadata: JSON.parse(item.metadataJson) as Record<string, unknown>,
+  }));
+  const welcomeMetadata = parsedOutbox.find((entry) => entry.metadata.outboxSource === "app_home_opened_welcome")?.metadata;
+  const promptsMetadata = parsedOutbox.find((entry) => entry.metadata.outboxSource === "assistant_suggested_prompts")?.metadata;
+  assert.ok(welcomeMetadata);
+  assert.ok(promptsMetadata);
   assert.equal(welcomeMetadata.outboxSource, "app_home_opened_welcome");
+  assert.equal(promptsMetadata.assistantMethod, "assistant.threads.setSuggestedPrompts");
   assert.equal(JSON.stringify(welcomeMetadata).includes("D_ATLAS"), false);
   assert.equal(JSON.stringify(welcomeMetadata).includes("UMINA"), false);
+  assert.equal(JSON.stringify(promptsMetadata).includes("D_ATLAS"), false);
+  assert.equal(JSON.stringify(promptsMetadata).includes("UMINA"), false);
 });
 
 function seedSlackAgentBotWorkspace(): void {
