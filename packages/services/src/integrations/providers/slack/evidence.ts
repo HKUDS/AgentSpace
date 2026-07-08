@@ -105,8 +105,10 @@ export interface SlackEvidenceIntegrationItem {
   approvals: {
     satisfied: boolean;
     processedBlockActions: number;
+    processedBlockActionApprovalIds: number;
     failedBlockActions: number;
     approvalStatusOutbox: number;
+    correlatedApprovalStatusOutbox: number;
   };
   files: {
     satisfied: boolean;
@@ -641,17 +643,29 @@ function buildApprovalEvidence(
   outbox: ExternalMessageOutboxRecord[],
 ): SlackEvidenceIntegrationItem["approvals"] {
   const blockActionEvents = events.filter((event) => event.eventType === "block_actions");
-  const processedBlockActions = blockActionEvents.filter((event) => event.status === "processed").length;
+  const processedBlockActionEvents = blockActionEvents.filter((event) => event.status === "processed");
+  const processedBlockActions = processedBlockActionEvents.length;
+  const processedApprovalIds = new Set(processedBlockActionEvents.flatMap((event) => {
+    const approvalId = readSlackBlockActionApprovalId(event);
+    return approvalId ? [approvalId] : [];
+  }));
   const failedBlockActions = blockActionEvents.filter((event) => event.status === "failed").length;
-  const approvalStatusOutbox = outbox.filter((item) =>
+  const approvalStatusOutboxItems = outbox.filter((item) =>
     item.status === "sent" &&
     readJsonStringField(item.metadataJson, "outboxSource") === "agent_status_card"
-  ).length;
+  );
+  const approvalStatusOutbox = approvalStatusOutboxItems.length;
+  const correlatedApprovalStatusOutbox = approvalStatusOutboxItems.filter((item) => {
+    const approvalId = readSlackStatusOutboxApprovalId(item);
+    return approvalId ? processedApprovalIds.has(approvalId) : false;
+  }).length;
   return {
-    satisfied: processedBlockActions > 0 && approvalStatusOutbox > 0,
+    satisfied: processedApprovalIds.size > 0 && correlatedApprovalStatusOutbox > 0,
     processedBlockActions,
+    processedBlockActionApprovalIds: processedApprovalIds.size,
     failedBlockActions,
     approvalStatusOutbox,
+    correlatedApprovalStatusOutbox,
   };
 }
 
@@ -758,8 +772,14 @@ function buildSlackApprovalEvidenceBlockers(approvals: SlackEvidenceIntegrationI
   if (approvals.processedBlockActions === 0) {
     blockers.push("slack_approval_block_action_evidence_missing");
   }
+  if (approvals.processedBlockActions > 0 && approvals.processedBlockActionApprovalIds === 0) {
+    blockers.push("slack_approval_block_action_id_missing");
+  }
   if (approvals.approvalStatusOutbox === 0) {
     blockers.push("slack_approval_status_outbox_evidence_missing");
+  }
+  if (approvals.approvalStatusOutbox > 0 && approvals.correlatedApprovalStatusOutbox === 0) {
+    blockers.push("slack_approval_status_outbox_correlation_missing");
   }
   return blockers;
 }
@@ -833,6 +853,23 @@ function isSlackMessageReplyOutbox(item: ExternalMessageOutboxRecord): boolean {
 
 function isSlackMessageReplyOutboxSource(outboxSource: string | undefined): boolean {
   return outboxSource === "agent_reply" || outboxSource === "direct_outbound_message";
+}
+
+function readSlackBlockActionApprovalId(event: ExternalIntegrationEventRecord): string | undefined {
+  const payload = parseJsonRecord(event.payloadJson);
+  const approvalBlockAction = parseJsonRecord(payload?.approvalBlockAction);
+  return approvalBlockAction
+    ? readJsonStringFieldFromRecord(approvalBlockAction, "approvalId") ??
+      readJsonStringFieldFromRecord(approvalBlockAction, "approval_id")
+    : undefined;
+}
+
+function readSlackStatusOutboxApprovalId(item: ExternalMessageOutboxRecord): string | undefined {
+  const metadata = parseJsonRecord(item.metadataJson);
+  return metadata
+    ? readJsonStringFieldFromRecord(metadata, "approvalId") ??
+      readJsonStringFieldFromRecord(metadata, "approval_id")
+    : undefined;
 }
 
 function readSlackInboundMappingThreadId(mapping: ExternalMessageMappingRecord): string | undefined {

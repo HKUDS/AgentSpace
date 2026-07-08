@@ -141,6 +141,7 @@ test("builds strict Slack evidence reports without raw external ids", () => {
           metadataJson: {
             provider: "slack",
             outboxSource: "agent_status_card",
+            approvalId: "approval-1",
             externalChatReference: "ref_safechat",
           },
         }),
@@ -813,6 +814,14 @@ test("Slack evidence approval gate requires status outbox proof", () => {
         makeEvent({
           eventType: "block_actions",
           status: "processed",
+          payloadJson: {
+            approvalBlockAction: {
+              provider: "slack",
+              approvalId: "approval-1",
+              decision: "approved",
+              rawActionPayloadStored: false,
+            },
+          },
         }),
       ],
       listMessageMappings: () => [
@@ -847,10 +856,87 @@ test("Slack evidence approval gate requires status outbox proof", () => {
 
   assert.equal(report.strictSatisfied, false);
   assert.equal(report.integrations[0]?.approvals.processedBlockActions, 1);
+  assert.equal(report.integrations[0]?.approvals.processedBlockActionApprovalIds, 1);
   assert.equal(report.integrations[0]?.approvals.approvalStatusOutbox, 0);
   assert.equal(report.integrations[0]?.approvals.satisfied, false);
   assert.ok(report.integrations[0]?.blockers.includes("slack_approval_status_outbox_evidence_missing"));
   assert.equal(report.integrations[0]?.blockers.includes("slack_approval_block_action_evidence_missing"), false);
+});
+
+test("Slack evidence approval gate requires status outbox for the same approval", () => {
+  const report = buildSlackEvidenceReport({
+    workspaceId: "workspace-1",
+    strict: true,
+    required: "approval",
+    dependencies: {
+      listIntegrations: () => [makeIntegration()],
+      listChannelBindings: () => [makeChannelBinding()],
+      listUserBindings: () => [makeUserBinding()],
+      listEvents: () => [
+        makeEvent({
+          eventType: "event_callback.app_mention",
+          status: "processed",
+        }),
+        makeEvent({
+          eventType: "block_actions",
+          status: "processed",
+          payloadJson: {
+            approvalBlockAction: {
+              provider: "slack",
+              approvalId: "approval-1",
+              decision: "approved",
+              rawActionPayloadStored: false,
+            },
+          },
+        }),
+      ],
+      listMessageMappings: () => [
+        makeMapping({
+          direction: "inbound",
+          metadataJson: {
+            provider: "slack",
+            agentId: "Atlas",
+            taskAgentId: "Atlas",
+            taskQueueId: "task-safe-1",
+          },
+        }),
+        makeMapping({
+          direction: "outbound",
+          metadataJson: {
+            provider: "slack",
+            externalChatReference: "ref_safechat",
+          },
+        }),
+      ],
+      listOutbox: () => [
+        makeOutbox({
+          status: "sent",
+          metadataJson: {
+            provider: "slack",
+            outboxSource: "agent_reply",
+          },
+        }),
+        makeOutbox({
+          status: "sent",
+          metadataJson: {
+            provider: "slack",
+            outboxSource: "agent_status_card",
+            approvalId: "approval-2",
+          },
+        }),
+      ],
+    },
+  });
+
+  assert.equal(report.strictSatisfied, false);
+  assert.equal(report.integrations[0]?.approvals.processedBlockActions, 1);
+  assert.equal(report.integrations[0]?.approvals.processedBlockActionApprovalIds, 1);
+  assert.equal(report.integrations[0]?.approvals.approvalStatusOutbox, 1);
+  assert.equal(report.integrations[0]?.approvals.correlatedApprovalStatusOutbox, 0);
+  assert.equal(report.integrations[0]?.approvals.satisfied, false);
+  assert.ok(report.integrations[0]?.blockers.includes("slack_approval_status_outbox_correlation_missing"));
+  assert.equal(report.integrations[0]?.blockers.includes("slack_approval_status_outbox_evidence_missing"), false);
+  assert.doesNotMatch(JSON.stringify(report), /approval-1|approval-2/);
 });
 
 test("Slack evidence approval gate ignores unsent status outbox proof", () => {
@@ -870,6 +956,14 @@ test("Slack evidence approval gate ignores unsent status outbox proof", () => {
         makeEvent({
           eventType: "block_actions",
           status: "processed",
+          payloadJson: {
+            approvalBlockAction: {
+              provider: "slack",
+              approvalId: "approval-1",
+              decision: "approved",
+              rawActionPayloadStored: false,
+            },
+          },
         }),
       ],
       listMessageMappings: () => [
@@ -903,6 +997,7 @@ test("Slack evidence approval gate ignores unsent status outbox proof", () => {
           metadataJson: {
             provider: "slack",
             outboxSource: "agent_status_card",
+            approvalId: "approval-1",
           },
         }),
         makeOutbox({
@@ -910,6 +1005,7 @@ test("Slack evidence approval gate ignores unsent status outbox proof", () => {
           metadataJson: {
             provider: "slack",
             outboxSource: "agent_status_card",
+            approvalId: "approval-1",
           },
         }),
       ],
@@ -1533,6 +1629,14 @@ test("Slack evidence strict all requires live artifact for the same satisfied in
             status: "processed",
             receivedAt: timestamp,
             processedAt: timestamp,
+            payloadJson: {
+              approvalBlockAction: {
+                provider: "slack",
+                approvalId: "approval-1",
+                decision: "approved",
+                rawActionPayloadStored: false,
+              },
+            },
           }),
         ]
         : [],
@@ -1627,6 +1731,7 @@ test("Slack evidence strict all requires live artifact for the same satisfied in
             metadataJson: {
               provider: "slack",
               outboxSource: "agent_status_card",
+              approvalId: "approval-1",
             },
           }),
           makeOutbox({
@@ -1704,6 +1809,14 @@ function makeCompleteSlackEvidenceDependencies(input: {
         status: "processed",
         receivedAt: timestamp,
         processedAt: timestamp,
+        payloadJson: {
+          approvalBlockAction: {
+            provider: "slack",
+            approvalId: "approval-1",
+            decision: "approved",
+            rawActionPayloadStored: false,
+          },
+        },
       }),
     ],
     listMessageMappings: () => [
@@ -1785,6 +1898,7 @@ function makeCompleteSlackEvidenceDependencies(input: {
         metadataJson: {
           provider: "slack",
           outboxSource: "agent_status_card",
+          approvalId: "approval-1",
         },
       }),
       makeOutbox({

@@ -701,6 +701,7 @@ export function queueSlackAgentStatusCardOutboxSync(input: {
   taskId?: string;
   agentSpaceMessageId?: string;
   sourceAgentSpaceMessageId?: string;
+  approvalId?: string;
   approvalAction?: SlackApprovalBlockActionPayload;
   actionUrl?: string | null;
   requireSourceMapping?: boolean;
@@ -750,6 +751,7 @@ export function queueSlackAgentStatusCardOutboxSync(input: {
         source: "agent_status_card",
         outbound,
         integration,
+        approvalId: input.approvalId ?? input.approvalAction?.approvalId,
       }),
     }));
   }
@@ -1629,8 +1631,10 @@ function buildSlackQueuedOutboxMetadata(input: {
   outbound: Pick<ExternalOutboundMessagePayload, "targetExternalChatId" | "targetExternalThreadId">;
   integration?: Pick<ExternalIntegrationRecord, "id" | "agentId"> | null;
   attachmentCount?: number;
+  approvalId?: string;
 }): Record<string, unknown> {
   const agentId = readString(input.integration?.agentId);
+  const approvalId = readString(input.approvalId);
   return {
     provider: SLACK_PROVIDER_ID,
     outboxSource: input.source,
@@ -1638,6 +1642,7 @@ function buildSlackQueuedOutboxMetadata(input: {
     externalThreadReference: formatSlackOutboundReference(input.outbound.targetExternalThreadId),
     agentId,
     botBindingId: agentId ? input.integration?.id : undefined,
+    approvalId,
     attachmentsUploaded: input.source === "slack_file_upload" ? undefined : false,
     attachmentCount: input.attachmentCount && input.attachmentCount > 0 ? input.attachmentCount : undefined,
   };

@@ -353,6 +353,7 @@ function queueSlackApprovalReviewStatusCardBestEffort(input: {
       message: input.message,
       taskId: readMetadataString(input.approval.metadata, "taskId"),
       sourceAgentSpaceMessageId: readMetadataString(input.approval.metadata, "sourceAgentSpaceMessageId"),
+      approvalId: input.approval.id,
       requireSourceMapping: true,
     });
   } catch {

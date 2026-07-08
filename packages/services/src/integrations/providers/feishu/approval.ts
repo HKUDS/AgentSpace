@@ -322,6 +322,7 @@ function queueSlackDataOperationApprovalCardBestEffort(input: {
       message: input.approval.contentPreview,
       taskId: input.taskId,
       sourceAgentSpaceMessageId: input.sourceAgentSpaceMessageId,
+      approvalId: input.approval.id,
       approvalAction: buildSlackApprovalBlockAction(input.approval),
       requireSourceMapping: true,
     });
