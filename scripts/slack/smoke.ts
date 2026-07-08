@@ -1286,9 +1286,11 @@ function buildSlackSmokeEvidenceVerificationNextCommands(input: {
 }): string[] {
   const commands: string[] = [];
   const envFilePath = input.envFilePath ?? "scripts/slack/.env";
+  const envFilePathArg = formatSlackSmokeShellToken(envFilePath);
+  const evidencePathArg = formatSlackSmokeShellToken(input.evidencePath);
   const cliTargetFlags = buildSlackSmokeCliTargetFlags(input.expectedContext);
   if (!slackSmokeEvidenceContextComplete(input.expectedContext)) {
-    commands.push(`npm run smoke:slack -- --env-file ${envFilePath} --check-env --json`);
+    commands.push(`npm run smoke:slack -- --env-file ${envFilePathArg} --check-env --json`);
   }
   const modesToRun = input.valid
     ? []
@@ -1304,10 +1306,10 @@ function buildSlackSmokeEvidenceVerificationNextCommands(input: {
     }
   }
   if (!input.valid) {
-    commands.push(`npm run smoke:slack:verify -- --verify-evidence ${input.evidencePath} --env-file ${envFilePath} --json`);
+    commands.push(`npm run smoke:slack:verify -- --verify-evidence ${evidencePathArg} --env-file ${envFilePathArg} --json`);
   }
   commands.push(`agent-space integrations slack outbox drain ${cliTargetFlags} --json`);
-  commands.push(`agent-space integrations slack evidence ${cliTargetFlags} --live-smoke-evidence ${input.evidencePath} --strict --require all --json`);
+  commands.push(`agent-space integrations slack evidence ${cliTargetFlags} --live-smoke-evidence ${evidencePathArg} --strict --require all --json`);
   return Array.from(new Set(commands));
 }
 
@@ -1328,7 +1330,9 @@ function formatSlackSmokeShellToken(value: string): string {
 }
 
 function buildSlackSmokeLiveCommand(mode: SlackSmokeLiveMode, evidencePath: string, envFilePath: string): string {
-  const command = `npm run smoke:slack -- --env-file ${envFilePath} --live --evidence ${evidencePath} --json`;
+  const envFilePathArg = formatSlackSmokeShellToken(envFilePath);
+  const evidencePathArg = formatSlackSmokeShellToken(evidencePath);
+  const command = `npm run smoke:slack -- --env-file ${envFilePathArg} --live --evidence ${evidencePathArg} --json`;
   return mode === "post_message"
     ? command
     : `SLACK_SMOKE_LIVE_MODE=${mode} ${command}`;

@@ -85,11 +85,13 @@ test("Slack smoke evidence verifier reports missing env file as structured JSON"
 });
 
 test("Slack smoke evidence verifier lets later evidence path override package default", async () => {
-  const directory = mkdtempSync(join(tmpdir(), "agentspace-slack-smoke-"));
+  const directory = mkdtempSync(join(tmpdir(), "agentspace slack smoke-"));
   try {
     const defaultEvidencePath = join(directory, "default-live.json");
-    const customEvidencePath = join(directory, "custom-live.json");
-    const envPath = join(directory, "custom.env");
+    const customEvidencePath = join(directory, "custom live.json");
+    const envPath = join(directory, "custom env.env");
+    const customEvidencePathArg = `'${customEvidencePath}'`;
+    const envPathArg = `'${envPath}'`;
     writeFileSync(envPath, [
       "AGENT_SPACE_WORKSPACE_ID=default",
       "AGENT_SPACE_SLACK_INTEGRATION_ID=slack-1",
@@ -124,10 +126,13 @@ test("Slack smoke evidence verifier lets later evidence path override package de
     };
     assert.equal(output.evidencePath, customEvidencePath);
     assert.ok(output.nextCommands?.includes(
-      `npm run smoke:slack -- --env-file ${envPath} --live --evidence ${customEvidencePath} --json`,
+      `npm run smoke:slack -- --env-file ${envPathArg} --live --evidence ${customEvidencePathArg} --json`,
     ));
     assert.ok(output.nextCommands?.includes(
-      `npm run smoke:slack:verify -- --verify-evidence ${customEvidencePath} --env-file ${envPath} --json`,
+      `npm run smoke:slack:verify -- --verify-evidence ${customEvidencePathArg} --env-file ${envPathArg} --json`,
+    ));
+    assert.ok(output.nextCommands?.includes(
+      `agent-space integrations slack evidence --workspace-id default --integration slack-1 --live-smoke-evidence ${customEvidencePathArg} --strict --require all --json`,
     ));
   } finally {
     rmSync(directory, { recursive: true, force: true });

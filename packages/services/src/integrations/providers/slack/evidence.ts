@@ -1715,26 +1715,34 @@ function buildSlackEvidenceNextCommands(
   required: SlackEvidenceRequirement,
   liveSmokeEvidencePath?: string,
 ): string[] {
-  const integrationFlag = integrationId ? ` --integration ${integrationId}` : "";
+  const workspaceIdArg = formatSlackEvidenceShellToken(workspaceId);
+  const integrationFlag = integrationId ? ` --integration ${formatSlackEvidenceShellToken(integrationId)}` : "";
   const requiredIntegrationFlag = integrationId ? integrationFlag : " --integration CHANGE_ME_SLACK_INTEGRATION_ID";
   const evidencePath = liveSmokeEvidencePath ?? SLACK_DEFAULT_LIVE_SMOKE_EVIDENCE_PATH;
+  const evidencePathArg = formatSlackEvidenceShellToken(evidencePath);
   const verifyEvidenceCommand = evidencePath === SLACK_DEFAULT_LIVE_SMOKE_EVIDENCE_PATH
     ? "npm run smoke:slack:verify -- --env-file scripts/slack/.env --json"
-    : `npm run smoke:slack:verify -- --verify-evidence ${evidencePath} --env-file scripts/slack/.env --json`;
+    : `npm run smoke:slack:verify -- --verify-evidence ${evidencePathArg} --env-file scripts/slack/.env --json`;
   const readinessRequirement = required === "all" ? "all" : "message";
   return [
-    `agent-space integrations slack smoke-env --workspace-id ${workspaceId}${requiredIntegrationFlag} --app-url https://agentspace.example.com > scripts/slack/.env`,
-    `agent-space integrations slack health-check --workspace-id ${workspaceId}${requiredIntegrationFlag} --json`,
-    `agent-space integrations slack readiness --workspace-id ${workspaceId}${requiredIntegrationFlag} --strict --json`,
-    `agent-space integrations slack smoke-plan --workspace-id ${workspaceId}${requiredIntegrationFlag} --strict --require ${readinessRequirement} --json`,
+    `agent-space integrations slack smoke-env --workspace-id ${workspaceIdArg}${requiredIntegrationFlag} --app-url https://agentspace.example.com > scripts/slack/.env`,
+    `agent-space integrations slack health-check --workspace-id ${workspaceIdArg}${requiredIntegrationFlag} --json`,
+    `agent-space integrations slack readiness --workspace-id ${workspaceIdArg}${requiredIntegrationFlag} --strict --json`,
+    `agent-space integrations slack smoke-plan --workspace-id ${workspaceIdArg}${requiredIntegrationFlag} --strict --require ${readinessRequirement} --json`,
     "npm run smoke:slack -- --env-file scripts/slack/.env --check-env --json",
-    `npm run smoke:slack -- --env-file scripts/slack/.env --live --evidence ${evidencePath} --json`,
-    `SLACK_SMOKE_LIVE_MODE=app_mention npm run smoke:slack -- --env-file scripts/slack/.env --live --evidence ${evidencePath} --json`,
-    `agent-space integrations slack outbox drain --workspace-id ${workspaceId}${requiredIntegrationFlag} --json`,
-    `SLACK_SMOKE_LIVE_MODE=file_upload npm run smoke:slack -- --env-file scripts/slack/.env --live --evidence ${evidencePath} --json`,
+    `npm run smoke:slack -- --env-file scripts/slack/.env --live --evidence ${evidencePathArg} --json`,
+    `SLACK_SMOKE_LIVE_MODE=app_mention npm run smoke:slack -- --env-file scripts/slack/.env --live --evidence ${evidencePathArg} --json`,
+    `agent-space integrations slack outbox drain --workspace-id ${workspaceIdArg}${requiredIntegrationFlag} --json`,
+    `SLACK_SMOKE_LIVE_MODE=file_upload npm run smoke:slack -- --env-file scripts/slack/.env --live --evidence ${evidencePathArg} --json`,
     verifyEvidenceCommand,
-    `agent-space integrations slack evidence --workspace-id ${workspaceId}${requiredIntegrationFlag} --live-smoke-evidence ${evidencePath} --strict --require ${required} --json`,
+    `agent-space integrations slack evidence --workspace-id ${workspaceIdArg}${requiredIntegrationFlag} --live-smoke-evidence ${evidencePathArg} --strict --require ${required} --json`,
   ];
+}
+
+function formatSlackEvidenceShellToken(value: string): string {
+  return /^[A-Za-z0-9_./:-]+$/.test(value)
+    ? value
+    : `'${value.replace(/'/g, "'\\''")}'`;
 }
 
 function buildSlackEvidenceIntegrationNextCommands(
