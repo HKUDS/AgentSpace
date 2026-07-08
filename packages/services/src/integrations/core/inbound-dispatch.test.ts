@@ -7,8 +7,9 @@ import type {
   recordExternalIntegrationEventSync,
   updateExternalIntegrationEventStatusSync,
 } from "@agent-space/db";
-import type { IntegrationRuntimeContext } from "./types.ts";
+import type { ExternalMessageEnvelope, IntegrationRuntimeContext } from "./types.ts";
 import {
+  prepareExternalInboundMessageDispatchSync,
   recordExternalInboundEventSync,
   resolveExternalDispatchedTaskFromRecords,
   resolveExternalInboundDuplicateMessageSync,
@@ -117,6 +118,98 @@ test("does not update inbound event status when no duplicate mapping exists", ()
 
   assert.equal(duplicate, null);
   assert.equal(updateCalled, false);
+});
+
+test("prepares ignored inbound dispatch results for non-message payloads", () => {
+  let updateInput: Parameters<typeof updateExternalIntegrationEventStatusSync>[0] | undefined;
+  const event = integrationEventRecord({
+    externalEventId: "event-1",
+  });
+
+  const prepared = prepareExternalInboundMessageDispatchSync({
+    context,
+    event,
+    externalEventId: "event-1",
+    message: null,
+    nonMessageReasonCode: "provider.non_message_event",
+    updateEventStatus: (input) => {
+      updateInput = input;
+      return integrationEventRecord({
+        externalEventId: input.externalEventId,
+        status: "ignored",
+        errorMessage: input.errorMessage,
+      });
+    },
+  });
+
+  assert.equal(prepared.ready, false);
+  assert.equal(prepared.dispatchStatus, "ignored");
+  assert.equal(prepared.message, null);
+  assert.equal(prepared.reasonCode, "provider.non_message_event");
+  assert.equal(prepared.event.status, "ignored");
+  assert.deepEqual(updateInput, {
+    workspaceId: "workspace-1",
+    provider: "provider-1",
+    externalEventId: "event-1",
+    status: "ignored",
+    errorMessage: "provider.non_message_event",
+  });
+});
+
+test("prepares duplicate inbound dispatch results before provider-specific guards", () => {
+  const event = integrationEventRecord({
+    externalEventId: "event-duplicate",
+  });
+  const mapping = messageMappingRecord({
+    externalMessageId: "message-duplicate",
+  });
+  const message = externalMessageEnvelope({
+    externalEventId: "event-duplicate",
+    externalMessageId: "message-duplicate",
+  });
+
+  const prepared = prepareExternalInboundMessageDispatchSync({
+    context,
+    event,
+    externalEventId: "event-duplicate",
+    message,
+    nonMessageReasonCode: "provider.non_message_event",
+    readMessageMappingByExternalMessage: () => mapping,
+    updateEventStatus: (input) => integrationEventRecord({
+      externalEventId: input.externalEventId,
+      status: "ignored",
+      errorMessage: input.errorMessage,
+    }),
+  });
+
+  assert.equal(prepared.ready, false);
+  assert.equal(prepared.dispatchStatus, "duplicate");
+  assert.equal(prepared.message, message);
+  assert.equal(prepared.mapping, mapping);
+  assert.equal(prepared.reasonCode, "duplicate_external_message");
+});
+
+test("prepares ready inbound dispatch results when a message is new", () => {
+  const event = integrationEventRecord({
+    externalEventId: "event-ready",
+  });
+  const message = externalMessageEnvelope({
+    externalEventId: "event-ready",
+    externalMessageId: "message-ready",
+  });
+
+  const prepared = prepareExternalInboundMessageDispatchSync({
+    context,
+    event,
+    externalEventId: "event-ready",
+    message,
+    nonMessageReasonCode: "provider.non_message_event",
+    readMessageMappingByExternalMessage: () => null,
+  });
+
+  assert.equal(prepared.ready, true);
+  assert.equal(prepared.event, event);
+  assert.equal(prepared.message, message);
 });
 
 test("resolves the newest queued task for a dispatched external message", () => {
@@ -233,5 +326,24 @@ function messageMappingRecord(input: {
     externalMessageId: input.externalMessageId,
     metadataJson: "{}",
     createdAt: "2026-07-08T08:00:00.000Z",
+  };
+}
+
+function externalMessageEnvelope(input: {
+  externalEventId: string;
+  externalMessageId: string;
+}): ExternalMessageEnvelope {
+  return {
+    provider: "provider-1",
+    integrationId: "integration-1",
+    externalEventId: input.externalEventId,
+    eventType: "message",
+    externalChatId: "chat-1",
+    externalMessageId: input.externalMessageId,
+    externalSenderId: "user-1",
+    text: "hello",
+    attachments: [],
+    rawPayload: {},
+    receivedAt: "2026-07-08T08:00:00.000Z",
   };
 }

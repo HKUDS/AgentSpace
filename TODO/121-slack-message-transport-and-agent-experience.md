@@ -866,6 +866,7 @@ rawPayload = summarized payload or original safe subset
 - `packages/services/src/integrations/providers/slack/__tests__/evidence.test.ts` 覆盖上述正反行为。真实 DB-backed task 创建仍由 `AGENT_SPACE_SLACK_INBOUND_DB_TESTS=1` gated 测试和 live smoke 验收证明。
 - `packages/services/src/integrations/core/inbound-dispatch.ts` 抽出 provider-neutral `resolveExternalDispatchedTaskSync(...)` / `resolveExternalDispatchedTaskFromRecords(...)`，Slack 和 Feishu inbound 成功 dispatch 后都复用同一套 task queue evidence 回查逻辑。
 - `packages/services/src/integrations/core/inbound-dispatch.ts` 进一步提供 `recordExternalInboundEventSync(...)` 和 `resolveExternalInboundDuplicateMessageSync(...)`，Slack / Feishu 入站都复用同一套 event record + duplicate external message guard。
+- `packages/services/src/integrations/core/inbound-dispatch.ts` 提供 `prepareExternalInboundMessageDispatchSync(...)`，统一处理 normalized inbound message 的 non-message ignored、duplicate guard 和 ready-to-dispatch 分支；Slack / Feishu inbound 都在 provider-specific routing / binding / notice 之前复用该 pre-dispatch helper。
 
 ### Phase 6：出站和 outbox drain
 
@@ -1026,7 +1027,7 @@ rawPayload = summarized payload or original safe subset
 
 做完 Slack MVP 后再清理，避免预先抽象过度。
 
-- [ ] 抽出 common external inbound dispatcher。
+- [x] 抽出 common external inbound dispatcher。
 - [x] 抽出 common setup notice / identity notice。
 - [x] 抽出 common integration settings cards。
 - [x] 抽出 common health/outbox panel。
@@ -1047,7 +1048,7 @@ rawPayload = summarized payload or original safe subset
 - Slack inbound setup / identity / permission notices 复用 common notice metadata helper，并保留 `ref_<8 hex>` 引用格式。
 - Feishu inbound setup card、plain setup / identity / permission notices、external guest identity card 复用 common notice metadata helper，并保留 `<16 hex>` 引用格式。
 - `packages/services/src/integrations/core/notices.test.ts`、Slack inbound tests、Feishu inbound tests 覆盖 notice metadata 类型、reasonCode 和 raw external id 不落 metadata。
-- `packages/services/src/integrations/core/inbound-dispatch.test.ts` 覆盖 common inbound event record、duplicate external message guard、task queue evidence 匹配；Slack inbound 和 Feishu inbound 复用该 helper 后仍保留各自 provider-specific guard / notice / native bot 逻辑。
+- `packages/services/src/integrations/core/inbound-dispatch.test.ts` 覆盖 common inbound event record、non-message ignored pre-dispatch、duplicate external message guard、ready-to-dispatch 分支和 task queue evidence 匹配；Slack inbound 和 Feishu inbound 复用该 helper 后仍保留各自 provider-specific guard / notice / native bot 逻辑。
 - `node --experimental-strip-types --test packages/services/src/integrations/providers/feishu/__tests__/*.test.ts` 本地回归通过：141 pass / 53 skipped（skipped 均为需要测试 PostgreSQL 的 DB-gated tests）/ 0 fail。
 - `apps/web/features/integrations/integration-health-outbox-panel.tsx` 提供 provider-neutral `IntegrationOutboxFailureList` / `IntegrationInboundEventList`，Slack 和 Feishu settings health panel 共用最近出站失败、最近入站事件、状态 chip 和重试/错误展示逻辑。
 - `apps/web/features/integrations/integration-settings-cards.tsx` 提供 provider-neutral `IntegrationMetricGrid`，Slack 和 Feishu settings 顶部 summary cards 共用同一套 metric card 结构并保留现有 CSS class。

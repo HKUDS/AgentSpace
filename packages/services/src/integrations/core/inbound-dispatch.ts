@@ -7,7 +7,7 @@ import {
   type ExternalMessageMappingRecord,
   type QueuedTaskRecord,
 } from "@agent-space/db";
-import type { IntegrationRuntimeContext } from "./types.ts";
+import type { ExternalMessageEnvelope, IntegrationRuntimeContext } from "./types.ts";
 
 export interface ExternalInboundEventRecordInput {
   context: IntegrationRuntimeContext;
@@ -31,6 +31,31 @@ export interface ExternalInboundDuplicateMessageResult {
   mapping: ExternalMessageMappingRecord;
   reasonCode: "duplicate_external_message";
 }
+
+export interface ExternalInboundMessagePreDispatchInput {
+  context: IntegrationRuntimeContext;
+  event: ExternalIntegrationEventRecord;
+  externalEventId: string;
+  message: ExternalMessageEnvelope | null;
+  nonMessageReasonCode: string;
+  readMessageMappingByExternalMessage?: typeof readExternalMessageMappingByExternalMessageSync;
+  updateEventStatus?: typeof updateExternalIntegrationEventStatusSync;
+}
+
+export type ExternalInboundMessagePreDispatchResult =
+  | {
+    ready: true;
+    event: ExternalIntegrationEventRecord;
+    message: ExternalMessageEnvelope;
+  }
+  | {
+    ready: false;
+    dispatchStatus: "duplicate" | "ignored";
+    event: ExternalIntegrationEventRecord;
+    message: ExternalMessageEnvelope | null;
+    reasonCode: string;
+    mapping?: ExternalMessageMappingRecord;
+  };
 
 export interface ExternalDispatchedTaskLookupInput {
   workspaceId: string;
@@ -89,6 +114,51 @@ export function resolveExternalInboundDuplicateMessageSync(
     event,
     mapping,
     reasonCode: "duplicate_external_message",
+  };
+}
+
+export function prepareExternalInboundMessageDispatchSync(
+  input: ExternalInboundMessagePreDispatchInput,
+): ExternalInboundMessagePreDispatchResult {
+  if (!input.message) {
+    const updateEventStatus = input.updateEventStatus ?? updateExternalIntegrationEventStatusSync;
+    return {
+      ready: false,
+      dispatchStatus: "ignored",
+      event: updateEventStatus({
+        workspaceId: input.context.workspaceId,
+        provider: input.context.provider,
+        externalEventId: input.externalEventId,
+        status: "ignored",
+        errorMessage: input.nonMessageReasonCode,
+      }),
+      message: null,
+      reasonCode: input.nonMessageReasonCode,
+    };
+  }
+
+  const duplicate = resolveExternalInboundDuplicateMessageSync({
+    context: input.context,
+    externalEventId: input.externalEventId,
+    externalMessageId: input.message.externalMessageId,
+    readMessageMappingByExternalMessage: input.readMessageMappingByExternalMessage,
+    updateEventStatus: input.updateEventStatus,
+  });
+  if (duplicate) {
+    return {
+      ready: false,
+      dispatchStatus: "duplicate",
+      event: duplicate.event,
+      message: input.message,
+      reasonCode: duplicate.reasonCode,
+      mapping: duplicate.mapping,
+    };
+  }
+
+  return {
+    ready: true,
+    event: input.event,
+    message: input.message,
   };
 }
 

@@ -17,9 +17,9 @@ import {
 import type { AgentSpaceState, MessageAttachment, WorkspaceMessage } from "@agent-space/domain/workspace";
 import {
   buildExternalNoticeMetadata,
+  prepareExternalInboundMessageDispatchSync,
   recordExternalInboundEventSync,
   resolveExternalDispatchedTaskSync,
-  resolveExternalInboundDuplicateMessageSync,
   type ExternalMessageEnvelope,
   type IntegrationRuntimeContext,
 } from "../../core/index.ts";
@@ -243,43 +243,33 @@ function prepareSlackInboundDispatchSync(input: ProcessSlackInboundEventInput): 
     };
   }
   const botUserId = readSlackBotUserId(input.integration?.configJson);
-  const message = normalizeSlackInboundMessage({
+  const normalizedMessage = normalizeSlackInboundMessage({
     context: input.context,
     payload: input.payload,
     botUserId,
   });
-  if (!message) {
-    return {
-      ready: false,
-      result: finishIgnored({
-        context: input.context,
-        dependencies,
-        event,
-        message: null,
-        reasonCode: "slack.non_message_event",
-      }),
-    };
-  }
-
-  const duplicate = resolveExternalInboundDuplicateMessageSync({
+  const preDispatch = prepareExternalInboundMessageDispatchSync({
     context: input.context,
+    event,
     externalEventId,
-    externalMessageId: message.externalMessageId,
+    message: normalizedMessage,
+    nonMessageReasonCode: "slack.non_message_event",
     readMessageMappingByExternalMessage: dependencies.readMessageMappingByExternalMessage,
     updateEventStatus: dependencies.updateEventStatus,
   });
-  if (duplicate) {
+  if (!preDispatch.ready) {
     return {
       ready: false,
       result: {
-        event: duplicate.event,
-        message,
-        dispatchStatus: "duplicate",
-        reasonCode: duplicate.reasonCode,
-        mapping: duplicate.mapping,
+        event: preDispatch.event,
+        message: preDispatch.message,
+        dispatchStatus: preDispatch.dispatchStatus,
+        reasonCode: preDispatch.reasonCode,
+        mapping: preDispatch.mapping,
       },
     };
   }
+  const message = preDispatch.message;
 
   const channelBinding = dependencies.readChannelBindingByExternalChat({
     workspaceId: input.context.workspaceId,

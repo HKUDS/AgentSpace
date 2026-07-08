@@ -20,9 +20,9 @@ import type { ChannelRecord, MessageAttachment } from "@agent-space/domain/works
 import {
   buildExternalIdHash,
   buildExternalNoticeMetadata,
+  prepareExternalInboundMessageDispatchSync,
   recordExternalInboundEventSync,
   resolveExternalDispatchedTaskSync,
-  resolveExternalInboundDuplicateMessageSync,
   type ExternalMessageEnvelope,
   type IntegrationRuntimeContext,
 } from "../../core/index.ts";
@@ -239,36 +239,27 @@ function prepareFeishuInboundDispatchSync(input: ProcessFeishuInboundEventInput)
     };
   }
 
-  const message = normalizeFeishuInboundMessage(input);
-  if (!message) {
-    return {
-      ready: false,
-      result: finishIgnored({
-        context: input.context,
-        event,
-        message: null,
-        reasonCode: "non_message_event",
-      }),
-    };
-  }
-
-  const duplicate = resolveExternalInboundDuplicateMessageSync({
+  const normalizedMessage = normalizeFeishuInboundMessage(input);
+  const preDispatch = prepareExternalInboundMessageDispatchSync({
     context: input.context,
+    event,
     externalEventId,
-    externalMessageId: message.externalMessageId,
+    message: normalizedMessage,
+    nonMessageReasonCode: "non_message_event",
   });
-  if (duplicate) {
+  if (!preDispatch.ready) {
     return {
       ready: false,
       result: {
-        event: duplicate.event,
-        message,
-        dispatchStatus: "duplicate",
-        reasonCode: duplicate.reasonCode,
-        mapping: duplicate.mapping,
+        event: preDispatch.event,
+        message: preDispatch.message,
+        dispatchStatus: preDispatch.dispatchStatus,
+        reasonCode: preDispatch.reasonCode,
+        mapping: preDispatch.mapping,
       },
     };
   }
+  const message = preDispatch.message;
 
   if (isFeishuKnownAgentBotSenderPayloadSync({
     workspaceId: input.context.workspaceId,
