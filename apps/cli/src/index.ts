@@ -1,20 +1,5 @@
 #!/usr/bin/env node
 import { pathToFileURL } from "node:url";
-import { runChannelCommand } from "./commands/channel.ts";
-import { runDaemonCommand } from "./commands/daemon.ts";
-import { runDatabaseCommand } from "./commands/db.ts";
-import { runDevCommand } from "./commands/dev.ts";
-import { runDoctorCommand } from "./commands/doctor.ts";
-import { runEmployeeCommand } from "./commands/employee.ts";
-import { runImCommand } from "./commands/im.ts";
-import { runIntegrationsCommand } from "./commands/integrations/index.ts";
-import { runMaterialCommand } from "./commands/material.ts";
-import { runMessageCommand } from "./commands/message.ts";
-import { runOutputCommand } from "./commands/output.ts";
-import { runSkillCommand } from "./commands/skill.ts";
-import { runTaskCommand } from "./commands/task.ts";
-import { runCostCommand } from "./commands/cost.ts";
-import { runWorkspaceCommand } from "./commands/workspace.ts";
 import { parseFormat } from "./lib/format.ts";
 import { printCommandHelp, printRootHelp } from "./lib/help.ts";
 
@@ -37,14 +22,17 @@ export async function main(): Promise<number> {
   const actualArgs = rest.slice(1);
 
   if (command === "doctor") {
+    const { runDoctorCommand } = await import("./commands/doctor.ts");
     return runDoctorCommand(format);
   }
 
   if (command === "db") {
+    const { runDatabaseCommand } = await import("./commands/db.ts");
     return runDatabaseCommand(actualSubcommand, actualArgs, format);
   }
 
   if (command === "daemon") {
+    const { runDaemonCommand } = await import("./commands/daemon.ts");
     return runDaemonCommand(actualSubcommand, actualArgs, format);
   }
 
@@ -53,50 +41,62 @@ export async function main(): Promise<number> {
       printCommandHelp("dev");
       return 0;
     }
+    const { runDevCommand } = await import("./commands/dev.ts");
     return runDevCommand([subcommand, ...restArgs].filter(Boolean));
   }
 
   if (command === "workspace") {
+    const { runWorkspaceCommand } = await import("./commands/workspace.ts");
     return runWorkspaceCommand(actualSubcommand, actualArgs, format);
   }
 
   if (command === "im") {
+    const { runImCommand } = await import("./commands/im.ts");
     return runImCommand(actualSubcommand, format);
   }
 
   if (command === "integrations") {
+    const { runIntegrationsCommand } = await import("./commands/integrations/index.ts");
     return runIntegrationsCommand(actualSubcommand, actualArgs, format);
   }
 
   if (command === "channel") {
+    const { runChannelCommand } = await import("./commands/channel.ts");
     return runChannelCommand(actualSubcommand, actualArgs, format);
   }
 
   if (command === "employee") {
+    const { runEmployeeCommand } = await import("./commands/employee.ts");
     return runEmployeeCommand(actualSubcommand, actualArgs, format);
   }
 
   if (command === "material") {
+    const { runMaterialCommand } = await import("./commands/material.ts");
     return runMaterialCommand(actualSubcommand, actualArgs, format);
   }
 
   if (command === "message") {
+    const { runMessageCommand } = await import("./commands/message.ts");
     return runMessageCommand(actualSubcommand, actualArgs, format);
   }
 
   if (command === "task") {
+    const { runTaskCommand } = await import("./commands/task.ts");
     return runTaskCommand(actualSubcommand, actualArgs, format);
   }
 
   if (command === "skill") {
+    const { runSkillCommand } = await import("./commands/skill.ts");
     return runSkillCommand(actualSubcommand, actualArgs, format);
   }
 
   if (command === "output") {
+    const { runOutputCommand } = await import("./commands/output.ts");
     return runOutputCommand(actualSubcommand, actualArgs, format);
   }
 
   if (command === "cost") {
+    const { runCostCommand } = await import("./commands/cost.ts");
     return runCostCommand(actualSubcommand, actualArgs, format);
   }
 

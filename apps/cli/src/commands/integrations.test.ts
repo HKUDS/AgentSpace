@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -198,6 +199,26 @@ test("slack --help prints usage without touching external services", async () =>
   assert.match(output, /--dry-run/);
   assert.match(output, /--strict/);
   assert.match(output, /--live-smoke-evidence/);
+});
+
+test("full CLI slack help does not load daemon runtime bundles", () => {
+  const result = spawnSync(process.execPath, [
+    "--experimental-strip-types",
+    "apps/cli/src/index.ts",
+    "integrations",
+    "slack",
+    "--help",
+  ], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+    env: process.env,
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /agent-space integrations slack create/);
+  assert.match(result.stdout, /agent-space integrations slack smoke-env/);
+  assert.doesNotMatch(result.stderr, /Dynamic require/);
+  assert.doesNotMatch(result.stderr, /agent-space-daemon/);
 });
 
 test("Slack command dispatcher routes subcommands without external services", async () => {
