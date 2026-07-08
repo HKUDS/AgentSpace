@@ -47,6 +47,7 @@ import {
   createSlackUserBindingForCli,
   disableSlackAgentBotForCli,
   runSlackIntegrationCommand,
+  runSlackWorkerForCli,
 } from "./integrations/slack.ts";
 import { printCommandHelp } from "../lib/help.ts";
 
@@ -381,6 +382,87 @@ test("Slack channel and user binding CLI returns redacted external references", 
   assert.equal(userReport.ok, true);
   assert.equal(userReport.externalUserReference, "user U_SE...3456");
   assert.doesNotMatch(JSON.stringify({ channelReport, userReport }), /C_SECRET_CHANNEL_123456|U_SECRET_USER_123456/);
+});
+
+test("Slack worker CLI dry-run prints worker summary without opening live sessions", async () => {
+  const startInputs: unknown[] = [];
+  let closeCount = 0;
+
+  const logs = await captureConsoleLog(async () => {
+    const exitCode = await runSlackWorkerForCli({
+      "workspace-id": "workspace-1",
+      integration: "slack-1",
+      limit: "7",
+      "base-url": "https://slack.test/api",
+      "feishu-base-url": "https://feishu.test/open-apis",
+      "locked-by": "slack-cli-test",
+      "dry-run": true,
+      "include-webhook": true,
+    }, "json", {
+      startWorker: async (input) => {
+        startInputs.push(input);
+        return {
+          summary: {
+            workspaceId: "workspace-1",
+            provider: "slack",
+            mode: "websocket_worker",
+            integrationCount: 1,
+            startedCount: 0,
+            skippedCount: 0,
+            dryRun: true,
+            integrations: [{
+              integrationId: "slack-1",
+              displayName: "Slack Agent",
+              status: "ready",
+              healthStatus: "healthy",
+            }],
+            errors: [],
+          },
+          metrics: {
+            connectionReadyCount: 0,
+            connectionErrorCount: 0,
+            receivedCount: 0,
+            ackCount: 0,
+            ackFailedCount: 0,
+            processedCount: 0,
+            ignoredCount: 0,
+            failedCount: 0,
+            duplicateCount: 0,
+            outboxProcessedCount: 0,
+            outboxSentCount: 0,
+            outboxFailedCount: 0,
+            errors: [],
+          },
+          close() {
+            closeCount += 1;
+          },
+          getConnectionStatuses() {
+            return [];
+          },
+        } as never;
+      },
+    });
+    assert.equal(exitCode, 0);
+  });
+
+  assert.deepEqual(startInputs, [{
+    workspaceId: "workspace-1",
+    integrationId: "slack-1",
+    lockedBy: "slack-cli-test",
+    baseUrl: "https://slack.test/api",
+    feishuBaseUrl: "https://feishu.test/open-apis",
+    dryRun: true,
+    drainOutboxLimit: 7,
+    includeWebhookIntegrations: true,
+  }]);
+  assert.equal(closeCount, 0);
+  const output = JSON.parse(logs.join("\n")) as Record<string, unknown>;
+  assert.equal(output.workspaceId, "workspace-1");
+  assert.equal(output.provider, "slack");
+  assert.equal(output.dryRun, true);
+  assert.equal(output.integrationCount, 1);
+  assert.deepEqual(output.errors, []);
+  assert.doesNotMatch(JSON.stringify(output), /xoxb-|xapp-|signing-secret/);
 });
 
 test("Slack agent bot CLI defaults to Socket Mode and redacts credentials", () => {

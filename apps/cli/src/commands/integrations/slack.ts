@@ -406,7 +406,13 @@ async function drainSlackOutboxForCli(flags: Record<string, string | boolean>) {
 export async function runSlackWorkerForCli(
   flags: Record<string, string | boolean>,
   format: OutputFormat,
+  deps: {
+    drainOutboxMessages?: typeof drainSlackOutboxMessages;
+    startWorker?: typeof startSlackSocketModeWorker;
+  } = {},
 ): Promise<number> {
+  const drainOutbox = deps.drainOutboxMessages ?? drainSlackOutboxMessages;
+  const startWorker = deps.startWorker ?? startSlackSocketModeWorker;
   const workspaceId = getStringFlag(flags, "workspace-id")
     ?? process.env.AGENT_SPACE_WORKSPACE_ID?.trim()
     ?? "default";
@@ -426,7 +432,7 @@ export async function runSlackWorkerForCli(
   const drainOutboxOnly = flags["drain-outbox"] === true || flags.once === true;
 
   if (drainOutboxOnly) {
-    const result = await drainSlackOutboxMessages({
+    const result = await drainOutbox({
       workspaceId,
       integrationId,
       limit,
@@ -437,7 +443,7 @@ export async function runSlackWorkerForCli(
     return result.errors.length > 0 && result.processedCount === 0 ? 1 : 0;
   }
 
-  const worker = await startSlackSocketModeWorker({
+  const worker = await startWorker({
     workspaceId,
     integrationId,
     lockedBy,
