@@ -126,6 +126,7 @@ vi.mock("./slack-settings-data", () => ({
 
 import {
   checkSlackIntegrationHealthAction,
+  createSlackChannelBindingAction,
   createSlackIntegrationAction,
   createSlackUserBindingAction,
 } from "./slack-actions";
@@ -258,6 +259,51 @@ describe("Slack actions", () => {
     })).rejects.toThrow("slack.integration.missing_app_level_token");
 
     expect(mockCreateExternalIntegrationSync).not.toHaveBeenCalled();
+  });
+
+  it("lets admins bind Slack channels and blocks members", async () => {
+    mockReadExternalIntegrationSync.mockReturnValue(buildIntegration());
+    mockReadStoredChannelSync.mockReturnValue({ name: "general" });
+    mockReadExternalChannelBindingByExternalChatSync.mockReturnValue(null);
+    mockUpsertExternalChannelBindingSync.mockReturnValue({
+      id: "channel-binding-1",
+      integrationId: "slack-1",
+      channelName: "general",
+      externalChatId: "C111",
+    });
+
+    const result = await createSlackChannelBindingAction({
+      integrationId: "slack-1",
+      channelName: "general",
+      externalChannelId: "C111",
+      externalChannelType: "channel",
+      externalChannelName: "launch-room",
+    });
+
+    expect(result.id).toBe("slack-1");
+    expect(mockUpsertExternalChannelBindingSync).toHaveBeenCalledWith(expect.objectContaining({
+      workspaceId: "workspace-1",
+      integrationId: "slack-1",
+      channelName: "general",
+      externalChatId: "C111",
+      externalChatType: "channel",
+      externalChatName: "launch-room",
+      status: "active",
+      syncMode: "mirror",
+      metadataJson: {
+        provider: "slack",
+        provisionSource: "manual",
+      },
+      createdByUserId: "admin-1",
+    }));
+    expect(JSON.stringify(mockUpsertExternalChannelBindingSync.mock.calls[0]?.[0])).not.toContain("xoxb-");
+
+    mockRequireCurrentWorkspaceContext.mockResolvedValue(buildWorkspaceContext("member", "user-1"));
+    await expect(createSlackChannelBindingAction({
+      integrationId: "slack-1",
+      channelName: "general",
+      externalChannelId: "C222",
+    })).rejects.toThrow("Forbidden.");
   });
 
   it("lets members bind only their own Slack user", async () => {

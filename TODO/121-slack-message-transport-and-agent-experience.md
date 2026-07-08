@@ -909,10 +909,10 @@ rawPayload = summarized payload or original safe subset
 
 验收：
 
-- [ ] owner/admin 可创建 Slack integration。
-- [ ] owner/admin 可绑定 channel。
+- [x] owner/admin 可创建 Slack integration。
+- [x] owner/admin 可绑定 channel。
 - [x] owner/admin 可查看 outbox failure。
-- [ ] member 不可查看其他用户 external id。
+- [x] member 不可查看其他用户 external id。
 - [ ] 所有 external ids 默认 redacted / ref 化展示。
 
 ### Phase 10：Agent-scoped Slack bot / native agent experience
