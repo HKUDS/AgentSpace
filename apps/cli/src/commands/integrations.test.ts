@@ -198,6 +198,121 @@ test("slack --help prints usage without touching external services", async () =>
   assert.match(output, /--strict/);
 });
 
+test("Slack command dispatcher routes subcommands without external services", async () => {
+  const calls: Array<{
+    action: string;
+    flags?: Record<string, string | boolean>;
+    format?: string;
+  }> = [];
+  const deps = {
+    createIntegration: (flags: Record<string, string | boolean>) => {
+      calls.push({ action: "create", flags });
+      return { ok: true, action: "create" };
+    },
+    createChannelBinding: (flags: Record<string, string | boolean>) => {
+      calls.push({ action: "bind-channel", flags });
+      return { ok: true, action: "bind-channel" };
+    },
+    createUserBinding: (flags: Record<string, string | boolean>) => {
+      calls.push({ action: "bind-user", flags });
+      return { ok: true, action: "bind-user" };
+    },
+    createAgentBotBinding: (flags: Record<string, string | boolean>) => {
+      calls.push({ action: "bind-agent-bot", flags });
+      return { ok: true, action: "bind-agent-bot" };
+    },
+    disableAgentBot: (flags: Record<string, string | boolean>) => {
+      calls.push({ action: "disable-agent-bot", flags });
+      return { ok: true, action: "disable-agent-bot" };
+    },
+    runHealthCheck: async (flags: Record<string, string | boolean>) => {
+      calls.push({ action: "health-check", flags });
+      return {
+        ok: true,
+        action: "health-check",
+        health: { status: "healthy" },
+      } as never;
+    },
+    buildReadinessReport: (input: Record<string, unknown>) => {
+      calls.push({ action: "readiness", flags: input as Record<string, string | boolean> });
+      return {
+        ok: true,
+        action: "readiness",
+        strict: input.strict === true,
+        strictSatisfied: true,
+      } as never;
+    },
+    buildEvidenceReport: (input: Record<string, unknown>) => {
+      calls.push({ action: "evidence", flags: input as Record<string, string | boolean> });
+      return {
+        ok: true,
+        action: "evidence",
+        strict: input.strict === true,
+        strictSatisfied: true,
+      } as never;
+    },
+    buildSmokePlanReport: (input: Record<string, unknown>) => {
+      calls.push({ action: "smoke-plan", flags: input as Record<string, string | boolean> });
+      return {
+        ok: true,
+        action: "smoke-plan",
+        strict: input.strict === true,
+        readiness: { strictSatisfied: true },
+      } as never;
+    },
+    buildSmokeEnvTemplateReport: (input: Record<string, unknown>) => {
+      calls.push({ action: "smoke-env", flags: input as Record<string, string | boolean> });
+      return {
+        ok: true,
+        action: "smoke-env",
+        ready: true,
+        template: "SLACK_SMOKE=1",
+      } as never;
+    },
+    runWorker: async (flags: Record<string, string | boolean>, format: "text" | "json") => {
+      calls.push({ action: "worker", flags, format });
+      console.log(JSON.stringify({ ok: true, action: "worker" }, null, 2));
+      return 0;
+    },
+    drainOutbox: async (flags: Record<string, string | boolean>) => {
+      calls.push({ action: "outbox-drain", flags });
+      return {
+        ok: true,
+        action: "outbox-drain",
+        processedCount: 0,
+        errors: [],
+      } as never;
+    },
+  };
+  const cases = [
+    { args: ["create", "--workspace-id", "workspace-1"], action: "create" },
+    { args: ["bind-channel", "--workspace-id", "workspace-1", "--integration", "slack-1"], action: "bind-channel" },
+    { args: ["bind-user", "--workspace-id", "workspace-1", "--integration", "slack-1"], action: "bind-user" },
+    { args: ["bind-agent-bot", "--workspace-id", "workspace-1", "--agent", "Atlas"], action: "bind-agent-bot" },
+    { args: ["disable-agent-bot", "--workspace-id", "workspace-1", "--agent", "Atlas"], action: "disable-agent-bot" },
+    { args: ["health-check", "--workspace-id", "workspace-1", "--integration", "slack-1"], action: "health-check" },
+    { args: ["readiness", "--workspace-id", "workspace-1", "--integration", "slack-1", "--strict"], action: "readiness" },
+    { args: ["evidence", "--workspace-id", "workspace-1", "--integration", "slack-1", "--strict"], action: "evidence" },
+    { args: ["smoke-plan", "--workspace-id", "workspace-1", "--integration", "slack-1", "--app-url", "https://agent.test"], action: "smoke-plan" },
+    { args: ["smoke-env", "--workspace-id", "workspace-1", "--integration", "slack-1", "--app-url", "https://agent.test"], action: "smoke-env" },
+    { args: ["worker", "--workspace-id", "workspace-1", "--integration", "slack-1", "--dry-run"], action: "worker" },
+    { args: ["outbox", "drain", "--workspace-id", "workspace-1", "--integration", "slack-1"], action: "outbox-drain" },
+  ];
+
+  for (const item of cases) {
+    const logs = await captureConsoleLog(async () => {
+      const exitCode = await runSlackIntegrationCommand(item.args, "json", deps);
+      assert.equal(exitCode, 0);
+    });
+    const output = JSON.parse(logs.join("\n")) as Record<string, unknown>;
+    assert.equal(output.action, item.action);
+  }
+
+  assert.deepEqual(calls.map((call) => call.action), cases.map((item) => item.action));
+  assert.equal(calls.find((call) => call.action === "worker")?.format, "json");
+  assert.equal(calls.some((call) => JSON.stringify(call).includes("xoxb-")), false);
+});
+
 test("Slack create CLI stores encrypted credentials and returns redacted setup output", () => {
   const envDir = mkdtempSync(join(tmpdir(), "agent-space-slack-create-cli-"));
   const envFile = join(envDir, ".env");

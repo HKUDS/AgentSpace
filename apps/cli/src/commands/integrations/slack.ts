@@ -35,7 +35,26 @@ import { writeData, type OutputFormat } from "../../lib/format.ts";
 
 type EnvMap = Record<string, string | undefined>;
 
-export async function runSlackIntegrationCommand(args: string[], format: OutputFormat): Promise<number> {
+interface SlackIntegrationCommandDependencies {
+  createIntegration?: typeof createSlackIntegrationForCli;
+  createChannelBinding?: typeof createSlackChannelBindingForCli;
+  createUserBinding?: typeof createSlackUserBindingForCli;
+  createAgentBotBinding?: typeof createSlackAgentBotBindingForCli;
+  disableAgentBot?: typeof disableSlackAgentBotForCli;
+  runHealthCheck?: typeof runSlackHealthCheckForCli;
+  buildReadinessReport?: typeof buildSlackReadinessReport;
+  buildEvidenceReport?: typeof buildSlackEvidenceReport;
+  buildSmokePlanReport?: typeof buildSlackSmokePlanReport;
+  buildSmokeEnvTemplateReport?: typeof buildSlackSmokeEnvTemplateReport;
+  runWorker?: typeof runSlackWorkerForCli;
+  drainOutbox?: typeof drainSlackOutboxForCli;
+}
+
+export async function runSlackIntegrationCommand(
+  args: string[],
+  format: OutputFormat,
+  deps: SlackIntegrationCommandDependencies = {},
+): Promise<number> {
   const [subcommand, ...rest] = args;
   if (!subcommand || subcommand === "help" || subcommand === "--help" || subcommand === "-h") {
     printSlackHelp();
@@ -49,37 +68,38 @@ export async function runSlackIntegrationCommand(args: string[], format: OutputF
   }
 
   if (subcommand === "create") {
-    const result = createSlackIntegrationForCli(parsed.flags);
+    const result = (deps.createIntegration ?? createSlackIntegrationForCli)(parsed.flags);
     writeData(format, result);
     return 0;
   }
   if (subcommand === "bind-channel") {
-    const result = createSlackChannelBindingForCli(parsed.flags);
+    const result = (deps.createChannelBinding ?? createSlackChannelBindingForCli)(parsed.flags);
     writeData(format, result);
     return 0;
   }
   if (subcommand === "bind-user") {
-    const result = createSlackUserBindingForCli(parsed.flags);
+    const result = (deps.createUserBinding ?? createSlackUserBindingForCli)(parsed.flags);
     writeData(format, result);
     return 0;
   }
   if (subcommand === "bind-agent-bot") {
-    const result = createSlackAgentBotBindingForCli(parsed.flags);
+    const result = (deps.createAgentBotBinding ?? createSlackAgentBotBindingForCli)(parsed.flags);
     writeData(format, result);
     return 0;
   }
   if (subcommand === "disable-agent-bot") {
-    const result = disableSlackAgentBotForCli(parsed.flags);
+    const result = (deps.disableAgentBot ?? disableSlackAgentBotForCli)(parsed.flags);
     writeData(format, result);
     return 0;
   }
   if (subcommand === "health-check") {
-    const result = await runSlackHealthCheckForCli(parsed.flags);
+    const result = await (deps.runHealthCheck ?? runSlackHealthCheckForCli)(parsed.flags);
     writeData(format, result);
     return result.health.status === "healthy" ? 0 : 1;
   }
   if (subcommand === "readiness") {
-    const result = buildSlackReadinessReport({
+    const buildReadinessReport = deps.buildReadinessReport ?? buildSlackReadinessReport;
+    const result = buildReadinessReport({
       workspaceId: getStringFlag(parsed.flags, "workspace-id") ?? "default",
       integrationId: getStringFlag(parsed.flags, "integration") ?? getStringFlag(parsed.flags, "integration-id"),
       strict: parsed.flags.strict === true,
@@ -89,7 +109,8 @@ export async function runSlackIntegrationCommand(args: string[], format: OutputF
     return result.strict && !result.strictSatisfied ? 1 : 0;
   }
   if (subcommand === "evidence") {
-    const result = buildSlackEvidenceReport({
+    const buildEvidenceReport = deps.buildEvidenceReport ?? buildSlackEvidenceReport;
+    const result = buildEvidenceReport({
       workspaceId: getStringFlag(parsed.flags, "workspace-id") ?? "default",
       integrationId: getStringFlag(parsed.flags, "integration") ?? getStringFlag(parsed.flags, "integration-id"),
       strict: parsed.flags.strict === true,
@@ -99,7 +120,8 @@ export async function runSlackIntegrationCommand(args: string[], format: OutputF
     return result.strict && !result.strictSatisfied ? 1 : 0;
   }
   if (subcommand === "smoke-plan") {
-    const result = buildSlackSmokePlanReport({
+    const buildSmokePlanReport = deps.buildSmokePlanReport ?? buildSlackSmokePlanReport;
+    const result = buildSmokePlanReport({
       workspaceId: getStringFlag(parsed.flags, "workspace-id") ?? "default",
       integrationId: getStringFlag(parsed.flags, "integration") ?? getStringFlag(parsed.flags, "integration-id"),
       appUrl: getStringFlag(parsed.flags, "app-url") ?? process.env.AGENT_SPACE_APP_URL ?? process.env.NEXT_PUBLIC_AGENT_SPACE_APP_URL ?? process.env.NEXT_PUBLIC_APP_URL,
@@ -110,7 +132,8 @@ export async function runSlackIntegrationCommand(args: string[], format: OutputF
     return result.strict && !result.readiness.strictSatisfied ? 1 : 0;
   }
   if (subcommand === "smoke-env") {
-    const result = buildSlackSmokeEnvTemplateReport({
+    const buildSmokeEnvTemplateReport = deps.buildSmokeEnvTemplateReport ?? buildSlackSmokeEnvTemplateReport;
+    const result = buildSmokeEnvTemplateReport({
       workspaceId: getStringFlag(parsed.flags, "workspace-id") ?? "default",
       integrationId: getStringFlag(parsed.flags, "integration") ?? getStringFlag(parsed.flags, "integration-id"),
       appUrl: getStringFlag(parsed.flags, "app-url") ?? process.env.AGENT_SPACE_APP_URL ?? process.env.NEXT_PUBLIC_AGENT_SPACE_APP_URL ?? process.env.NEXT_PUBLIC_APP_URL,
@@ -129,7 +152,7 @@ export async function runSlackIntegrationCommand(args: string[], format: OutputF
     return result.ready ? 0 : 1;
   }
   if (subcommand === "worker") {
-    const result = await runSlackWorkerForCli(parsed.flags, format);
+    const result = await (deps.runWorker ?? runSlackWorkerForCli)(parsed.flags, format);
     return result;
   }
   if (subcommand === "outbox") {
@@ -138,7 +161,7 @@ export async function runSlackIntegrationCommand(args: string[], format: OutputF
       printSlackHelp();
       return 1;
     }
-    const result = await drainSlackOutboxForCli(parsed.flags);
+    const result = await (deps.drainOutbox ?? drainSlackOutboxForCli)(parsed.flags);
     writeData(format, result);
     return result.errors.length > 0 && result.processedCount === 0 ? 1 : 0;
   }
