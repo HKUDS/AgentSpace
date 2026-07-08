@@ -443,6 +443,7 @@ export function buildSlackSmokePlanReport(input: {
   const interactionCallbackUrl = appUrl ? `${appUrl}${SLACK_INTERACTION_CALLBACK_PATH}` : undefined;
   const integrationFlag = input.integrationId ? ` --integration ${input.integrationId}` : "";
   const appUrlFlag = appUrl ? ` --app-url ${appUrl}` : " --app-url https://agentspace.example.com";
+  const liveSmokeEvidencePath = "runtime-output/slack-smoke/live.json";
   const manifest = buildSlackAgentViewAppManifest({
     appName: "AgentSpace",
     botDisplayName: "agentspace",
@@ -459,6 +460,9 @@ export function buildSlackSmokePlanReport(input: {
     bindUser: `agent-space integrations slack bind-user --workspace-id ${input.workspaceId}${integrationFlag || " --integration CHANGE_ME_SLACK_INTEGRATION_ID"} --user-id CHANGE_ME_AGENTSPACE_USER_ID --slack-user CHANGE_ME_SLACK_USER_ID --json`,
     drySmoke: "npm run smoke:slack -- --env-file scripts/slack/.env --check-env --json",
     webhookReplay: "npm run smoke:slack -- --env-file scripts/slack/.env --replay-webhook --json",
+    livePostMessage: `npm run smoke:slack -- --env-file scripts/slack/.env --live --evidence ${liveSmokeEvidencePath} --json`,
+    liveAppMention: `SLACK_SMOKE_LIVE_MODE=app_mention npm run smoke:slack -- --env-file scripts/slack/.env --live --evidence ${liveSmokeEvidencePath} --json`,
+    finalEvidence: `agent-space integrations slack evidence --workspace-id ${input.workspaceId}${integrationFlag} --live-smoke-evidence ${liveSmokeEvidencePath} --strict --require all --json`,
   };
   return {
     workspaceId: input.workspaceId,
@@ -518,6 +522,21 @@ export function buildSlackSmokePlanReport(input: {
         status: readiness.readyForWorkerSmokeCount > 0 ? "ready" : "manual",
         detail: commands.workerDryRun,
       },
+      {
+        id: "live_post_message",
+        status: readiness.readyForMessageSmokeCount > 0 ? "manual" : "blocked",
+        detail: commands.livePostMessage,
+      },
+      {
+        id: "live_app_mention",
+        status: readiness.readyForMessageSmokeCount > 0 ? "manual" : "blocked",
+        detail: commands.liveAppMention,
+      },
+      {
+        id: "final_evidence",
+        status: readiness.strictSatisfied ? "manual" : "blocked",
+        detail: commands.finalEvidence,
+      },
     ],
   };
 }
@@ -555,13 +574,19 @@ export function buildSlackSmokeEnvTemplateReport(input: {
     "SLACK_SMOKE_BOT_USER_ID=",
     "SLACK_SMOKE_MESSAGE_TEXT=AgentSpace Slack smoke",
     "SLACK_SMOKE_THREAD_TS=",
+    "SLACK_SMOKE_LIVE_MODE=post_message",
+    "SLACK_SMOKE_POST_TOKEN=",
     "AGENT_SPACE_SMOKE_CALLBACK_BASE_URL=",
   ];
+  const liveSmokeEvidencePath = "runtime-output/slack-smoke/live.json";
   const nextCommands = [
     `agent-space integrations slack health-check --workspace-id ${input.workspaceId} --integration ${integrationId} --json`,
     `agent-space integrations slack readiness --workspace-id ${input.workspaceId} --integration ${integrationId} --strict --json`,
     "npm run smoke:slack -- --env-file scripts/slack/.env --check-env --json",
     "npm run smoke:slack -- --env-file scripts/slack/.env --replay-webhook --json",
+    `npm run smoke:slack -- --env-file scripts/slack/.env --live --evidence ${liveSmokeEvidencePath} --json`,
+    `SLACK_SMOKE_LIVE_MODE=app_mention npm run smoke:slack -- --env-file scripts/slack/.env --live --evidence ${liveSmokeEvidencePath} --json`,
+    `agent-space integrations slack evidence --workspace-id ${input.workspaceId} --integration ${integrationId} --live-smoke-evidence ${liveSmokeEvidencePath} --strict --require all --json`,
   ];
   return {
     workspaceId: input.workspaceId,
