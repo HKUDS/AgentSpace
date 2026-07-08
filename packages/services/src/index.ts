@@ -782,6 +782,7 @@ export {
   type SlackEvidenceIntegrationItem,
   type SlackEvidenceReport,
   type SlackEvidenceRequirement,
+  type SlackLiveAppMentionProof,
   type SlackLiveSmokeEvidenceReadError,
   type CreateSlackAgentBotBindingInput,
   type DisableSlackAgentBotBindingInput,

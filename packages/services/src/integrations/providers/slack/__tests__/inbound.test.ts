@@ -15,6 +15,7 @@ import {
   processSlackInboundEventSync,
 } from "../inbound.ts";
 import { SLACK_PROVIDER_ID } from "../constants.ts";
+import { buildSlackReference } from "../events.ts";
 
 const context = {
   workspaceId: "workspace-1",
@@ -422,6 +423,7 @@ test("dispatches bound Slack messages through AgentSpace and records inbound map
       provider: SLACK_PROVIDER_ID,
       channelName: "general",
       slackChannelType: "channel",
+      externalChatReference: buildSlackReference("C123"),
       agentContext: undefined,
       agentId: undefined,
       botBindingId: undefined,

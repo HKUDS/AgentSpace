@@ -1244,6 +1244,8 @@ test("Slack evidence can gate strict all on redacted live smoke evidence", () =>
   assert.equal(report.integrations[0]?.message.liveAppMentionCorrelationRequired, true);
   assert.equal(report.integrations[0]?.message.liveAppMentionInboundMappings, 1);
   assert.equal(report.integrations[0]?.message.liveAppMentionOutboundReplies, 2);
+  assert.equal(report.integrations[0]?.message.liveAppMentionChannelCorrelatedInboundMappings, 1);
+  assert.equal(report.integrations[0]?.message.liveAppMentionChannelCorrelatedOutboundReplies, 2);
   assert.equal(report.liveSmokeEvidence?.summary?.unsafeRawValueCount, 0);
   assert.doesNotMatch(JSON.stringify(report), /xoxb|xoxp|C123LIVE|UBOTLIVE|FSMOKEFILE123|1783400001\.000200/);
 
@@ -1336,6 +1338,31 @@ test("Slack live smoke evidence requires all live modes to use the same channel"
   assert.ok(report.liveSmokeEvidence?.issues.includes("slack_live_smoke_integration_evidence_missing"));
   assert.ok(report.blockers.includes("slack_live_smoke_channel_mismatch"));
   assert.doesNotMatch(JSON.stringify(report), /C123LIVE|CDIFFERENTLIVE/);
+});
+
+test("Slack evidence correlates live app mention local proof by channel and thread", () => {
+  const report = buildSlackEvidenceReport({
+    workspaceId: "workspace-1",
+    strict: true,
+    required: "all",
+    requireLiveSmokeEvidence: true,
+    liveSmokeEvidence: makeLiveSmokeEvidence(),
+    dependencies: makeCompleteSlackEvidenceDependencies({
+      channelExternalChatId: "CWRONGLIVE",
+      replyExternalChatId: "CWRONGLIVE",
+    }),
+  });
+
+  assert.equal(report.liveSmokeEvidence?.valid, true);
+  assert.equal(report.liveSmokeEvidence?.summary?.appMentionLiveOk, true);
+  assert.equal(report.integrations[0]?.message.liveAppMentionInboundMappings, 1);
+  assert.equal(report.integrations[0]?.message.liveAppMentionOutboundReplies, 2);
+  assert.equal(report.integrations[0]?.message.liveAppMentionChannelCorrelatedInboundMappings, 0);
+  assert.equal(report.integrations[0]?.message.liveAppMentionChannelCorrelatedOutboundReplies, 0);
+  assert.equal(report.strictSatisfied, false);
+  assert.ok(report.integrations[0]?.blockers.includes("slack_live_app_mention_channel_correlation_missing"));
+  assert.ok(report.blockers.includes("slack_live_app_mention_channel_correlation_missing"));
+  assert.doesNotMatch(JSON.stringify(report), /CWRONGLIVE|C123LIVE|1783400001/);
 });
 
 test("Slack evidence strict all correlates live app mentions with local inbound and reply proof", () => {
@@ -2014,11 +2041,15 @@ function makeIntegration(overrides: Partial<ExternalIntegrationRecord> = {}): Ex
 function makeCompleteSlackEvidenceDependencies(input: {
   timestamp?: string;
   integration?: ExternalIntegrationRecord;
+  channelExternalChatId?: string;
+  replyExternalChatId?: string;
 } = {}): Parameters<typeof buildSlackEvidenceReport>[0]["dependencies"] {
   const timestamp = input.timestamp ?? freshTimestamp();
+  const channelExternalChatId = input.channelExternalChatId ?? "C123LIVE";
+  const replyExternalChatId = input.replyExternalChatId ?? channelExternalChatId;
   return {
     listIntegrations: () => [input.integration ?? makeIntegration()],
-    listChannelBindings: () => [makeChannelBinding()],
+    listChannelBindings: () => [makeChannelBinding({ externalChatId: channelExternalChatId })],
     listUserBindings: () => [makeUserBinding()],
     listEvents: () => [
       makeEvent({
@@ -2091,6 +2122,7 @@ function makeCompleteSlackEvidenceDependencies(input: {
         updatedAt: timestamp,
         sentAt: timestamp,
         status: "sent",
+        targetExternalChatId: replyExternalChatId,
         targetExternalThreadId: SLACK_SMOKE_APP_MENTION_MESSAGE_ID,
         metadataJson: {
           provider: "slack",

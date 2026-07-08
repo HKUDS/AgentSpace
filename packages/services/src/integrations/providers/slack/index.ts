@@ -180,6 +180,7 @@ export {
   type SlackLiveSmokeEvidenceVerification,
   type SlackEvidenceReport,
   type SlackEvidenceRequirement,
+  type SlackLiveAppMentionProof,
   type SlackLiveSmokeEvidenceReadError,
 } from "./evidence.ts";
 export {
