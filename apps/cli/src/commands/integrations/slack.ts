@@ -30,6 +30,7 @@ import {
   type SlackEvidenceReport,
   type SlackEvidenceRequirement,
   type SlackLiveSmokeEvidenceReadError,
+  type SlackReadinessReport,
   type SlackReadinessRequirement,
   type SlackSmokePlanReport,
   type SlackSocketModeWorkerMetrics,
@@ -111,7 +112,11 @@ export async function runSlackIntegrationCommand(
       strict: parsed.flags.strict === true,
       required: readSlackReadinessRequirement(parsed.flags),
     });
-    writeData(format, result);
+    if (format === "json") {
+      writeData(format, result);
+    } else {
+      console.log(formatSlackReadinessCommandText(result));
+    }
     return result.strict && !result.strictSatisfied ? 1 : 0;
   }
   if (subcommand === "evidence") {
@@ -716,6 +721,40 @@ function readSlackEvidenceRequirement(flags: Record<string, string | boolean>): 
   throw new Error("slack.evidence.invalid_requirement");
 }
 
+export function formatSlackReadinessCommandText(report: SlackReadinessReport): string {
+  const lines = [
+    "AgentSpace Slack readiness",
+    `Workspace: ${report.workspaceId}`,
+    `Required readiness: ${report.required}`,
+    `Strict readiness satisfied: ${formatSlackCliYesNo(report.strictSatisfied)}`,
+    `Integrations: ${report.integrationCount}`,
+    `Ready counts: message=${report.readyForMessageSmokeCount}, worker=${report.readyForWorkerSmokeCount}`,
+    "",
+    "Integration readiness:",
+  ];
+  if (report.integrations.length === 0) {
+    lines.push("- none");
+  } else {
+    for (const item of report.integrations) {
+      lines.push(
+        `- ${item.displayName} (${item.integrationId}, ${item.transportMode})`,
+        `  status: ${item.status}; health=${item.healthStatus ?? "missing"}; app=${formatSlackCliYesNo(item.appIdPresent)}; team=${formatSlackCliYesNo(item.teamIdPresent)}`,
+        `  bindings: channels=${item.bindings.activeChannels}, users=${item.bindings.activeUsers}; outbox: pending=${item.outbox.pending}, failed=${item.outbox.failed}`,
+        `  ready: message=${formatSlackCliYesNo(item.readyForMessageSmoke)}, worker=${formatSlackCliYesNo(item.readyForWorkerSmoke)}`,
+        `  blockers: ${formatSlackCliList(item.blockers)}`,
+        `  warnings: ${formatSlackCliList(item.warnings)}`,
+      );
+      if (item.nextCommands.length > 0) {
+        lines.push("  next commands:");
+        for (const command of item.nextCommands) {
+          lines.push(`  - ${command}`);
+        }
+      }
+    }
+  }
+  return lines.join("\n");
+}
+
 export function formatSlackEvidenceCommandText(report: SlackEvidenceReport): string {
   const lines = [
     "AgentSpace Slack evidence",
@@ -843,6 +882,10 @@ export function formatSlackSmokePlanCommandText(report: SlackSmokePlanReport): s
 
 function formatSlackCliYesNo(value: boolean): string {
   return value ? "yes" : "no";
+}
+
+function formatSlackCliList(values: string[]): string {
+  return values.length > 0 ? values.join(", ") : "none";
 }
 
 async function waitForShutdownSignal(): Promise<void> {

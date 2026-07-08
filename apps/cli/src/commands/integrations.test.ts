@@ -435,6 +435,63 @@ test("Slack command dispatcher routes subcommands without external services", as
   assert.equal(calls.some((call) => JSON.stringify(call).includes("xoxb-")), false);
 });
 
+test("Slack readiness text output summarizes blockers and next commands", async () => {
+  const logs = await captureConsoleLog(async () => {
+    const exitCode = await runSlackIntegrationCommand(
+      ["readiness", "--workspace-id", "workspace-1", "--integration", "slack-1", "--strict", "--require", "all"],
+      "text",
+      {
+        buildReadinessReport: () => ({
+          workspaceId: "workspace-1",
+          provider: "slack",
+          generatedAt: freshFeishuEvidenceTimestamp(),
+          required: "all",
+          strict: true,
+          integrationCount: 1,
+          readyForMessageSmokeCount: 0,
+          readyForWorkerSmokeCount: 0,
+          strictSatisfied: false,
+          integrations: [{
+            integrationId: "slack-1",
+            displayName: "Slack Atlas",
+            status: "active",
+            transportMode: "websocket_worker",
+            appIdPresent: true,
+            teamIdPresent: true,
+            healthStatus: "degraded",
+            bindings: {
+              activeChannels: 0,
+              activeUsers: 1,
+            },
+            outbox: {
+              pending: 2,
+              failed: 0,
+            },
+            readyForMessageSmoke: false,
+            readyForWorkerSmoke: false,
+            blockers: ["active_channel_binding_missing", "pending_outbox_unresolved"],
+            warnings: ["scope_review_missing"],
+            nextCommands: [
+              "agent-space integrations slack bind-channel --workspace-id workspace-1 --integration slack-1 --json",
+              "agent-space integrations slack worker --workspace-id workspace-1 --integration slack-1 --dry-run --json",
+            ],
+          }],
+        } as never),
+      },
+    );
+    assert.equal(exitCode, 1);
+  });
+  const output = logs.join("\n");
+
+  assert.match(output, /AgentSpace Slack readiness/);
+  assert.match(output, /Strict readiness satisfied: no/);
+  assert.match(output, /bindings: channels=0, users=1/);
+  assert.match(output, /active_channel_binding_missing, pending_outbox_unresolved/);
+  assert.match(output, /next commands:/);
+  assert.match(output, /agent-space integrations slack worker/);
+  assert.doesNotMatch(output, /\[object Object\]/);
+});
+
 test("Slack evidence text output summarizes manual actions and blockers", async () => {
   const logs = await captureConsoleLog(async () => {
     const exitCode = await runSlackIntegrationCommand(
