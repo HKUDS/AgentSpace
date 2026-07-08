@@ -621,6 +621,7 @@ function buildApprovalEvidence(
   const processedBlockActions = blockActionEvents.filter((event) => event.status === "processed").length;
   const failedBlockActions = blockActionEvents.filter((event) => event.status === "failed").length;
   const approvalStatusOutbox = outbox.filter((item) =>
+    item.status === "sent" &&
     readJsonStringField(item.metadataJson, "outboxSource") === "agent_status_card"
   ).length;
   return {
