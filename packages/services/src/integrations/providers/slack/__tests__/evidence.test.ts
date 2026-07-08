@@ -439,6 +439,87 @@ test("Slack evidence native gate requires sent app-home and suggested prompt out
   assert.ok(report.integrations[0]?.blockers.includes("suggested_prompts_evidence_missing"));
 });
 
+test("Slack evidence native gate requires welcome and suggested prompts for the same user", () => {
+  const report = buildSlackEvidenceReport({
+    workspaceId: "workspace-1",
+    strict: true,
+    required: "native",
+    dependencies: {
+      listIntegrations: () => [makeIntegration()],
+      listChannelBindings: () => [makeChannelBinding()],
+      listUserBindings: () => [makeUserBinding()],
+      listEvents: () => [
+        makeEvent({
+          eventType: "event_callback.message",
+          status: "processed",
+          payloadJson: {
+            hasAgentContext: true,
+            agentContext: {
+              entities: [{ type: "slack#/types/channel_id", valueRef: "ref_safechan" }],
+            },
+          },
+        }),
+      ],
+      listMessageMappings: () => [
+        makeMapping({
+          direction: "inbound",
+          metadataJson: {
+            provider: "slack",
+            agentId: "Atlas",
+            taskAgentId: "Atlas",
+            taskQueueId: "task-safe-1",
+            agentContext: {
+              entities: [{ type: "slack#/types/channel_id", valueRef: "ref_safechan" }],
+            },
+          },
+        }),
+        makeMapping({
+          direction: "outbound",
+          metadataJson: {
+            provider: "slack",
+            outboxSource: "agent_reply",
+            externalChatReference: "ref_safechat",
+          },
+        }),
+      ],
+      listOutbox: () => [
+        makeOutbox({
+          status: "sent",
+          metadataJson: {
+            provider: "slack",
+            outboxSource: "agent_reply",
+            externalChatReference: "ref_safechat",
+          },
+        }),
+        makeOutbox({
+          status: "sent",
+          metadataJson: {
+            provider: "slack",
+            outboxSource: "app_home_opened_welcome",
+            externalChatReference: "ref_safeim",
+            externalUserReference: "ref_aaaabbbb",
+          },
+        }),
+        makeOutbox({
+          status: "sent",
+          metadataJson: {
+            provider: "slack",
+            outboxSource: "assistant_suggested_prompts",
+            assistantMethod: "assistant.threads.setSuggestedPrompts",
+            externalUserReference: "ref_ccccdddd",
+          },
+        }),
+      ],
+    },
+  });
+
+  assert.equal(report.strictSatisfied, false);
+  assert.equal(report.integrations[0]?.nativeExperience.appHomeWelcomeEvidence, 1);
+  assert.equal(report.integrations[0]?.nativeExperience.suggestedPromptsEvidence, 1);
+  assert.equal(report.integrations[0]?.nativeExperience.correlatedUserExperience, 0);
+  assert.ok(report.integrations[0]?.blockers.includes("native_user_experience_correlation_missing"));
+});
+
 test("Slack evidence exposes top-level blockers for final evidence automation", () => {
   const report = buildSlackEvidenceReport({
     workspaceId: "workspace-1",
@@ -1795,6 +1876,7 @@ test("Slack evidence strict all requires live artifact for the same satisfied in
             metadataJson: {
               provider: "slack",
               outboxSource: "app_home_opened_welcome",
+              externalUserReference: "ref_safeuser",
             },
           }),
           makeOutbox({
@@ -1808,6 +1890,7 @@ test("Slack evidence strict all requires live artifact for the same satisfied in
               provider: "slack",
               outboxSource: "assistant_suggested_prompts",
               assistantMethod: "assistant.threads.setSuggestedPrompts",
+              externalUserReference: "ref_safeuser",
             },
           }),
           makeOutbox({
@@ -1966,6 +2049,7 @@ function makeCompleteSlackEvidenceDependencies(input: {
         metadataJson: {
           provider: "slack",
           outboxSource: "app_home_opened_welcome",
+          externalUserReference: "ref_safeuser",
         },
       }),
       makeOutbox({
@@ -1977,6 +2061,7 @@ function makeCompleteSlackEvidenceDependencies(input: {
           provider: "slack",
           outboxSource: "assistant_suggested_prompts",
           assistantMethod: "assistant.threads.setSuggestedPrompts",
+          externalUserReference: "ref_safeuser",
         },
       }),
       makeOutbox({

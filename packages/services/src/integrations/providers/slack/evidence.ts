@@ -101,6 +101,7 @@ export interface SlackEvidenceIntegrationItem {
     agentContextEvidence: number;
     appHomeWelcomeEvidence: number;
     suggestedPromptsEvidence: number;
+    correlatedUserExperience: number;
   };
   approvals: {
     satisfied: boolean;
@@ -629,13 +630,24 @@ function buildNativeEvidence(
 ): SlackEvidenceIntegrationItem["nativeExperience"] {
   const agentContextEvidence = events.filter((event) => hasSlackAgentContextEvidence(event.payloadJson)).length +
     mappings.filter((mapping) => hasSlackAgentContextEvidence(mapping.metadataJson)).length;
-  const appHomeWelcomeEvidence = outbox.filter(isSentSlackAppHomeWelcomeOutbox).length;
-  const suggestedPromptsEvidence = outbox.filter(isSentSlackAssistantSuggestedPromptsOutbox).length;
+  const appHomeWelcomeOutbox = outbox.filter(isSentSlackAppHomeWelcomeOutbox);
+  const suggestedPromptsOutbox = outbox.filter(isSentSlackAssistantSuggestedPromptsOutbox);
+  const appHomeWelcomeEvidence = appHomeWelcomeOutbox.length;
+  const suggestedPromptsEvidence = suggestedPromptsOutbox.length;
+  const welcomeUserReferences = new Set(appHomeWelcomeOutbox.flatMap((item) => {
+    const reference = readSlackOutboxUserReference(item);
+    return reference ? [reference] : [];
+  }));
+  const correlatedUserExperience = suggestedPromptsOutbox.filter((item) => {
+    const reference = readSlackOutboxUserReference(item);
+    return reference ? welcomeUserReferences.has(reference) : false;
+  }).length;
   return {
-    satisfied: agentContextEvidence > 0 && appHomeWelcomeEvidence > 0 && suggestedPromptsEvidence > 0,
+    satisfied: agentContextEvidence > 0 && appHomeWelcomeEvidence > 0 && suggestedPromptsEvidence > 0 && correlatedUserExperience > 0,
     agentContextEvidence,
     appHomeWelcomeEvidence,
     suggestedPromptsEvidence,
+    correlatedUserExperience,
   };
 }
 
@@ -771,6 +783,9 @@ function buildSlackNativeEvidenceBlockers(native: SlackEvidenceIntegrationItem["
   if (native.suggestedPromptsEvidence === 0) {
     blockers.push("suggested_prompts_evidence_missing");
   }
+  if (native.appHomeWelcomeEvidence > 0 && native.suggestedPromptsEvidence > 0 && native.correlatedUserExperience === 0) {
+    blockers.push("native_user_experience_correlation_missing");
+  }
   return blockers;
 }
 
@@ -846,6 +861,10 @@ function isSentSlackAppHomeWelcomeOutbox(item: ExternalMessageOutboxRecord): boo
 function isSentSlackAssistantSuggestedPromptsOutbox(item: ExternalMessageOutboxRecord): boolean {
   return item.status === "sent" &&
     readJsonStringField(item.metadataJson, "assistantMethod") === "assistant.threads.setSuggestedPrompts";
+}
+
+function readSlackOutboxUserReference(item: ExternalMessageOutboxRecord): string | undefined {
+  return readJsonStringField(item.metadataJson, "externalUserReference");
 }
 
 function isSlackMessageReplyMapping(mapping: ExternalMessageMappingRecord): boolean {
