@@ -187,6 +187,7 @@ test("builds strict Slack evidence reports without raw external ids", () => {
   ].map((command) => report.nextCommands.indexOf(command));
   assert.deepEqual(commandIndexes.every((index) => index >= 0), true);
   assert.deepEqual(commandIndexes, [...commandIndexes].sort((left, right) => left - right));
+  assert.deepEqual(report.integrations[0]?.nextCommands, report.nextCommands);
   assert.doesNotMatch(JSON.stringify(report), /A_SECRET|T_SECRET|C_SECRET|D_SECRET|U_SECRET|F_SECRET|url_private|files\.slack\.com|EvMessage|EvApproval|1783400000/);
 });
 
@@ -211,6 +212,12 @@ test("Slack evidence reports actionable blockers when message smoke evidence is 
   assert.ok(report.blockers.includes("processed_inbound_event_evidence_missing"));
   assert.ok(report.integrations[0]?.blockers.includes("channel_binding_missing"));
   assert.ok(report.integrations[0]?.blockers.includes("processed_inbound_event_evidence_missing"));
+  assert.ok(report.integrations[0]?.nextCommands.includes(
+    "agent-space integrations slack smoke-env --workspace-id workspace-1 --integration slack-1 --app-url https://agentspace.example.com > scripts/slack/.env",
+  ));
+  assert.ok(report.integrations[0]?.nextCommands.includes(
+    "agent-space integrations slack evidence --workspace-id workspace-1 --integration slack-1 --live-smoke-evidence runtime-output/slack-smoke/live.json --strict --require message --json",
+  ));
 });
 
 test("Slack evidence exposes top-level blockers for final evidence automation", () => {

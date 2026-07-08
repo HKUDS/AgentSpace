@@ -522,7 +522,7 @@ function buildSlackEvidenceIntegrationItem(input: {
     blockers: Array.from(new Set(blockers)),
     warnings: Array.from(new Set(warnings)),
     requiredSatisfied,
-    nextCommands: buildSlackEvidenceIntegrationNextCommands(input.workspaceId, integration.id),
+    nextCommands: buildSlackEvidenceIntegrationNextCommands(input.workspaceId, integration.id, input.required),
   };
 }
 
@@ -1174,11 +1174,10 @@ function buildSlackEvidenceNextCommands(
   ];
 }
 
-function buildSlackEvidenceIntegrationNextCommands(workspaceId: string, integrationId: string): string[] {
-  const flags = `--workspace-id ${workspaceId} --integration ${integrationId}`;
-  return [
-    `agent-space integrations slack health-check ${flags} --json`,
-    `agent-space integrations slack readiness ${flags} --strict --json`,
-    `agent-space integrations slack outbox drain ${flags} --json`,
-  ];
+function buildSlackEvidenceIntegrationNextCommands(
+  workspaceId: string,
+  integrationId: string,
+  required: SlackEvidenceRequirement,
+): string[] {
+  return buildSlackEvidenceNextCommands(workspaceId, integrationId, required);
 }
