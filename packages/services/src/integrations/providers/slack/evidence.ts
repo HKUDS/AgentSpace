@@ -46,7 +46,14 @@ export interface SlackEvidenceReport {
   };
   liveSmokeEvidence?: SlackLiveSmokeEvidenceVerification;
   integrations: SlackEvidenceIntegrationItem[];
+  manualActions: SlackEvidenceManualAction[];
   nextCommands: string[];
+}
+
+export interface SlackEvidenceManualAction {
+  id: "native_agent_experience" | "approval_block_actions";
+  integrationIds: string[];
+  detail: string;
 }
 
 export interface SlackLiveSmokeEvidenceVerification {
@@ -252,6 +259,7 @@ export function buildSlackEvidenceReport(input: {
     },
     ...(liveSmokeEvidence ? { liveSmokeEvidence } : {}),
     integrations: items,
+    manualActions: buildSlackEvidenceManualActions(required, items),
     nextCommands: buildSlackEvidenceNextCommands(
       input.workspaceId,
       input.integrationId
@@ -260,6 +268,38 @@ export function buildSlackEvidenceReport(input: {
       required,
     ),
   };
+}
+
+function buildSlackEvidenceManualActions(
+  required: SlackEvidenceRequirement,
+  items: SlackEvidenceIntegrationItem[],
+): SlackEvidenceManualAction[] {
+  const actions: SlackEvidenceManualAction[] = [];
+  if (required === "native" || required === "all") {
+    const integrationIds = items
+      .filter((item) => !item.nativeExperience.satisfied)
+      .map((item) => item.integrationId);
+    if (integrationIds.length > 0) {
+      actions.push({
+        id: "native_agent_experience",
+        integrationIds,
+        detail: "Open the Slack app Messages tab, then send one app-context DM or agent-view message so AgentSpace records app context, app-home welcome, and assistant suggested prompt evidence.",
+      });
+    }
+  }
+  if (required === "approval" || required === "all") {
+    const integrationIds = items
+      .filter((item) => !item.approvals.satisfied)
+      .map((item) => item.integrationId);
+    if (integrationIds.length > 0) {
+      actions.push({
+        id: "approval_block_actions",
+        integrationIds,
+        detail: "Trigger one AgentSpace runtime approval card in Slack and approve or reject it so AgentSpace records processed block_actions evidence and an approval status outbox receipt.",
+      });
+    }
+  }
+  return actions;
 }
 
 export function verifySlackLiveSmokeEvidence(input: {

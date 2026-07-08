@@ -171,6 +171,7 @@ test("builds strict Slack evidence reports without raw external ids", () => {
   assert.equal(report.summary.staleEvidenceRowCount, 0);
   assert.equal(report.summary.unhealthyIntegrationCount, 0);
   assert.deepEqual(report.blockers, []);
+  assert.deepEqual(report.manualActions, []);
   assert.equal(report.integrations[0]?.healthCheck.healthy, true);
   assert.equal(report.integrations[0]?.healthCheck.fresh, true);
   assert.equal(report.integrations[0]?.message.agentTaskQueueEvidence, 1);
@@ -438,6 +439,9 @@ test("Slack evidence native gate requires sent app-home and suggested prompt out
   assert.equal(report.integrations[0]?.nativeExperience.suggestedPromptsEvidence, 0);
   assert.ok(report.integrations[0]?.blockers.includes("app_home_welcome_evidence_missing"));
   assert.ok(report.integrations[0]?.blockers.includes("suggested_prompts_evidence_missing"));
+  assert.deepEqual(report.manualActions.map((action) => action.id), ["native_agent_experience"]);
+  assert.deepEqual(report.manualActions[0]?.integrationIds, ["slack-1"]);
+  assert.match(report.manualActions[0]?.detail ?? "", /app-home welcome/);
 });
 
 test("Slack evidence native gate requires welcome and suggested prompts for the same user", () => {
@@ -1124,6 +1128,9 @@ test("Slack evidence approval gate requires status outbox proof", () => {
   assert.equal(report.integrations[0]?.approvals.satisfied, false);
   assert.ok(report.integrations[0]?.blockers.includes("slack_approval_status_outbox_evidence_missing"));
   assert.equal(report.integrations[0]?.blockers.includes("slack_approval_block_action_evidence_missing"), false);
+  assert.deepEqual(report.manualActions.map((action) => action.id), ["approval_block_actions"]);
+  assert.deepEqual(report.manualActions[0]?.integrationIds, ["slack-1"]);
+  assert.match(report.manualActions[0]?.detail ?? "", /approval status outbox/);
 });
 
 test("Slack evidence approval gate requires status outbox for the same approval", () => {
