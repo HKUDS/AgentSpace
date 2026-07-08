@@ -707,17 +707,17 @@ deploy/slack-worker/slack-worker.env.example
 
 ### Phase 1：provider skeleton
 
-- [ ] 新增 `SLACK_PROVIDER_ID = "slack"`。
-- [ ] 新增 `SLACK_PROVIDER_DESCRIPTOR`。
-- [ ] 新增 `slackIntegrationProviderAdapter`。
-- [ ] 新增 `registerSlackIntegrationProvider()` 并从 `packages/services/src/index.ts` export。
-- [ ] 加 registry contract test，确保 Feishu 和 Slack 可并存。
-- [ ] 加 descriptor test，确保 Slack capabilities 仅包含 `message_transport`。
+- [x] 新增 `SLACK_PROVIDER_ID = "slack"`。
+- [x] 新增 `SLACK_PROVIDER_DESCRIPTOR`。
+- [x] 新增 `slackIntegrationProviderAdapter`。
+- [x] 新增 `registerSlackIntegrationProvider()` 并从 `packages/services/src/index.ts` export。
+- [x] 加 registry contract test，确保 Feishu 和 Slack 可并存。
+- [x] 加 descriptor test，确保 Slack capabilities 仅包含 `message_transport`。
 
 验收：
 
-- [ ] `readIntegrationProviderAdapter("slack")` 可返回 adapter。
-- [ ] 不影响 Feishu provider。
+- [x] `readIntegrationProviderAdapter("slack")` 可返回 adapter。
+- [x] 不影响 Feishu provider。
 
 ### Phase 2：credentials 加密和 create/list
 
