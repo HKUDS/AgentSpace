@@ -16,7 +16,7 @@ npm run smoke:slack -- --env-file scripts/slack/.env --check-env --json
 
 Use the `npm run smoke:slack` and `npm run smoke:slack:verify` entrypoints instead of calling `node scripts/slack/smoke.ts` directly; the npm scripts insert a `--` separator so Node does not consume the smoke harness `--env-file` flag.
 
-The dry-run validates callback URL shape, workspace/integration ids, disposable Slack channel/user placeholders, and the Slack app/team ids needed by the final live evidence artifact. It also returns `manualActions` for the native agent experience and approval proof required before final `--require all`. It does not read or print Slack bot tokens, app-level tokens, signing secrets, channel contents, or message text. Use the AgentSpace CLI health/readiness commands for saved credential checks:
+The dry-run validates callback URL shape, workspace/integration ids, disposable Slack channel/user placeholders, and the Slack app/team ids needed by the final live evidence artifact. It also returns `manualActions` for the native agent experience and approval proof required before final `--require all`. Generated `.env` files include the same manual actions and suggested verification order as comments, so they remain safe for the parser while keeping the smoke sequence visible. It does not read or print Slack bot tokens, app-level tokens, signing secrets, channel contents, or message text. Use the AgentSpace CLI health/readiness commands for saved credential checks:
 
 ```bash
 npm run cli -- integrations slack health-check --workspace-id default --integration CHANGE_ME_SLACK_INTEGRATION_ID --json

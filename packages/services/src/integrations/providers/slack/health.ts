@@ -612,6 +612,20 @@ export function buildSlackSmokeEnvTemplateReport(input: {
     ...(appUrl ? [] : ["app_url"]),
   ];
   const integrationId = integration?.id ?? input.integrationId ?? "CHANGE_ME_SLACK_INTEGRATION_ID";
+  const liveSmokeEvidencePath = "runtime-output/slack-smoke/live.json";
+  const nextCommands = [
+    `agent-space integrations slack health-check --workspace-id ${input.workspaceId} --integration ${integrationId} --json`,
+    `agent-space integrations slack readiness --workspace-id ${input.workspaceId} --integration ${integrationId} --strict --json`,
+    "npm run smoke:slack -- --env-file scripts/slack/.env --check-env --json",
+    "npm run smoke:slack -- --env-file scripts/slack/.env --replay-webhook --json",
+    `npm run smoke:slack -- --env-file scripts/slack/.env --live --evidence ${liveSmokeEvidencePath} --json`,
+    `SLACK_SMOKE_LIVE_MODE=app_mention npm run smoke:slack -- --env-file scripts/slack/.env --live --evidence ${liveSmokeEvidencePath} --json`,
+    `agent-space integrations slack outbox drain --workspace-id ${input.workspaceId} --integration ${integrationId} --json`,
+    `SLACK_SMOKE_LIVE_MODE=file_upload npm run smoke:slack -- --env-file scripts/slack/.env --live --evidence ${liveSmokeEvidencePath} --json`,
+    "npm run smoke:slack:verify -- --env-file scripts/slack/.env --json",
+    `agent-space integrations slack evidence --workspace-id ${input.workspaceId} --integration ${integrationId} --live-smoke-evidence ${liveSmokeEvidencePath} --strict --require all --json`,
+  ];
+  const manualActions = buildSlackSmokePlanManualActions(true);
   const templateLines = [
     "# AgentSpace Slack smoke environment. Do not commit filled copies.",
     `AGENT_SPACE_WORKSPACE_ID=${input.workspaceId}`,
@@ -632,19 +646,12 @@ export function buildSlackSmokeEnvTemplateReport(input: {
     "SLACK_SMOKE_FILE_CONTENT=AgentSpace Slack file smoke",
     "SLACK_SMOKE_FILE_MIME=text/plain",
     "AGENT_SPACE_SMOKE_CALLBACK_BASE_URL=",
-  ];
-  const liveSmokeEvidencePath = "runtime-output/slack-smoke/live.json";
-  const nextCommands = [
-    `agent-space integrations slack health-check --workspace-id ${input.workspaceId} --integration ${integrationId} --json`,
-    `agent-space integrations slack readiness --workspace-id ${input.workspaceId} --integration ${integrationId} --strict --json`,
-    "npm run smoke:slack -- --env-file scripts/slack/.env --check-env --json",
-    "npm run smoke:slack -- --env-file scripts/slack/.env --replay-webhook --json",
-    `npm run smoke:slack -- --env-file scripts/slack/.env --live --evidence ${liveSmokeEvidencePath} --json`,
-    `SLACK_SMOKE_LIVE_MODE=app_mention npm run smoke:slack -- --env-file scripts/slack/.env --live --evidence ${liveSmokeEvidencePath} --json`,
-    `agent-space integrations slack outbox drain --workspace-id ${input.workspaceId} --integration ${integrationId} --json`,
-    `SLACK_SMOKE_LIVE_MODE=file_upload npm run smoke:slack -- --env-file scripts/slack/.env --live --evidence ${liveSmokeEvidencePath} --json`,
-    "npm run smoke:slack:verify -- --env-file scripts/slack/.env --json",
-    `agent-space integrations slack evidence --workspace-id ${input.workspaceId} --integration ${integrationId} --live-smoke-evidence ${liveSmokeEvidencePath} --strict --require all --json`,
+    "",
+    "# Manual actions before final --require all:",
+    ...manualActions.map((action) => `# - ${action.id}: ${action.detail}`),
+    "",
+    "# Suggested verification order:",
+    ...nextCommands.map((command) => `# - ${command}`),
   ];
   return {
     workspaceId: input.workspaceId,
@@ -656,7 +663,7 @@ export function buildSlackSmokeEnvTemplateReport(input: {
     callbackUrl,
     missing,
     template: `${templateLines.join("\n")}\n`,
-    manualActions: buildSlackSmokePlanManualActions(true),
+    manualActions,
     nextCommands,
   };
 }

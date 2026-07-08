@@ -252,6 +252,13 @@ test("builds Slack smoke plan and env template without raw external ids", () => 
   assert.match(env.template, /SLACK_SMOKE_FILE_CONTENT=AgentSpace Slack file smoke/);
   assert.match(env.template, /SLACK_SMOKE_FILE_MIME=text\/plain/);
   assert.match(env.template, /AGENT_SPACE_SMOKE_CALLBACK_BASE_URL=/);
+  assert.match(env.template, /# Manual actions before final --require all:/);
+  assert.match(env.template, /# - native_agent_experience: .*app_home_opened welcome/);
+  assert.match(env.template, /# - approval_block_actions: .*approval status outbox/);
+  assert.match(env.template, /# Suggested verification order:/);
+  assert.match(env.template, /# - agent-space integrations slack outbox drain --workspace-id workspace-1 --integration slack-1 --json/);
+  assert.match(env.template, /# - npm run smoke:slack:verify -- --env-file scripts\/slack\/\.env --json/);
+  assert.match(env.template, /# - agent-space integrations slack evidence --workspace-id workspace-1 --integration slack-1 --live-smoke-evidence runtime-output\/slack-smoke\/live\.json --strict --require all --json/);
   assert.deepEqual(env.manualActions.map((action) => action.id), [
     "native_agent_experience",
     "approval_block_actions",
