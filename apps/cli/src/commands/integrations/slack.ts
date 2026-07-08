@@ -658,7 +658,7 @@ function inferSlackChannelType(value: string): string {
 }
 
 function buildExternalIdReference(kind: string, value: string): string {
-  return `${kind} ${value.slice(0, 4)}...${value.slice(-4)}`;
+  return `${kind} ${buildSlackReference(value)}`;
 }
 
 function hasHelpFlag(flags: Record<string, string | boolean>): boolean {

@@ -672,10 +672,10 @@ test("Slack channel and user binding CLI returns redacted external references", 
     },
   }]);
   assert.equal(channelReport.ok, true);
-  assert.equal(channelReport.externalChatReference, "channel C_SE...3456");
+  assert.match(String(channelReport.externalChatReference), /^channel ref_[a-f0-9]{8}$/);
   assert.equal(userReport.ok, true);
-  assert.equal(userReport.externalUserReference, "user U_SE...3456");
-  assert.doesNotMatch(JSON.stringify({ channelReport, userReport }), /C_SECRET_CHANNEL_123456|U_SECRET_USER_123456/);
+  assert.match(String(userReport.externalUserReference), /^user ref_[a-f0-9]{8}$/);
+  assert.doesNotMatch(JSON.stringify({ channelReport, userReport }), /C_SECRET_CHANNEL_123456|U_SECRET_USER_123456|C_SE|U_SE/);
 });
 
 test("Slack worker CLI dry-run prints worker summary without opening live sessions", async () => {
