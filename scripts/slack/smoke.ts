@@ -152,6 +152,7 @@ async function main(): Promise<void> {
     const output = verifySlackSmokeEvidenceFile(verifyEvidencePath, {
       expectedContext,
       requireExpectedContext: Boolean(envFile),
+      envFilePath: envFile,
     });
     if (parsed.flags.json === true) {
       console.log(JSON.stringify(output, null, 2));
@@ -1136,6 +1137,7 @@ function readSlackSmokeEvidenceArtifact(path: string): Record<string, unknown>[]
 function verifySlackSmokeEvidenceFile(path: string, input: {
   expectedContext?: SlackSmokeContext;
   requireExpectedContext?: boolean;
+  envFilePath?: string;
 } = {}): SlackSmokeEvidenceVerificationOutput {
   const checkedAt = new Date();
   const issues: string[] = [];
@@ -1249,6 +1251,7 @@ function verifySlackSmokeEvidenceFile(path: string, input: {
     manualActions: buildSlackSmokeEvidenceVerificationManualActions(),
     nextCommands: buildSlackSmokeEvidenceVerificationNextCommands({
       evidencePath: path,
+      envFilePath: input.envFilePath,
       valid,
       missingModes,
       issues: uniqueIssues,
@@ -1273,14 +1276,16 @@ function buildSlackSmokeManualActions(): SlackSmokeManualAction[] {
 
 function buildSlackSmokeEvidenceVerificationNextCommands(input: {
   evidencePath: string;
+  envFilePath?: string;
   valid: boolean;
   missingModes: SlackSmokeLiveMode[];
   issues: string[];
   expectedContext?: SlackSmokeContext;
 }): string[] {
   const commands: string[] = [];
+  const envFilePath = input.envFilePath ?? "scripts/slack/.env";
   if (!slackSmokeEvidenceContextComplete(input.expectedContext)) {
-    commands.push("npm run smoke:slack -- --env-file scripts/slack/.env --check-env --json");
+    commands.push(`npm run smoke:slack -- --env-file ${envFilePath} --check-env --json`);
   }
   const modesToRun = input.valid
     ? []
@@ -1290,21 +1295,21 @@ function buildSlackSmokeEvidenceVerificationNextCommands(input: {
     ? SLACK_SMOKE_REQUIRED_LIVE_MODES
     : [];
   for (const mode of modesToRun) {
-    commands.push(buildSlackSmokeLiveCommand(mode, input.evidencePath));
+    commands.push(buildSlackSmokeLiveCommand(mode, input.evidencePath, envFilePath));
     if (mode === "app_mention") {
       commands.push("agent-space integrations slack outbox drain --workspace-id $AGENT_SPACE_WORKSPACE_ID --integration $AGENT_SPACE_SLACK_INTEGRATION_ID --json");
     }
   }
   if (!input.valid) {
-    commands.push(`npm run smoke:slack:verify -- --verify-evidence ${input.evidencePath} --env-file scripts/slack/.env --json`);
+    commands.push(`npm run smoke:slack:verify -- --verify-evidence ${input.evidencePath} --env-file ${envFilePath} --json`);
   }
   commands.push("agent-space integrations slack outbox drain --workspace-id $AGENT_SPACE_WORKSPACE_ID --integration $AGENT_SPACE_SLACK_INTEGRATION_ID --json");
   commands.push(`agent-space integrations slack evidence --workspace-id $AGENT_SPACE_WORKSPACE_ID --integration $AGENT_SPACE_SLACK_INTEGRATION_ID --live-smoke-evidence ${input.evidencePath} --strict --require all --json`);
   return Array.from(new Set(commands));
 }
 
-function buildSlackSmokeLiveCommand(mode: SlackSmokeLiveMode, evidencePath: string): string {
-  const command = `npm run smoke:slack -- --env-file scripts/slack/.env --live --evidence ${evidencePath} --json`;
+function buildSlackSmokeLiveCommand(mode: SlackSmokeLiveMode, evidencePath: string, envFilePath: string): string {
+  const command = `npm run smoke:slack -- --env-file ${envFilePath} --live --evidence ${evidencePath} --json`;
   return mode === "post_message"
     ? command
     : `SLACK_SMOKE_LIVE_MODE=${mode} ${command}`;
