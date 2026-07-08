@@ -1039,11 +1039,11 @@ rawPayload = summarized payload or original safe subset
 
 ### Web UI tests
 
-- [ ] create integration dialog。
-- [ ] channel binding panel。
-- [ ] user binding panel。
-- [ ] health panel。
-- [ ] member view hides admin-only data。
+- [x] create integration dialog。
+- [x] channel binding panel。
+- [x] user binding panel。
+- [x] health panel。
+- [x] member view hides admin-only data。
 
 ### CLI tests
 
