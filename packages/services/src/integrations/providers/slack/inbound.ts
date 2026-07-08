@@ -408,6 +408,7 @@ function prepareSlackInboundDispatchSync(input: ProcessSlackInboundEventInput): 
       message,
       channelBindingId: channelBinding.id,
       text: "Your AgentSpace account cannot use this Slack agent in the mapped channel. Ask an AgentSpace admin to review agent and runtime access.",
+      reasonCode: routeGuard.reasonCode,
       dependencies,
     });
     return {

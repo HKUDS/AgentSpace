@@ -1015,6 +1015,102 @@ test("ignores permission-denied Slack inbound messages without dispatching tasks
   assert.doesNotMatch(JSON.stringify(noticeInput?.metadataJson), /C123|U456|1783400009\.000100/);
 });
 
+test("queues a Slack notice when the target agent runtime is unavailable", () => {
+  const event = buildExternalIntegrationEvent({
+    integrationId: "slack-agent-1",
+    externalEventId: "EvRuntimeUnavailable",
+  });
+  let sendCalled = false;
+  let noticeInput: Record<string, unknown> | undefined;
+  let ignoredMappingMetadata: Record<string, unknown> | undefined;
+
+  const result = processSlackInboundEventSync({
+    context: {
+      workspaceId: "workspace-1",
+      integrationId: "slack-agent-1",
+      provider: SLACK_PROVIDER_ID,
+    },
+    integration: buildExternalIntegration({
+      id: "slack-agent-1",
+      workspaceId: "workspace-1",
+      appId: "A123",
+      tenantKey: "T123",
+      agentId: "Atlas",
+    }),
+    payload: buildSlackMentionPayload({
+      eventId: "EvRuntimeUnavailable",
+      messageTs: "1783400010.000100",
+      text: "<@UBOT> @Atlas take this",
+    }),
+    dependencies: {
+      recordEvent: () => event,
+      readMessageMappingByExternalMessage: () => null,
+      readChannelBindingByExternalChat: () => buildExternalChannelBinding({
+        id: "channel-binding-atlas",
+        integrationId: "slack-agent-1",
+      }),
+      readUserBindingByExternalUser: () => buildExternalUserBinding({
+        integrationId: "slack-agent-1",
+      }),
+      readUser: () => buildStoredUser(),
+      readWorkspaceMembership: () => buildWorkspaceMembership(),
+      canWriteChannelForActor: () => true,
+      evaluateAgentRouteGuard: () => ({
+        allowed: false,
+        reasonCode: "slack.agent_runtime_unavailable",
+      }),
+      sendChannelHumanMessage: () => {
+        sendCalled = true;
+        throw new Error("send should not run when runtime is unavailable");
+      },
+      createMessageMapping: (input) => {
+        ignoredMappingMetadata = input.metadataJson as Record<string, unknown>;
+        return buildExternalMessageMapping({
+          integrationId: "slack-agent-1",
+          channelBindingId: "channel-binding-atlas",
+          externalMessageId: String(input.externalMessageId),
+          externalThreadId: String(input.externalThreadId),
+          externalEventId: String(input.externalEventId),
+          metadataJson: JSON.stringify(input.metadataJson),
+        });
+      },
+      createNoticeOutbox: (input) => {
+        noticeInput = input as Record<string, unknown>;
+        return buildExternalMessageOutbox({
+          ...(input as Partial<ExternalMessageOutboxRecord>),
+          integrationId: "slack-agent-1",
+          channelBindingId: "channel-binding-atlas",
+        });
+      },
+      updateEventStatus: (input) => {
+        assert.equal(input.status, "ignored");
+        assert.equal(input.errorMessage, "slack.agent_runtime_unavailable");
+        return {
+          ...event,
+          status: "ignored",
+          errorMessage: input.errorMessage,
+        };
+      },
+    },
+  });
+
+  assert.equal(result.dispatchStatus, "ignored");
+  assert.equal(result.reasonCode, "slack.agent_runtime_unavailable");
+  assert.equal(result.event.status, "ignored");
+  assert.equal(result.event.errorMessage, "slack.agent_runtime_unavailable");
+  assert.equal(sendCalled, false);
+  assert.equal(ignoredMappingMetadata?.dispatchStatus, "ignored");
+  assert.equal(ignoredMappingMetadata?.reasonCode, "slack.agent_runtime_unavailable");
+  assert.equal(noticeInput?.channelBindingId, "channel-binding-atlas");
+  assert.equal(noticeInput?.targetExternalChatId, "C123");
+  assert.equal(noticeInput?.targetExternalThreadId, "1783400010.000100");
+  const noticeMetadata = noticeInput?.metadataJson as Record<string, unknown> | undefined;
+  assert.equal(noticeMetadata?.outboxSource, "inbound_permission_notice");
+  assert.equal(noticeMetadata?.noticeType, "permission_denied");
+  assert.equal(noticeMetadata?.reasonCode, "slack.agent_runtime_unavailable");
+  assert.doesNotMatch(JSON.stringify(noticeMetadata), /C123|U456|1783400010\.000100/);
+});
+
 function buildSlackMentionPayload(input: {
   eventId: string;
   messageTs: string;
