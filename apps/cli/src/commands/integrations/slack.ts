@@ -27,9 +27,11 @@ import {
   startSlackSocketModeWorker,
   summarizeSlackStoredCredentials,
   type SlackAgentBotBinding,
+  type SlackEvidenceReport,
   type SlackEvidenceRequirement,
   type SlackLiveSmokeEvidenceReadError,
   type SlackReadinessRequirement,
+  type SlackSmokePlanReport,
   type SlackSocketModeWorkerMetrics,
 } from "@agent-space/services";
 import { getNumberFlag, getStringFlag, parseArgs } from "../../lib/args.ts";
@@ -128,7 +130,11 @@ export async function runSlackIntegrationCommand(
       liveSmokeEvidenceReadError: liveSmokeEvidenceFile?.errorCode,
       requireLiveSmokeEvidence: required === "all" && parsed.flags.strict === true,
     });
-    writeData(format, result);
+    if (format === "json") {
+      writeData(format, result);
+    } else {
+      console.log(formatSlackEvidenceCommandText(result));
+    }
     return result.strict && !result.strictSatisfied ? 1 : 0;
   }
   if (subcommand === "smoke-plan") {
@@ -140,7 +146,11 @@ export async function runSlackIntegrationCommand(
       strict: parsed.flags.strict === true,
       required: readSlackReadinessRequirement(parsed.flags),
     });
-    writeData(format, result);
+    if (format === "json") {
+      writeData(format, result);
+    } else {
+      console.log(formatSlackSmokePlanCommandText(result));
+    }
     return result.strict && !result.readiness.strictSatisfied ? 1 : 0;
   }
   if (subcommand === "smoke-env") {
@@ -704,6 +714,133 @@ function readSlackEvidenceRequirement(flags: Record<string, string | boolean>): 
     return value;
   }
   throw new Error("slack.evidence.invalid_requirement");
+}
+
+export function formatSlackEvidenceCommandText(report: SlackEvidenceReport): string {
+  const lines = [
+    "AgentSpace Slack evidence",
+    `Workspace: ${report.workspaceId}`,
+    `Required evidence: ${report.required}`,
+    `Strict evidence satisfied: ${formatSlackCliYesNo(report.strictSatisfied)}`,
+    `Integrations: ${report.integrationCount}`,
+    "",
+    "Gates:",
+    `- message: ${report.summary.messageSatisfiedCount}`,
+    `- native: ${report.summary.nativeSatisfiedCount}`,
+    `- approval: ${report.summary.approvalSatisfiedCount}`,
+    `- files: ${report.summary.filesSatisfiedCount}`,
+    `- stale rows ignored: ${report.summary.staleEvidenceRowCount}`,
+    `- unresolved failures: ${report.summary.unresolvedFailureCount}`,
+    "",
+    "Live smoke:",
+  ];
+  if (!report.liveSmokeEvidence) {
+    lines.push("- not required for this command");
+  } else {
+    lines.push(
+      `- present: ${formatSlackCliYesNo(report.liveSmokeEvidence.present)}`,
+      `- valid: ${formatSlackCliYesNo(report.liveSmokeEvidence.valid)}`,
+    );
+    if (report.liveSmokeEvidence.issues.length > 0) {
+      lines.push(`- issues: ${report.liveSmokeEvidence.issues.join(", ")}`);
+    }
+  }
+
+  lines.push("", "Blockers:");
+  if (report.blockers.length === 0) {
+    lines.push("- none");
+  } else {
+    const shownBlockers = report.blockers.slice(0, 12).join(", ");
+    lines.push(`- ${shownBlockers}${report.blockers.length > 12 ? ", ..." : ""}`);
+  }
+
+  lines.push("", "Manual actions:");
+  if (report.manualActions.length === 0) {
+    lines.push("- none");
+  } else {
+    for (const action of report.manualActions) {
+      lines.push(`- ${action.id}: ${action.integrationIds.join(", ")}`);
+      lines.push(`  ${action.detail}`);
+    }
+  }
+
+  lines.push("", "Integration evidence:");
+  if (report.integrations.length === 0) {
+    lines.push("- none");
+  } else {
+    for (const item of report.integrations.slice(0, 8)) {
+      lines.push(
+        `- ${item.displayName} (${item.integrationId}, ${item.transportMode})`,
+        `  gates: message=${formatSlackCliYesNo(item.message.satisfied)}, native=${formatSlackCliYesNo(
+          item.nativeExperience.satisfied,
+        )}, approval=${formatSlackCliYesNo(item.approvals.satisfied)}, files=${formatSlackCliYesNo(item.files.satisfied)}`,
+        `  blockers: ${item.blockers.length > 0 ? item.blockers.slice(0, 12).join(", ") : "none"}`,
+      );
+    }
+  }
+
+  lines.push("", "Next commands:");
+  for (const command of report.nextCommands.slice(0, 8)) {
+    lines.push(`- ${command}`);
+  }
+  if (report.nextCommands.length > 8) {
+    lines.push(`- ... ${report.nextCommands.length - 8} more command(s); rerun with --json for all details.`);
+  }
+  return lines.join("\n");
+}
+
+export function formatSlackSmokePlanCommandText(report: SlackSmokePlanReport): string {
+  const lines = [
+    "AgentSpace Slack smoke plan",
+    `Workspace: ${report.workspaceId}`,
+    `Strict readiness satisfied: ${formatSlackCliYesNo(report.readiness.strictSatisfied)}`,
+    `Integrations: ${report.readiness.integrationCount}`,
+    `Ready counts: message=${report.readiness.readyForMessageSmokeCount}, worker=${report.readiness.readyForWorkerSmokeCount}`,
+    `Callback URL: ${report.callbackUrl ?? "missing"}`,
+    "",
+    "Manual actions:",
+  ];
+  if (report.manualActions.length === 0) {
+    lines.push("- none");
+  } else {
+    for (const action of report.manualActions) {
+      lines.push(`- [${action.status}] ${action.id}`);
+      lines.push(`  ${action.detail}`);
+    }
+  }
+
+  lines.push("", "Checklist:");
+  for (const item of report.checklist.slice(0, 12)) {
+    lines.push(`- [${item.status}] ${item.id}: ${item.detail}`);
+  }
+  if (report.checklist.length > 12) {
+    lines.push(`- ... ${report.checklist.length - 12} more item(s); rerun with --json for all details.`);
+  }
+
+  lines.push("", "Commands:");
+  const commandKeys = [
+    "smokeEnv",
+    "healthCheck",
+    "readiness",
+    "workerDryRun",
+    "livePostMessage",
+    "liveAppMention",
+    "drainOutbox",
+    "liveFileUpload",
+    "verifyLiveEvidence",
+    "finalEvidence",
+  ] as const;
+  for (const key of commandKeys) {
+    const command = report.commands[key];
+    if (command) {
+      lines.push(`- ${key}: ${command}`);
+    }
+  }
+  return lines.join("\n");
+}
+
+function formatSlackCliYesNo(value: boolean): string {
+  return value ? "yes" : "no";
 }
 
 async function waitForShutdownSignal(): Promise<void> {

@@ -435,6 +435,116 @@ test("Slack command dispatcher routes subcommands without external services", as
   assert.equal(calls.some((call) => JSON.stringify(call).includes("xoxb-")), false);
 });
 
+test("Slack evidence text output summarizes manual actions and blockers", async () => {
+  const logs = await captureConsoleLog(async () => {
+    const exitCode = await runSlackIntegrationCommand(
+      ["evidence", "--workspace-id", "workspace-1", "--strict", "--require", "all"],
+      "text",
+      {
+        buildEvidenceReport: () => ({
+          workspaceId: "workspace-1",
+          provider: "slack",
+          generatedAt: freshFeishuEvidenceTimestamp(),
+          required: "all",
+          strict: true,
+          integrationCount: 1,
+          strictSatisfied: false,
+          blockers: ["app_home_welcome_evidence_missing"],
+          summary: {
+            messageSatisfiedCount: 1,
+            nativeSatisfiedCount: 0,
+            approvalSatisfiedCount: 0,
+            filesSatisfiedCount: 1,
+            unresolvedFailureCount: 0,
+            staleEvidenceRowCount: 0,
+            unhealthyIntegrationCount: 0,
+          },
+          liveSmokeEvidence: {
+            present: true,
+            valid: false,
+            issues: ["slack_live_smoke_evidence_missing"],
+          },
+          integrations: [{
+            integrationId: "slack-1",
+            displayName: "Slack Atlas",
+            transportMode: "websocket_worker",
+            status: "active",
+            message: { satisfied: true },
+            nativeExperience: { satisfied: false },
+            approvals: { satisfied: false },
+            files: { satisfied: true },
+            blockers: ["app_home_welcome_evidence_missing"],
+          }],
+          manualActions: [{
+            id: "native_agent_experience",
+            integrationIds: ["slack-1"],
+            detail: "Open the Slack app Messages tab.",
+          }],
+          nextCommands: ["agent-space integrations slack evidence --workspace-id workspace-1 --strict --require all --json"],
+        } as never),
+      },
+    );
+    assert.equal(exitCode, 1);
+  });
+  const output = logs.join("\n");
+
+  assert.match(output, /AgentSpace Slack evidence/);
+  assert.match(output, /Strict evidence satisfied: no/);
+  assert.match(output, /Manual actions:/);
+  assert.match(output, /native_agent_experience: slack-1/);
+  assert.match(output, /app_home_welcome_evidence_missing/);
+  assert.doesNotMatch(output, /\[object Object\]/);
+});
+
+test("Slack smoke-plan text output summarizes manual actions and commands", async () => {
+  const logs = await captureConsoleLog(async () => {
+    const exitCode = await runSlackIntegrationCommand(
+      ["smoke-plan", "--workspace-id", "workspace-1", "--strict", "--require", "all"],
+      "text",
+      {
+        buildSmokePlanReport: () => ({
+          workspaceId: "workspace-1",
+          provider: "slack",
+          generatedAt: freshFeishuEvidenceTimestamp(),
+          strict: true,
+          callbackUrl: "https://agentspace.test/api/integrations/slack/events",
+          callbackUrlStatus: "ready",
+          readiness: {
+            strictSatisfied: false,
+            integrationCount: 1,
+            readyForMessageSmokeCount: 0,
+            readyForWorkerSmokeCount: 0,
+          },
+          appSetup: {},
+          commands: {
+            smokeEnv: "agent-space integrations slack smoke-env --workspace-id workspace-1 --json",
+            healthCheck: "agent-space integrations slack health-check --workspace-id workspace-1 --integration slack-1 --json",
+            finalEvidence: "agent-space integrations slack evidence --workspace-id workspace-1 --integration slack-1 --strict --require all --json",
+          },
+          manualActions: [{
+            id: "approval_block_actions",
+            status: "blocked",
+            detail: "Trigger one AgentSpace runtime approval card in Slack.",
+          }],
+          checklist: [{
+            id: "approval_block_actions",
+            status: "blocked",
+            detail: "Trigger one AgentSpace runtime approval card in Slack.",
+          }],
+        } as never),
+      },
+    );
+    assert.equal(exitCode, 1);
+  });
+  const output = logs.join("\n");
+
+  assert.match(output, /AgentSpace Slack smoke plan/);
+  assert.match(output, /\[blocked\] approval_block_actions/);
+  assert.match(output, /Commands:/);
+  assert.match(output, /finalEvidence: agent-space integrations slack evidence/);
+  assert.doesNotMatch(output, /\[object Object\]/);
+});
+
 test("Slack evidence CLI reports malformed live smoke artifact distinctly", async () => {
   const directory = mkdtempSync(join(tmpdir(), "agent-space-slack-evidence-"));
   try {
