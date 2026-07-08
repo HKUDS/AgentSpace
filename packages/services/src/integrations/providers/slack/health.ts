@@ -466,7 +466,7 @@ export function buildSlackSmokePlanReport(input: {
     drainOutbox: `agent-space integrations slack outbox drain --workspace-id ${input.workspaceId}${requiredIntegrationFlag} --json`,
     liveFileUpload: `SLACK_SMOKE_LIVE_MODE=file_upload npm run smoke:slack -- --env-file scripts/slack/.env --live --evidence ${liveSmokeEvidencePath} --json`,
     verifyLiveEvidence: "npm run smoke:slack:verify -- --env-file scripts/slack/.env --json",
-    finalEvidence: `agent-space integrations slack evidence --workspace-id ${input.workspaceId}${integrationFlag} --live-smoke-evidence ${liveSmokeEvidencePath} --strict --require all --json`,
+    finalEvidence: `agent-space integrations slack evidence --workspace-id ${input.workspaceId}${requiredIntegrationFlag} --live-smoke-evidence ${liveSmokeEvidencePath} --strict --require all --json`,
   };
   return {
     workspaceId: input.workspaceId,

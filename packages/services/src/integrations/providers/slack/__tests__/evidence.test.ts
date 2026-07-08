@@ -405,6 +405,9 @@ test("Slack evidence exposes top-level blockers for final evidence automation", 
   assert.ok(report.nextCommands.includes(
     "agent-space integrations slack health-check --workspace-id workspace-1 --integration CHANGE_ME_SLACK_INTEGRATION_ID --json",
   ));
+  assert.ok(report.nextCommands.includes(
+    "agent-space integrations slack evidence --workspace-id workspace-1 --integration CHANGE_ME_SLACK_INTEGRATION_ID --live-smoke-evidence runtime-output/slack-smoke/live.json --strict --require all --json",
+  ));
 });
 
 test("Slack evidence omits top-level blockers when any workspace integration satisfies strict gate", () => {

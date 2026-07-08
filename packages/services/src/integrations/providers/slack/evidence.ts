@@ -1215,7 +1215,7 @@ function buildSlackEvidenceNextCommands(
     `agent-space integrations slack outbox drain --workspace-id ${workspaceId}${requiredIntegrationFlag} --json`,
     `SLACK_SMOKE_LIVE_MODE=file_upload npm run smoke:slack -- --env-file scripts/slack/.env --live --evidence ${evidencePath} --json`,
     "npm run smoke:slack:verify -- --env-file scripts/slack/.env --json",
-    `agent-space integrations slack evidence --workspace-id ${workspaceId}${integrationFlag} --live-smoke-evidence ${evidencePath} --strict --require ${required} --json`,
+    `agent-space integrations slack evidence --workspace-id ${workspaceId}${requiredIntegrationFlag} --live-smoke-evidence ${evidencePath} --strict --require ${required} --json`,
   ];
 }
 

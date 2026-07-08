@@ -219,7 +219,7 @@ test("builds Slack smoke plan and env template without raw external ids", () => 
   assert.equal(plan.commands.drainOutbox, "agent-space integrations slack outbox drain --workspace-id workspace-1 --integration slack-1 --json");
   assert.match(plan.commands.liveFileUpload, /SLACK_SMOKE_LIVE_MODE=file_upload/);
   assert.equal(plan.commands.verifyLiveEvidence, "npm run smoke:slack:verify -- --env-file scripts/slack/.env --json");
-  assert.match(plan.commands.finalEvidence, /--live-smoke-evidence runtime-output\/slack-smoke\/live\.json --strict --require all --json/);
+  assert.equal(plan.commands.finalEvidence, "agent-space integrations slack evidence --workspace-id workspace-1 --integration slack-1 --live-smoke-evidence runtime-output/slack-smoke/live.json --strict --require all --json");
   assert.equal(plan.checklist.find((item) => item.id === "live_file_upload")?.status, "manual");
   assert.equal(plan.checklist.find((item) => item.id === "drain_outbox_reply")?.detail, plan.commands.drainOutbox);
   const nativeExperienceStep = plan.checklist.find((item) => item.id === "native_agent_experience");
@@ -290,8 +290,10 @@ test("Slack smoke plan setup commands use workspace and integration placeholders
   assert.equal(plan.commands.bindChannel, "agent-space integrations slack bind-channel --workspace-id workspace-2 --integration CHANGE_ME_SLACK_INTEGRATION_ID --channel CHANGE_ME_AGENTSPACE_CHANNEL --slack-channel CHANGE_ME_SLACK_CHANNEL_ID --json");
   assert.equal(plan.commands.bindUser, "agent-space integrations slack bind-user --workspace-id workspace-2 --integration CHANGE_ME_SLACK_INTEGRATION_ID --user-id CHANGE_ME_AGENTSPACE_USER_ID --slack-user CHANGE_ME_SLACK_USER_ID --json");
   assert.equal(plan.commands.drainOutbox, "agent-space integrations slack outbox drain --workspace-id workspace-2 --integration CHANGE_ME_SLACK_INTEGRATION_ID --json");
+  assert.equal(plan.commands.finalEvidence, "agent-space integrations slack evidence --workspace-id workspace-2 --integration CHANGE_ME_SLACK_INTEGRATION_ID --live-smoke-evidence runtime-output/slack-smoke/live.json --strict --require all --json");
   assert.equal(plan.checklist.find((item) => item.id === "health_check")?.detail, plan.commands.healthCheck);
   assert.equal(plan.checklist.find((item) => item.id === "drain_outbox_reply")?.detail, plan.commands.drainOutbox);
+  assert.equal(plan.checklist.find((item) => item.id === "final_evidence")?.detail, plan.commands.finalEvidence);
 });
 
 test("builds Slack agent_view app manifests with normalized prompts and bot names", () => {
