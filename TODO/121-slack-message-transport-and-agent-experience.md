@@ -694,7 +694,7 @@ deploy/slack-worker/slack-worker.env.example
 ### Phase 0：准备和 spike
 
 - [ ] 复核 Slack 官方文档和 SDK 版本。
-- [ ] 临时安装 `@slack/web-api`，验证 Node 24 / TypeScript / ESM import。
+- [x] 安装 `@slack/web-api@7.19.0`，验证 Node 24 / TypeScript / ESM import。
 - [ ] 确认 `@slack/socket-mode` 是否足够轻量，是否比手写 WebSocket + `apps.connections.open` 更合适。
 - [ ] 输出 Slack app manifest 草案和 self-hosted setup guide。
 - [x] 确认 MVP 同时支持手动 token 和 OAuth hosted install。
@@ -835,12 +835,12 @@ rawPayload = summarized payload or original safe subset
   - [x] `text`
   - [x] `thread_ts`
   - [x] optional `blocks`
-- [ ] 使用 `@slack/web-api` `WebClient.chat.postMessage(...)`。
+- [x] 使用 `@slack/web-api` `WebClient.chat.postMessage(...)`。
 - [x] 成功后写 external message mapping。
 - [x] 429 时读取 retry-after，写 `nextAttemptAt`。
 - [x] `channel_not_found` / `not_in_channel` / `missing_scope` / `invalid_auth` 等错误归一化。
 - [x] CLI 支持 drain。
-- [ ] HTTP route 可 best-effort drain 当前 integration outbox。
+- [x] HTTP route 可 best-effort drain 当前 integration outbox。
 - [x] web daemon / CLI daemon 完成或失败任务时 queue Slack thread reply。
 - [x] worker 可 drain outbox。
 

@@ -1,5 +1,16 @@
 import { existsSync, readFileSync } from "node:fs";
 import {
+  ErrorCode,
+  LogLevel,
+  WebClient,
+  type ChatPostMessageArguments,
+  type ChatPostMessageResponse,
+  type WebAPIHTTPError,
+  type WebAPIPlatformError,
+  type WebAPIRateLimitedError,
+  type WebClientOptions,
+} from "@slack/web-api";
+import {
   completeExternalMessageOutboxSync,
   createExternalMessageMappingSync,
   failExternalMessageOutboxSync,
@@ -956,45 +967,68 @@ export async function sendSlackChatPostMessage(input: {
       errorMessage: "Slack bot token is missing.",
     };
   }
-  const fetchImpl = input.fetchImpl ?? fetch;
-  const response = await fetchImpl(`${input.baseUrl ?? "https://slack.com/api"}/chat.postMessage`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${botToken}`,
-      "content-type": "application/json; charset=utf-8",
-    },
-    body: JSON.stringify(input.payload),
+  const client = new WebClient(botToken, {
+    slackApiUrl: input.baseUrl ?? "https://slack.com/api",
+    logLevel: LogLevel.ERROR,
+    retryConfig: { retries: 0 },
+    rejectRateLimitedCalls: true,
+    ...(input.fetchImpl ? { adapter: buildSlackWebApiFetchAdapter(input.fetchImpl) } : {}),
   });
-  if (response.status === 429) {
-    const retryAfter = Number(response.headers.get("retry-after") ?? "");
+  try {
+    const response = await client.chat.postMessage(input.payload as ChatPostMessageArguments);
+    return readSlackChatPostMessageResponse(response);
+  } catch (error) {
+    return readSlackChatPostMessageError(error);
+  }
+}
+
+function readSlackChatPostMessageResponse(response: ChatPostMessageResponse): SlackApiPostMessageResult {
+  return {
+    ok: true,
+    status: 200,
+    channel: typeof response.channel === "string" ? response.channel : undefined,
+    ts: typeof response.ts === "string" ? response.ts : undefined,
+  };
+}
+
+function readSlackChatPostMessageError(error: unknown): SlackApiPostMessageResult {
+  const rateLimited = readSlackWebApiRateLimitedError(error);
+  if (rateLimited) {
+    return rateLimited;
+  }
+  const platformError = readSlackWebApiPlatformError(error);
+  if (platformError) {
+    const normalized = normalizeSlackOutboundProviderError(
+      "chat.postMessage",
+      platformError.data.error,
+      200,
+    );
     return {
       ok: false,
-      status: response.status,
-      errorCode: "slack.rate_limited",
-      errorMessage: "Slack rate limited chat.postMessage.",
-      retryAfterSeconds: Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : undefined,
+      status: 200,
+      errorCode: normalized.errorCode,
+      errorMessage: normalized.errorMessage,
     };
   }
-  let data: Record<string, unknown> = {};
-  try {
-    data = await response.json() as Record<string, unknown>;
-  } catch {
-    data = {};
-  }
-  if (response.ok && data.ok === true) {
+  const httpError = readSlackWebApiHttpError(error);
+  if (httpError) {
+    const normalized = normalizeSlackOutboundProviderError(
+      "chat.postMessage",
+      undefined,
+      httpError.statusCode,
+    );
     return {
-      ok: true,
-      status: response.status,
-      channel: typeof data.channel === "string" ? data.channel : undefined,
-      ts: typeof data.ts === "string" ? data.ts : undefined,
+      ok: false,
+      status: httpError.statusCode,
+      errorCode: normalized.errorCode,
+      errorMessage: normalized.errorMessage,
     };
   }
-  const error = normalizeSlackOutboundProviderError("chat.postMessage", data.error, response.status);
   return {
     ok: false,
-    status: response.status,
-    errorCode: error.errorCode,
-    errorMessage: error.errorMessage,
+    status: 0,
+    errorCode: "slack.outbound.request_failed",
+    errorMessage: "Slack chat.postMessage request failed.",
   };
 }
 
@@ -1296,6 +1330,156 @@ function readSlackRateLimitedResponse(response: Response, method: string): Slack
     errorMessage: `Slack rate limited ${method}.`,
     retryAfterSeconds: Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : undefined,
   };
+}
+
+function readSlackWebApiRateLimitedError(error: unknown): SlackApiPostMessageResult | null {
+  const coded = readSlackWebApiCodedError(error);
+  if (!coded || coded.code !== ErrorCode.RateLimitedError) {
+    return null;
+  }
+  const retryAfter = (coded as WebAPIRateLimitedError).retryAfter;
+  return {
+    ok: false,
+    status: 429,
+    errorCode: "slack.rate_limited",
+    errorMessage: "Slack rate limited chat.postMessage.",
+    retryAfterSeconds: Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : undefined,
+  };
+}
+
+function readSlackWebApiPlatformError(error: unknown): WebAPIPlatformError | null {
+  const coded = readSlackWebApiCodedError(error);
+  if (!coded || coded.code !== ErrorCode.PlatformError) {
+    return null;
+  }
+  const data = (coded as Partial<WebAPIPlatformError>).data;
+  return data && typeof data.error === "string"
+    ? coded as WebAPIPlatformError
+    : null;
+}
+
+function readSlackWebApiHttpError(error: unknown): WebAPIHTTPError | null {
+  const coded = readSlackWebApiCodedError(error);
+  return coded?.code === ErrorCode.HTTPError
+    ? coded as WebAPIHTTPError
+    : null;
+}
+
+function readSlackWebApiCodedError(error: unknown): { code: ErrorCode } | null {
+  if (!error || typeof error !== "object") {
+    return null;
+  }
+  const code = (error as { code?: unknown }).code;
+  if (Object.values(ErrorCode).includes(code as ErrorCode)) {
+    return { ...(error as Record<string, unknown>), code: code as ErrorCode };
+  }
+  const original = (error as { originalError?: unknown }).originalError;
+  if (original && typeof original === "object") {
+    const originalCode = (original as { code?: unknown }).code;
+    if (Object.values(ErrorCode).includes(originalCode as ErrorCode)) {
+      return { ...(original as Record<string, unknown>), code: originalCode as ErrorCode };
+    }
+  }
+  return null;
+}
+
+function buildSlackWebApiFetchAdapter(fetchImpl: typeof fetch): NonNullable<WebClientOptions["adapter"]> {
+  return async (config) => {
+    const url = resolveSlackWebApiRequestUrl(config.url, config.baseURL);
+    const response = await fetchImpl(url, {
+      method: (config.method ?? "POST").toUpperCase(),
+      headers: readSlackWebApiAdapterHeaders(config.headers),
+      body: readSlackWebApiAdapterBody(config.data),
+    });
+    const text = await response.text();
+    return {
+      data: parseSlackWebApiAdapterResponseBody(text),
+      status: response.status,
+      statusText: response.statusText,
+      headers: readSlackFetchResponseHeaders(response.headers),
+      config,
+      request: {
+        path: readUrlPathname(url),
+      },
+    };
+  };
+}
+
+function resolveSlackWebApiRequestUrl(url: unknown, baseUrl: unknown): string {
+  const value = typeof url === "string" ? url : "";
+  if (value.startsWith("http://") || value.startsWith("https://")) {
+    return value;
+  }
+  const base = typeof baseUrl === "string" && baseUrl
+    ? baseUrl
+    : "https://slack.com/api/";
+  return new URL(value, base.endsWith("/") ? base : `${base}/`).toString();
+}
+
+function readSlackWebApiAdapterHeaders(headers: unknown): Record<string, string> {
+  if (!headers || typeof headers !== "object") {
+    return {};
+  }
+  const source = typeof (headers as { toJSON?: unknown }).toJSON === "function"
+    ? (headers as { toJSON(): Record<string, unknown> }).toJSON()
+    : headers as Record<string, unknown>;
+  return Object.fromEntries(Object.entries(source).flatMap(([key, value]) => {
+    const headerValue = readSlackHeaderValue(value);
+    return headerValue === undefined ? [] : [[key, headerValue]];
+  }));
+}
+
+function readSlackHeaderValue(value: unknown): string | undefined {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+  if (Array.isArray(value)) {
+    return value.map(readSlackHeaderValue).filter(Boolean).join(", ");
+  }
+  return String(value);
+}
+
+function readSlackWebApiAdapterBody(value: unknown): NonNullable<Parameters<typeof fetch>[1]>["body"] | undefined {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+  if (
+    typeof value === "string" ||
+    value instanceof URLSearchParams ||
+    value instanceof Blob ||
+    value instanceof FormData ||
+    value instanceof ArrayBuffer
+  ) {
+    return value;
+  }
+  return String(value);
+}
+
+function readSlackFetchResponseHeaders(headers: Headers): Record<string, string> {
+  const result: Record<string, string> = {};
+  headers.forEach((value, key) => {
+    result[key] = value;
+  });
+  return result;
+}
+
+function parseSlackWebApiAdapterResponseBody(text: string): unknown {
+  if (!text) {
+    return {};
+  }
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    return text;
+  }
+}
+
+function readUrlPathname(url: string): string {
+  try {
+    return new URL(url).pathname;
+  } catch {
+    return "";
+  }
 }
 
 function normalizeSlackOutboundProviderError(

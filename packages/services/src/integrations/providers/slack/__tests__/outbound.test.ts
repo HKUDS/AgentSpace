@@ -67,6 +67,10 @@ test("sends Slack chat.postMessage payloads", async () => {
   assert.equal(calls.length, 1);
   assert.equal(calls[0]?.url, "https://slack.com/api/chat.postMessage");
   assert.equal((calls[0]?.init?.headers as Record<string, string>).Authorization, "Bearer xoxb-test");
+  const sent = new URLSearchParams(String(calls[0]?.init?.body ?? ""));
+  assert.equal(sent.get("channel"), "C123");
+  assert.equal(sent.get("text"), "Agent reply");
+  assert.equal(sent.get("thread_ts"), "1783400000.000100");
 });
 
 test("normalizes terminal Slack chat.postMessage provider errors", async () => {
@@ -359,16 +363,12 @@ test("sends Slack chat.postMessage Block Kit payloads", async () => {
   });
 
   assert.equal(result.ok, true);
-  const sent = JSON.parse(String(calls[0]?.init?.body ?? "{}")) as {
-    channel?: string;
-    text?: string;
-    thread_ts?: string;
-    blocks?: unknown[];
-  };
-  assert.equal(sent.channel, "C123");
-  assert.equal(sent.text, "Atlas · Approval required");
-  assert.equal(sent.thread_ts, "1783400000.000100");
-  assert.equal(Array.isArray(sent.blocks), true);
+  const sent = new URLSearchParams(String(calls[0]?.init?.body ?? ""));
+  const blocks = JSON.parse(String(sent.get("blocks") ?? "[]")) as unknown[];
+  assert.equal(sent.get("channel"), "C123");
+  assert.equal(sent.get("text"), "Atlas · Approval required");
+  assert.equal(sent.get("thread_ts"), "1783400000.000100");
+  assert.equal(Array.isArray(blocks), true);
 });
 
 test("selects Slack reply channel bindings from source mappings first", () => {

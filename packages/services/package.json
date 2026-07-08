@@ -11,6 +11,7 @@
     "@agent-space/db": "file:../db",
     "@agent-space/domain": "file:../domain",
     "@larksuiteoapi/node-sdk": "^1.67.0",
+    "@slack/web-api": "^7.19.0",
     "fflate": "^0.8.2"
   },
   "exports": {
