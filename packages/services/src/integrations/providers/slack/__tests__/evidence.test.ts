@@ -167,6 +167,7 @@ test("builds strict Slack evidence reports without raw external ids", () => {
   assert.equal(report.summary.nativeSatisfiedCount, 1);
   assert.equal(report.summary.approvalSatisfiedCount, 1);
   assert.equal(report.summary.filesSatisfiedCount, 1);
+  assert.equal(report.integrations[0]?.files.threadCorrelatedOutboundUploadEvidence, 1);
   assert.equal(report.summary.staleEvidenceRowCount, 0);
   assert.equal(report.summary.unhealthyIntegrationCount, 0);
   assert.deepEqual(report.blockers, []);
@@ -913,9 +914,82 @@ test("Slack evidence files gate requires stored attachment proof on the inbound 
   assert.equal(report.integrations[0]?.files.storedAttachmentEvidence, 1);
   assert.equal(report.integrations[0]?.files.storedInboundFileMappings, 0);
   assert.equal(report.integrations[0]?.files.outboundUploadEvidence, 1);
+  assert.equal(report.integrations[0]?.files.threadCorrelatedOutboundUploadEvidence, 0);
   assert.ok(report.integrations[0]?.blockers.includes("slack_file_attachment_storage_correlation_missing"));
   assert.equal(report.integrations[0]?.blockers.includes("slack_file_attachment_storage_evidence_missing"), false);
   assert.doesNotMatch(JSON.stringify(report), /1783400009|1783400000/);
+});
+
+test("Slack evidence files gate requires outbound upload to match stored inbound file thread", () => {
+  const report = buildSlackEvidenceReport({
+    workspaceId: "workspace-1",
+    strict: true,
+    required: "files",
+    dependencies: {
+      listIntegrations: () => [makeIntegration()],
+      listChannelBindings: () => [makeChannelBinding()],
+      listUserBindings: () => [makeUserBinding()],
+      listEvents: () => [
+        makeEvent({
+          eventType: "event_callback.message",
+          status: "processed",
+          payloadJson: {
+            hasFiles: true,
+            fileCount: 1,
+          },
+        }),
+      ],
+      listMessageMappings: () => [
+        makeMapping({
+          direction: "inbound",
+          externalMessageId: "1783400003.000100",
+          externalThreadId: "1783400003.000100",
+          metadataJson: {
+            provider: "slack",
+            agentId: "Atlas",
+            taskAgentId: "Atlas",
+            taskQueueId: "task-safe-1",
+            slackFileCount: 1,
+            slackStoredAttachmentCount: 1,
+            slackFileDownloadStatus: "stored_attachment",
+            externalChatReference: buildSlackReference("C_SECRET"),
+          },
+        }),
+        makeMapping({
+          direction: "outbound",
+          externalMessageId: "1783400004.000100",
+          externalThreadId: "1783400003.000100",
+          metadataJson: {
+            provider: "slack",
+            outboxSource: "agent_reply",
+            externalChatReference: buildSlackReference("C_SECRET"),
+          },
+        }),
+      ],
+      listOutbox: () => [
+        makeOutbox({
+          status: "sent",
+          targetExternalChatId: "C_OTHER_SECRET",
+          targetExternalThreadId: "1783499999.000100",
+          metadataJson: {
+            provider: "slack",
+            outboxSource: "slack_file_upload",
+            slackUploadFlow: "external_upload",
+            externalChatReference: buildSlackReference("C_OTHER_SECRET"),
+            externalThreadReference: buildSlackReference("1783499999.000100"),
+          },
+        }),
+      ],
+    },
+  });
+
+  assert.equal(report.strictSatisfied, false);
+  assert.equal(report.integrations[0]?.files.storedInboundFileMappings, 1);
+  assert.equal(report.integrations[0]?.files.outboundUploadEvidence, 1);
+  assert.equal(report.integrations[0]?.files.threadCorrelatedOutboundUploadEvidence, 0);
+  assert.equal(report.integrations[0]?.blockers.includes("slack_outbound_file_upload_evidence_missing"), false);
+  assert.ok(report.integrations[0]?.blockers.includes("slack_file_upload_thread_correlation_missing"));
+  assert.doesNotMatch(JSON.stringify(report), /C_OTHER_SECRET|1783499999|1783400003/);
 });
 
 test("Slack evidence files gate flags unsafe raw Slack file metadata", () => {
@@ -2091,6 +2165,7 @@ function makeCompleteSlackEvidenceDependencies(input: {
           slackFileCount: 1,
           slackStoredAttachmentCount: 1,
           slackFileDownloadStatus: "stored_attachment",
+          externalChatReference: buildSlackReference(channelExternalChatId),
           agentContext: {
             entities: [{ type: "slack#/types/channel_id", valueRef: "ref_safechan" }],
           },
@@ -2168,10 +2243,14 @@ function makeCompleteSlackEvidenceDependencies(input: {
         updatedAt: timestamp,
         sentAt: timestamp,
         status: "sent",
+        targetExternalChatId: channelExternalChatId,
+        targetExternalThreadId: SLACK_SMOKE_APP_MENTION_MESSAGE_ID,
         metadataJson: {
           provider: "slack",
           outboxSource: "slack_file_upload",
           slackUploadFlow: "external_upload",
+          externalChatReference: buildSlackReference(channelExternalChatId),
+          externalThreadReference: buildSlackReference(SLACK_SMOKE_APP_MENTION_MESSAGE_ID),
         },
       }),
     ],

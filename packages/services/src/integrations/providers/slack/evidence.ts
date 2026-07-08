@@ -132,6 +132,7 @@ export interface SlackEvidenceIntegrationItem {
     storedAttachmentEvidence: number;
     storedInboundFileMappings: number;
     outboundUploadEvidence: number;
+    threadCorrelatedOutboundUploadEvidence: number;
     unsafeFileMetadataRows: number;
   };
   freshness: {
@@ -498,11 +499,11 @@ function buildSlackEvidenceIntegrationItem(input: {
   const rawMessage = buildMessageEvidence(events, mappings, outbox, channelBindings, userBindings, integration, input.liveAppMentionProofs);
   const rawNativeExperience = buildNativeEvidence(events, mappings, outbox);
   const rawApprovals = buildApprovalEvidence(events, outbox);
-  const rawFiles = buildFileEvidence(events, mappings, outbox);
+  const rawFiles = buildFileEvidence(events, mappings, outbox, channelBindings);
   const message = buildMessageEvidence(freshEvents, freshMappings, freshOutbox, channelBindings, userBindings, integration, input.liveAppMentionProofs);
   const nativeExperience = buildNativeEvidence(freshEvents, freshMappings, freshOutbox);
   const approvals = buildApprovalEvidence(freshEvents, freshOutbox);
-  const files = buildFileEvidence(freshEvents, freshMappings, freshOutbox);
+  const files = buildFileEvidence(freshEvents, freshMappings, freshOutbox, channelBindings);
   const failures = {
     failedEvents: events.filter((event) => event.status === "failed").length,
     failedOutbox: outbox.filter((item) => item.status === "failed").length,
@@ -837,7 +838,9 @@ function buildFileEvidence(
   events: ExternalIntegrationEventRecord[],
   mappings: ExternalMessageMappingRecord[],
   outbox: ExternalMessageOutboxRecord[],
+  channelBindings: ExternalChannelBindingRecord[],
 ): SlackEvidenceIntegrationItem["files"] {
+  const channelBindingById = new Map(channelBindings.map((binding) => [binding.id, binding]));
   const inboundFileMetadataEvents = events.filter((event) =>
     event.status === "processed" && hasSlackFileMetadataEvidence(event.payloadJson)
   ).length;
@@ -847,14 +850,21 @@ function buildFileEvidence(
   const storedAttachmentEvidence = mappings.filter((mapping) =>
     hasSlackStoredAttachmentEvidence(mapping.metadataJson)
   ).length;
-  const storedInboundFileMappings = mappings.filter((mapping) =>
+  const storedInboundFileMappingItems = mappings.filter((mapping) =>
     mapping.direction === "inbound" &&
     hasSlackFileMetadataEvidence(mapping.metadataJson) &&
     hasSlackStoredAttachmentEvidence(mapping.metadataJson)
-  ).length;
-  const outboundUploadEvidence = outbox.filter((item) =>
+  );
+  const storedInboundFileMappings = storedInboundFileMappingItems.length;
+  const outboundUploadItems = outbox.filter((item) =>
     item.status === "sent" &&
     (hasSlackOutboundFileUploadEvidence(item.metadataJson) || hasSlackOutboundFileUploadEvidence(item.payloadJson))
+  );
+  const outboundUploadEvidence = outboundUploadItems.length;
+  const threadCorrelatedOutboundUploadEvidence = outboundUploadItems.filter((item) =>
+    storedInboundFileMappingItems.some((mapping) =>
+      slackFileUploadOutboxCorrelatesWithStoredInboundMapping(item, mapping, channelBindingById)
+    )
   ).length;
   const unsafeFileMetadataRows = [
     ...events.map((event) => event.payloadJson),
@@ -866,14 +876,29 @@ function buildFileEvidence(
       inboundFileMetadataMappings > 0 &&
       storedInboundFileMappings > 0 &&
       outboundUploadEvidence > 0 &&
+      threadCorrelatedOutboundUploadEvidence > 0 &&
       unsafeFileMetadataRows === 0,
     inboundFileMetadataEvents,
     inboundFileMetadataMappings,
     storedAttachmentEvidence,
     storedInboundFileMappings,
     outboundUploadEvidence,
+    threadCorrelatedOutboundUploadEvidence,
     unsafeFileMetadataRows,
   };
+}
+
+function slackFileUploadOutboxCorrelatesWithStoredInboundMapping(
+  item: ExternalMessageOutboxRecord,
+  mapping: ExternalMessageMappingRecord,
+  channelBindingById: Map<string, ExternalChannelBindingRecord>,
+): boolean {
+  const mappingThreadId = readSlackInboundMappingThreadId(mapping);
+  if (!mappingThreadId || item.targetExternalThreadId !== mappingThreadId) {
+    return false;
+  }
+  const uploadChannelReference = buildSlackTypedReference("channel", item.targetExternalChatId);
+  return resolveSlackMappingChannelReferences(mapping, channelBindingById).has(uploadChannelReference);
 }
 
 function buildSlackMessageEvidenceBlockers(
@@ -984,6 +1009,13 @@ function buildSlackFileEvidenceBlockers(files: SlackEvidenceIntegrationItem["fil
   }
   if (files.outboundUploadEvidence === 0) {
     blockers.push("slack_outbound_file_upload_evidence_missing");
+  }
+  if (
+    files.storedInboundFileMappings > 0 &&
+    files.outboundUploadEvidence > 0 &&
+    files.threadCorrelatedOutboundUploadEvidence === 0
+  ) {
+    blockers.push("slack_file_upload_thread_correlation_missing");
   }
   if (files.unsafeFileMetadataRows > 0) {
     blockers.push("slack_file_metadata_unsafe");
