@@ -60,6 +60,7 @@ export interface SlackLiveSmokeEvidenceVerification {
     appMentionMessageRefs: string[];
     appMentionMessageRefsByIntegration: Record<string, string[]>;
     unsafeRawValueCount: number;
+    malformedReferenceCount: number;
   };
 }
 
@@ -321,6 +322,7 @@ export function verifySlackLiveSmokeEvidence(input: {
   );
   const appMentionMessageRefs = Array.from(new Set(Object.values(appMentionMessageRefsByIntegration).flat()));
   const unsafeRawValueCount = countUnsafeSlackLiveSmokeEvidenceValues(artifact);
+  const malformedReferenceCount = countMalformedSlackLiveSmokeResultReferences(runs);
   const issues = [
     ...(generatedAt ? [] : ["slack_live_smoke_generated_at_missing"]),
     ...(generatedAtFresh ? [] : ["slack_live_smoke_evidence_stale"]),
@@ -330,6 +332,7 @@ export function verifySlackLiveSmokeEvidence(input: {
     ...(appMentionLiveOk ? [] : ["slack_live_app_mention_evidence_missing"]),
     ...(!input.requireFileUploadEvidence || fileUploadLiveOk ? [] : ["slack_live_file_upload_evidence_missing"]),
     ...(unsafeRawValueCount === 0 ? [] : ["slack_live_smoke_evidence_unsafe"]),
+    ...(malformedReferenceCount === 0 ? [] : ["slack_live_smoke_reference_malformed"]),
   ];
 
   return {
@@ -351,6 +354,7 @@ export function verifySlackLiveSmokeEvidence(input: {
       appMentionMessageRefs,
       appMentionMessageRefsByIntegration,
       unsafeRawValueCount,
+      malformedReferenceCount,
     },
   };
 }
@@ -1008,6 +1012,33 @@ function isSafeSlackLiveSmokeResultReference(key: string, value: string | undefi
     return new RegExp(`^${kind} ${hashPattern}$`).test(value);
   }
   return new RegExp(`^${hashPattern}$`).test(value);
+}
+
+function countMalformedSlackLiveSmokeResultReferences(runs: Record<string, unknown>[]): number {
+  const referenceKeys: Record<string, string | undefined> = {
+    channelReference: "channel",
+    messageReference: "message",
+    botUserReference: "user",
+    fileReference: "file",
+    channelRef: undefined,
+    messageRef: undefined,
+    botUserRef: undefined,
+    fileRef: undefined,
+  };
+  let count = 0;
+  for (const run of runs) {
+    const liveResult = parseJsonRecord(run.liveResult);
+    if (!liveResult) {
+      continue;
+    }
+    for (const key of Object.keys(referenceKeys)) {
+      const value = readJsonStringFieldFromRecord(liveResult, key);
+      if (value && !isSafeSlackLiveSmokeResultReference(key, value)) {
+        count += 1;
+      }
+    }
+  }
+  return count;
 }
 
 function buildSlackLiveSmokeSatisfiedIntegrationIds(input: {

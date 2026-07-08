@@ -1083,7 +1083,10 @@ test("Slack live smoke evidence requires safe result references", () => {
 
   assert.equal(malformedPostMessageReport.strictSatisfied, false);
   assert.equal(malformedPostMessageReport.liveSmokeEvidence?.summary?.postMessageLiveOk, false);
+  assert.equal(malformedPostMessageReport.liveSmokeEvidence?.summary?.malformedReferenceCount, 2);
+  assert.equal(malformedPostMessageReport.liveSmokeEvidence?.summary?.unsafeRawValueCount, 0);
   assert.ok(malformedPostMessageReport.liveSmokeEvidence?.issues.includes("slack_live_post_message_evidence_missing"));
+  assert.ok(malformedPostMessageReport.liveSmokeEvidence?.issues.includes("slack_live_smoke_reference_malformed"));
   assert.deepEqual(malformedPostMessageReport.liveSmokeEvidence?.summary?.satisfiedIntegrationIds, []);
 
   const missingAppMentionMessageReference = makeLiveSmokeEvidence();
