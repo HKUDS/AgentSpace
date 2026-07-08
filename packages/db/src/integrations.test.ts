@@ -24,6 +24,7 @@ import {
   listExternalThreadBindingsSync,
   listExternalUserBindingsSync,
   markExternalMessageOutboxLockedSync,
+  readExternalIntegrationSync,
   readExternalChannelBindingByExternalChatSync,
   readExternalChannelBindingByProviderChatSync,
   readExternalDataOperationRunSync,
@@ -583,6 +584,227 @@ test("external message mappings are idempotent by external message id", {
     integrationId: integration.id,
     direction: "outbound",
   }).map((mapping) => mapping.id), [outbound.id]);
+});
+
+test("Slack integration DB records cover create read bindings mappings and outbox retry lifecycle", {
+  skip: runIntegrationDbTests
+    ? false
+    : "Set AGENT_SPACE_DB_INTEGRATIONS_TESTS=1 with AGENT_SPACE_TEST_DATABASE_URL to run external integration DB tests.",
+}, () => {
+  const workspace = createWorkspaceSync({
+    slug: "integrations-slack-db-contract",
+    name: "Integrations Slack DB Contract",
+    createdBy: "system",
+  });
+  const user = createUserSync({
+    displayName: "Slack Mina",
+    primaryEmail: "slack-mina@example.com",
+  });
+  createStoredChannelSync({
+    name: "general",
+    kind: "group",
+    humanMembers: 0,
+    humanMemberNames: [],
+    employeeNames: [],
+  }, workspace.id);
+  createStoredChannelSync({
+    name: "ops",
+    kind: "group",
+    humanMembers: 0,
+    humanMemberNames: [],
+    employeeNames: [],
+  }, workspace.id);
+
+  const integration = createExternalIntegrationSync({
+    workspaceId: workspace.id,
+    provider: "slack",
+    displayName: "Slack",
+    transportMode: "websocket_worker",
+    appId: "A_SLACK_DB",
+    tenantKey: "T_SLACK_DB",
+    encryptedCredentialsJson: {
+      botToken: "encrypted-bot-token",
+      signingSecret: "encrypted-signing-secret",
+      appLevelToken: "encrypted-app-token",
+    },
+    capabilitiesJson: {
+      messageTransport: true,
+    },
+    scopesJson: ["app_mentions:read", "chat:write", "connections:write"],
+  });
+
+  assert.equal(readExternalIntegrationSync({
+    workspaceId: workspace.id,
+    integrationId: integration.id,
+  })?.provider, "slack");
+  assert.deepEqual(listExternalIntegrationsSync({
+    workspaceId: workspace.id,
+    provider: "slack",
+  }).map((item) => item.id), [integration.id]);
+  assert.throws(() => createExternalIntegrationSync({
+    workspaceId: workspace.id,
+    provider: "slack",
+    displayName: "Duplicate Slack",
+    transportMode: "http_webhook",
+    appId: " A_SLACK_DB ",
+    tenantKey: " T_SLACK_DB ",
+  }), /External integration app and tenant are already connected/);
+  const disabled = updateExternalIntegrationStatusSync({
+    workspaceId: workspace.id,
+    integrationId: integration.id,
+    status: "disabled",
+  });
+  assert.equal(disabled.status, "disabled");
+  updateExternalIntegrationStatusSync({
+    workspaceId: workspace.id,
+    integrationId: integration.id,
+    status: "active",
+  });
+
+  const channel = upsertExternalChannelBindingSync({
+    workspaceId: workspace.id,
+    integrationId: integration.id,
+    channelName: "general",
+    externalChatId: "C_SLACK_GENERAL",
+    externalChatType: "channel",
+    externalChatName: "general",
+  });
+  const channelUpdated = upsertExternalChannelBindingSync({
+    workspaceId: workspace.id,
+    integrationId: integration.id,
+    channelName: "general",
+    externalChatId: "C_SLACK_RENAMED",
+    externalChatType: "channel",
+    externalChatName: "general-renamed",
+  });
+  assert.equal(channelUpdated.id, channel.id);
+  assert.equal(readExternalChannelBindingByExternalChatSync({
+    workspaceId: workspace.id,
+    integrationId: integration.id,
+    externalChatId: "C_SLACK_RENAMED",
+  })?.id, channel.id);
+  assert.throws(() => upsertExternalChannelBindingSync({
+    workspaceId: workspace.id,
+    integrationId: integration.id,
+    channelName: "ops",
+    externalChatId: "C_SLACK_RENAMED",
+  }));
+
+  const userBinding = upsertExternalUserBindingSync({
+    workspaceId: workspace.id,
+    integrationId: integration.id,
+    userId: user.id,
+    externalUserId: "U_SLACK_MINA",
+    displayName: "Mina",
+  });
+  const userBindingUpdated = upsertExternalUserBindingSync({
+    workspaceId: workspace.id,
+    integrationId: integration.id,
+    userId: user.id,
+    externalUserId: "U_SLACK_MINA_RENAMED",
+    displayName: "Mina Slack",
+  });
+  assert.equal(userBindingUpdated.id, userBinding.id);
+  assert.equal(readExternalUserBindingByExternalUserSync({
+    workspaceId: workspace.id,
+    integrationId: integration.id,
+    externalUserId: "U_SLACK_MINA_RENAMED",
+  })?.id, userBinding.id);
+  const otherUser = createUserSync({
+    displayName: "Other Slack User",
+    primaryEmail: "other-slack@example.com",
+  });
+  assert.throws(() => upsertExternalUserBindingSync({
+    workspaceId: workspace.id,
+    integrationId: integration.id,
+    userId: otherUser.id,
+    externalUserId: "U_SLACK_MINA_RENAMED",
+  }));
+
+  const mapping = createExternalMessageMappingSync({
+    workspaceId: workspace.id,
+    integrationId: integration.id,
+    channelBindingId: channel.id,
+    direction: "inbound",
+    externalMessageId: "1720000000.000100",
+    externalThreadId: "1720000000.000100",
+    externalSenderId: "U_SLACK_MINA_RENAMED",
+    externalEventId: "EvSlackDb",
+    metadataJson: { dispatchStatus: "dispatching", provider: "slack" },
+  });
+  const mappingUpdated = createExternalMessageMappingSync({
+    workspaceId: workspace.id,
+    integrationId: integration.id,
+    channelBindingId: channel.id,
+    direction: "inbound",
+    externalMessageId: "1720000000.000100",
+    agentSpaceMessageId: "message-slack-1",
+    metadataJson: { dispatchStatus: "sent", provider: "slack" },
+  });
+  assert.equal(mappingUpdated.id, mapping.id);
+  assert.equal(mappingUpdated.externalThreadId, "1720000000.000100");
+  assert.equal(readExternalMessageMappingByExternalMessageSync({
+    workspaceId: workspace.id,
+    integrationId: integration.id,
+    externalMessageId: "1720000000.000100",
+  })?.agentSpaceMessageId, "message-slack-1");
+
+  const retryingOutbox = createExternalMessageOutboxSync({
+    workspaceId: workspace.id,
+    integrationId: integration.id,
+    channelBindingId: channel.id,
+    targetExternalChatId: "C_SLACK_RENAMED",
+    targetExternalThreadId: "1720000000.000100",
+    payloadJson: {
+      channel: "C_SLACK_RENAMED",
+      thread_ts: "1720000000.000100",
+      text: "Agent reply",
+    },
+    metadataJson: {
+      provider: "slack",
+      externalChatReference: "slack:C_S...MED",
+      externalThreadReference: "slack:1720...0100",
+    },
+  });
+  const failedOutbox = createExternalMessageOutboxSync({
+    workspaceId: workspace.id,
+    integrationId: integration.id,
+    channelBindingId: channel.id,
+    targetExternalChatId: "C_SLACK_RENAMED",
+    payloadJson: {
+      channel: "C_SLACK_RENAMED",
+      text: "Failed reply",
+    },
+  });
+  failExternalMessageOutboxSync({
+    workspaceId: workspace.id,
+    outboxId: retryingOutbox.id,
+    lastError: "slack.outbound.rate_limited",
+    nextAttemptAt: "2026-07-08T00:01:00.000Z",
+  });
+  failExternalMessageOutboxSync({
+    workspaceId: workspace.id,
+    outboxId: failedOutbox.id,
+    lastError: "slack.outbound.missing_scope",
+    terminal: true,
+  });
+
+  const pending = listExternalMessageOutboxSync({
+    workspaceId: workspace.id,
+    integrationId: integration.id,
+    status: "pending",
+  });
+  assert.deepEqual(pending.map((item) => item.id), [retryingOutbox.id]);
+  assert.equal(pending[0]?.nextAttemptAt, "2026-07-08T00:01:00.000Z");
+  assert.equal(JSON.parse(pending[0]?.metadataJson ?? "{}").provider, "slack");
+
+  const failed = listExternalMessageOutboxSync({
+    workspaceId: workspace.id,
+    integrationId: integration.id,
+    status: "failed",
+  });
+  assert.deepEqual(failed.map((item) => item.id), [failedOutbox.id]);
+  assert.equal(failed[0]?.lastError, "slack.outbound.missing_scope");
 });
 
 test("external thread bindings are idempotent per provider chat thread and agent", {

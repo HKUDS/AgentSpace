@@ -1021,11 +1021,11 @@ rawPayload = summarized payload or original safe subset
 
 ### DB tests
 
-- [ ] Slack integration create/read/update/status。
-- [ ] channel binding uniqueness。
-- [ ] user binding uniqueness。
-- [ ] message mapping uniqueness。
-- [ ] outbox retry lifecycle。
+- [x] Slack integration create/read/update/status。
+- [x] channel binding uniqueness。
+- [x] user binding uniqueness。
+- [x] message mapping uniqueness。
+- [x] outbox retry lifecycle。
 
 ### Web route tests
 
