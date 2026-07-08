@@ -803,7 +803,7 @@ rawPayload = summarized payload or original safe subset
 
 ### Phase 5：入站 dispatch
 
-- [ ] 新增 `inbound.ts`。
+- [x] 新增 `inbound.ts`。
 - [ ] 复用 Feishu inbound 的处理结构，但抽出 provider neutral helper 的候选点。
 - [ ] 读取 channel binding：
   - [ ] Slack channel id -> AgentSpace channel。
@@ -821,8 +821,8 @@ rawPayload = summarized payload or original safe subset
 验收：
 
 - [ ] 绑定用户在绑定 channel @agent 可创建 task。
-- [ ] 未绑定用户不会创建 task。
-- [ ] 未绑定 channel 不会创建 task。
+- [x] 未绑定用户不会创建 task。
+- [x] 未绑定 channel 不会创建 task。
 - [ ] 权限不足不会创建 task。
 - [ ] duplicate event 不会重复创建 task。
 

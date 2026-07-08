@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type {
+  ExternalChannelBindingRecord,
   ExternalIntegrationEventRecord,
   ExternalMessageMappingRecord,
 } from "@agent-space/db";
@@ -109,6 +110,158 @@ test("ignores duplicate Slack messages before dispatching another task", () => {
   assert.equal(result.message?.text, "please do this once");
   assert.deepEqual(calls, ["record-event", "read-existing-mapping", "mark-ignored"]);
 });
+
+test("ignores Slack messages when the channel is not bound", () => {
+  const event = buildExternalIntegrationEvent({
+    externalEventId: "EvMissingChannel",
+  });
+  const calls: string[] = [];
+
+  const result = processSlackInboundEventSync({
+    context,
+    payload: buildSlackMentionPayload({
+      eventId: "EvMissingChannel",
+      messageTs: "1783400005.000100",
+    }),
+    dependencies: {
+      recordEvent: () => {
+        calls.push("record-event");
+        return event;
+      },
+      readMessageMappingByExternalMessage: () => {
+        calls.push("read-existing-mapping");
+        return null;
+      },
+      readChannelBindingByExternalChat: (input) => {
+        calls.push("read-channel-binding");
+        assert.equal(input.externalChatId, "C123");
+        return null;
+      },
+      readUserBindingByExternalUser: () => {
+        assert.fail("user binding lookup should not run when channel binding is missing");
+      },
+      updateEventStatus: (input) => {
+        calls.push("mark-ignored");
+        assert.equal(input.status, "ignored");
+        assert.equal(input.errorMessage, "slack.channel_binding_missing");
+        return {
+          ...event,
+          status: "ignored",
+          errorMessage: "slack.channel_binding_missing",
+        };
+      },
+    },
+  });
+
+  assert.equal(result.dispatchStatus, "ignored");
+  assert.equal(result.reasonCode, "slack.channel_binding_missing");
+  assert.equal(result.mapping, undefined);
+  assert.equal(result.event.status, "ignored");
+  assert.equal(result.message?.externalChatId, "C123");
+  assert.deepEqual(calls, ["record-event", "read-existing-mapping", "read-channel-binding", "mark-ignored"]);
+});
+
+test("ignores Slack messages when the sender is not bound", () => {
+  const event = buildExternalIntegrationEvent({
+    externalEventId: "EvMissingUser",
+  });
+  const channelBinding = buildExternalChannelBinding();
+  const calls: string[] = [];
+
+  const result = processSlackInboundEventSync({
+    context,
+    payload: buildSlackMentionPayload({
+      eventId: "EvMissingUser",
+      messageTs: "1783400006.000100",
+    }),
+    dependencies: {
+      recordEvent: () => {
+        calls.push("record-event");
+        return event;
+      },
+      readMessageMappingByExternalMessage: () => {
+        calls.push("read-existing-mapping");
+        return null;
+      },
+      readChannelBindingByExternalChat: () => {
+        calls.push("read-channel-binding");
+        return channelBinding;
+      },
+      readUserBindingByExternalUser: (input) => {
+        calls.push("read-user-binding");
+        assert.deepEqual(input, {
+          workspaceId: "workspace-1",
+          integrationId: "slack-1",
+          externalUserId: "U456",
+        });
+        return null;
+      },
+      updateEventStatus: (input) => {
+        calls.push("mark-ignored");
+        assert.equal(input.status, "ignored");
+        assert.equal(input.errorMessage, "slack.user_binding_missing");
+        return {
+          ...event,
+          status: "ignored",
+          errorMessage: "slack.user_binding_missing",
+        };
+      },
+    },
+  });
+
+  assert.equal(result.dispatchStatus, "ignored");
+  assert.equal(result.reasonCode, "slack.user_binding_missing");
+  assert.equal(result.mapping, undefined);
+  assert.equal(result.event.status, "ignored");
+  assert.equal(result.message?.externalSenderId, "U456");
+  assert.deepEqual(calls, [
+    "record-event",
+    "read-existing-mapping",
+    "read-channel-binding",
+    "read-user-binding",
+    "mark-ignored",
+  ]);
+});
+
+function buildSlackMentionPayload(input: {
+  eventId: string;
+  messageTs: string;
+}): Record<string, unknown> {
+  return {
+    type: "event_callback",
+    event_id: input.eventId,
+    event_time: 1783400005,
+    api_app_id: "A123",
+    team_id: "T123",
+    event: {
+      type: "app_mention",
+      channel: "C123",
+      user: "U456",
+      text: "<@UBOT> dispatch safely",
+      ts: input.messageTs,
+    },
+  };
+}
+
+function buildExternalChannelBinding(
+  overrides: Partial<ExternalChannelBindingRecord> = {},
+): ExternalChannelBindingRecord {
+  return {
+    id: "channel-binding-1",
+    workspaceId: "workspace-1",
+    integrationId: "slack-1",
+    channelName: "general",
+    externalChatId: "C123",
+    externalChatType: "channel",
+    externalChatName: "launch-channel",
+    status: "active",
+    syncMode: "mirror",
+    metadataJson: "{}",
+    createdAt: "2026-07-07T04:53:20.000Z",
+    updatedAt: "2026-07-07T04:53:20.000Z",
+    ...overrides,
+  };
+}
 
 function buildExternalIntegrationEvent(
   overrides: Partial<ExternalIntegrationEventRecord> = {},

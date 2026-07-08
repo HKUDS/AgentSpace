@@ -76,6 +76,8 @@ export interface SlackInboundProcessDependencies {
   recordEvent?: typeof recordExternalIntegrationEventSync;
   updateEventStatus?: typeof updateExternalIntegrationEventStatusSync;
   readMessageMappingByExternalMessage?: typeof readExternalMessageMappingByExternalMessageSync;
+  readChannelBindingByExternalChat?: typeof readExternalChannelBindingByExternalChatSync;
+  readUserBindingByExternalUser?: typeof readExternalUserBindingByExternalUserSync;
 }
 
 interface SlackInboundPreparedDispatch {
@@ -97,6 +99,8 @@ interface ResolvedSlackInboundProcessDependencies {
   recordEvent: typeof recordExternalIntegrationEventSync;
   updateEventStatus: typeof updateExternalIntegrationEventStatusSync;
   readMessageMappingByExternalMessage: typeof readExternalMessageMappingByExternalMessageSync;
+  readChannelBindingByExternalChat: typeof readExternalChannelBindingByExternalChatSync;
+  readUserBindingByExternalUser: typeof readExternalUserBindingByExternalUserSync;
 }
 
 type SlackInboundPrepareResult =
@@ -258,7 +262,7 @@ function prepareSlackInboundDispatchSync(input: ProcessSlackInboundEventInput): 
     };
   }
 
-  const channelBinding = readExternalChannelBindingByExternalChatSync({
+  const channelBinding = dependencies.readChannelBindingByExternalChat({
     workspaceId: input.context.workspaceId,
     integrationId: input.context.integrationId,
     externalChatId: message.externalChatId,
@@ -277,7 +281,7 @@ function prepareSlackInboundDispatchSync(input: ProcessSlackInboundEventInput): 
   }
 
   const userBinding = message.externalSenderId
-    ? readExternalUserBindingByExternalUserSync({
+    ? dependencies.readUserBindingByExternalUser({
         workspaceId: input.context.workspaceId,
         integrationId: input.context.integrationId,
         externalUserId: message.externalSenderId,
@@ -745,6 +749,10 @@ function resolveSlackInboundProcessDependencies(
     updateEventStatus: dependencies?.updateEventStatus ?? updateExternalIntegrationEventStatusSync,
     readMessageMappingByExternalMessage: dependencies?.readMessageMappingByExternalMessage
       ?? readExternalMessageMappingByExternalMessageSync,
+    readChannelBindingByExternalChat: dependencies?.readChannelBindingByExternalChat
+      ?? readExternalChannelBindingByExternalChatSync,
+    readUserBindingByExternalUser: dependencies?.readUserBindingByExternalUser
+      ?? readExternalUserBindingByExternalUserSync,
   };
 }
 
