@@ -512,21 +512,25 @@ function dispatchPreparedSlackInboundEventSync(input: SlackInboundPreparedDispat
   }
 
   const agentSpaceMessage = findDispatchedWorkspaceMessage(state, input.message);
-  const dispatchedTask = agentSpaceMessage?.id && input.integration?.agentId
+  const taskAgentId = resolveSlackTaskAgentId({
+    integration: input.integration,
+    agentSpaceMessage,
+  });
+  const dispatchedTask = agentSpaceMessage?.id && taskAgentId
     ? input.dependencies.resolveDispatchedTask({
       workspaceId: input.context.workspaceId,
       channelName: input.channelBinding.channelName,
-      agentId: input.integration.agentId,
+      agentId: taskAgentId,
       sourceMessageId: agentSpaceMessage.id,
     })
     : null;
-  const threadBinding = input.integration?.agentId && agentSpaceMessage?.id
+  const threadBinding = input.integration && taskAgentId && agentSpaceMessage?.id
     ? input.dependencies.recordThreadBinding({
       workspaceId: input.context.workspaceId,
       integration: input.integration,
       channelBinding: input.channelBinding,
       message: input.message,
-      agentId: input.integration.agentId,
+      agentId: taskAgentId,
       taskQueueId: dispatchedTask?.id,
       routerSessionId: dispatchedTask?.routerSessionId,
       agentSpaceMessageId: agentSpaceMessage.id,
@@ -553,6 +557,7 @@ function dispatchPreparedSlackInboundEventSync(input: SlackInboundPreparedDispat
       agentContext: input.agentContext,
       agentId: input.integration?.agentId,
       botBindingId: input.integration?.agentId ? input.integration.id : undefined,
+      taskAgentId,
       taskQueueId: dispatchedTask?.id,
       routerSessionId: dispatchedTask?.routerSessionId,
       threadBindingId: threadBinding?.id,
@@ -589,6 +594,18 @@ function resolveSlackDispatchedTaskSync(input: {
         payload.channelName === input.channelName;
     })
     .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())[0] ?? null;
+}
+
+function resolveSlackTaskAgentId(input: {
+  integration?: ExternalIntegrationRecord;
+  agentSpaceMessage?: WorkspaceMessage;
+}): string | undefined {
+  const bindingAgentId = input.integration?.agentId?.trim();
+  if (bindingAgentId) {
+    return bindingAgentId;
+  }
+  const mention = input.agentSpaceMessage?.mentions?.find((item) => item.mentionType === "agent");
+  return mention?.agentId?.trim() || mention?.token?.trim() || undefined;
 }
 
 function finishIgnored(input: {

@@ -255,7 +255,7 @@ function buildMessageEvidence(
     userBindings.length > 0 &&
     processedInboundEvents > 0 &&
     inboundMappings > 0 &&
-    (!integration.agentId || agentTaskQueueEvidence > 0) &&
+    agentTaskQueueEvidence > 0 &&
     (outboundMappings > 0 || sentOutbox > 0) &&
     failedOutbox === 0;
   return {
@@ -363,7 +363,7 @@ function buildSlackMessageEvidenceBlockers(
   if (message.inboundMappings === 0) {
     blockers.push("inbound_mapping_evidence_missing");
   }
-  if (integration.agentId && message.agentTaskQueueEvidence === 0) {
+  if (message.agentTaskQueueEvidence === 0) {
     blockers.push("agent_task_queue_evidence_missing");
   }
   if (message.outboundMappings === 0 && message.sentOutbox === 0) {
@@ -449,8 +449,12 @@ function hasSlackAgentTaskQueueEvidence(
   if (!taskQueueId) {
     return false;
   }
-  const agentId = readJsonStringFieldFromRecord(metadata, "agentId");
-  return integration.agentId ? agentId === integration.agentId : true;
+  const taskAgentId = readJsonStringFieldFromRecord(metadata, "taskAgentId") ??
+    readJsonStringFieldFromRecord(metadata, "agentId");
+  if (!taskAgentId) {
+    return false;
+  }
+  return integration.agentId ? taskAgentId === integration.agentId : true;
 }
 
 function hasSlackAgentContextEvidence(metadataJson: string): boolean {

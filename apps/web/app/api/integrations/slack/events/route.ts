@@ -102,7 +102,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         botToken: credentials.botToken,
       }),
     });
-  } catch (error) {
+  } catch {
     return NextResponse.json(buildSlackWebhookErrorResponse({
       errorCode: "slack.webhook_processing_failed",
       errorMessage: "Slack webhook event processing failed.",

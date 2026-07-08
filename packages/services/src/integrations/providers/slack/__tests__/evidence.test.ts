@@ -64,6 +64,7 @@ test("builds strict Slack evidence reports without raw external ids", () => {
           metadataJson: {
             provider: "slack",
             agentId: "Atlas",
+            taskAgentId: "Atlas",
             taskQueueId: "task-safe-1",
             slackFileCount: 1,
             slackStoredAttachmentCount: 1,
@@ -186,13 +187,13 @@ test("Slack evidence reports actionable blockers when message smoke evidence is 
   assert.ok(report.integrations[0]?.blockers.includes("processed_inbound_event_evidence_missing"));
 });
 
-test("Slack evidence blocks agent-scoped message smoke without task queue proof", () => {
+test("Slack evidence blocks message smoke without task queue proof", () => {
   const report = buildSlackEvidenceReport({
     workspaceId: "workspace-1",
     strict: true,
     required: "message",
     dependencies: {
-      listIntegrations: () => [makeIntegration()],
+      listIntegrations: () => [makeIntegration({ agentId: null })],
       listChannelBindings: () => [makeChannelBinding()],
       listUserBindings: () => [makeUserBinding()],
       listEvents: () => [
@@ -206,7 +207,6 @@ test("Slack evidence blocks agent-scoped message smoke without task queue proof"
           direction: "inbound",
           metadataJson: {
             provider: "slack",
-            agentId: "Atlas",
           },
         }),
         makeMapping({
@@ -256,7 +256,7 @@ test("Slack evidence rejects task queue proof from a different agent", () => {
           direction: "inbound",
           metadataJson: {
             provider: "slack",
-            agentId: "Nova",
+            taskAgentId: "Nova",
             taskQueueId: "task-nova",
           },
         }),
@@ -319,6 +319,7 @@ test("Slack evidence files gate stays blocked until file storage and upload proo
           metadataJson: {
             provider: "slack",
             agentId: "Atlas",
+            taskAgentId: "Atlas",
             taskQueueId: "task-safe-1",
             slackFileCount: 1,
             slackFiles: [{
@@ -385,6 +386,7 @@ test("Slack evidence files gate flags unsafe raw Slack file metadata", () => {
           metadataJson: {
             provider: "slack",
             agentId: "Atlas",
+            taskAgentId: "Atlas",
             taskQueueId: "task-safe-1",
             slackFileCount: 1,
             slackStoredAttachmentCount: 1,

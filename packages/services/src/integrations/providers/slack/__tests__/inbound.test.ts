@@ -422,6 +422,7 @@ test("dispatches bound Slack messages through AgentSpace and records inbound map
       agentContext: undefined,
       agentId: undefined,
       botBindingId: undefined,
+      taskAgentId: undefined,
       taskQueueId: undefined,
       routerSessionId: undefined,
       threadBindingId: undefined,
@@ -439,6 +440,126 @@ test("dispatches bound Slack messages through AgentSpace and records inbound map
     "create-message-mapping",
     "mark-processed",
   ]);
+});
+
+test("records task evidence for bound Slack app mentions that target an AgentSpace agent", () => {
+  const event = buildExternalIntegrationEvent({
+    externalEventId: "EvMentionTask",
+  });
+  const channelBinding = buildExternalChannelBinding();
+  const userBinding = buildExternalUserBinding();
+  const mappingInputs: Record<string, unknown>[] = [];
+  const taskResolutionInputs: Record<string, unknown>[] = [];
+  const threadBindingInputs: Record<string, unknown>[] = [];
+
+  const result = processSlackInboundEventSync({
+    context,
+    integration: buildExternalIntegration({
+      appId: "A123",
+      tenantKey: "T123",
+    }),
+    payload: buildSlackMentionPayload({
+      eventId: "EvMentionTask",
+      messageTs: "1783400008.000100",
+      text: "<@UBOT> @Atlas handle launch blockers",
+    }),
+    dependencies: {
+      recordEvent: () => event,
+      readMessageMappingByExternalMessage: () => null,
+      readChannelBindingByExternalChat: () => channelBinding,
+      readUserBindingByExternalUser: () => userBinding,
+      readUser: () => buildStoredUser(),
+      readWorkspaceMembership: () => buildWorkspaceMembership(),
+      canWriteChannelForActor: () => true,
+      sendChannelHumanMessage: (
+        _channelName,
+        _speaker,
+        summary,
+        _attachments,
+        _replyToMessageId,
+        _workspaceId,
+        _requesterUserId,
+        _externalInput,
+      ) => {
+        assert.equal(summary, "@Atlas handle launch blockers");
+        return {
+          messages: [{
+            id: "agent-space-message-task",
+            data: {
+              external_provider: SLACK_PROVIDER_ID,
+              external_message_id: "1783400008.000100",
+            },
+            mentions: [{
+              mentionType: "agent",
+              agentId: "Atlas",
+              label: "Atlas",
+              token: "Atlas",
+              inChannel: true,
+            }],
+          }],
+        } as never;
+      },
+      resolveDispatchedTask: (input) => {
+        taskResolutionInputs.push(input);
+        return {
+          id: "task-atlas-mention",
+          routerSessionId: "router-atlas-mention",
+        } as never;
+      },
+      recordThreadBinding: (input) => {
+        threadBindingInputs.push({
+          integrationId: input.integration.id,
+          channelBindingId: input.channelBinding.id,
+          agentId: input.agentId,
+          taskQueueId: input.taskQueueId,
+          routerSessionId: input.routerSessionId,
+          agentSpaceMessageId: input.agentSpaceMessageId,
+        });
+        return { id: "thread-binding-atlas-mention" } as never;
+      },
+      createMessageMapping: (input) => {
+        mappingInputs.push(input as Record<string, unknown>);
+        return buildExternalMessageMapping({
+          externalMessageId: String(input.externalMessageId),
+          externalThreadId: String(input.externalThreadId),
+          externalEventId: String(input.externalEventId),
+          agentSpaceMessageId: input.agentSpaceMessageId,
+          metadataJson: JSON.stringify(input.metadataJson),
+        });
+      },
+      updateEventStatus: (input) => ({
+        ...event,
+        status: input.status,
+        errorMessage: input.errorMessage,
+      }),
+    },
+  });
+
+  assert.equal(result.dispatchStatus, "sent");
+  assert.equal(result.agentSpaceMessageId, "agent-space-message-task");
+  assert.deepEqual(taskResolutionInputs, [{
+    workspaceId: "workspace-1",
+    channelName: "general",
+    agentId: "Atlas",
+    sourceMessageId: "agent-space-message-task",
+  }]);
+  assert.deepEqual(threadBindingInputs, [{
+    integrationId: "slack-1",
+    channelBindingId: "channel-binding-1",
+    agentId: "Atlas",
+    taskQueueId: "task-atlas-mention",
+    routerSessionId: "router-atlas-mention",
+    agentSpaceMessageId: "agent-space-message-task",
+  }]);
+  const metadata = mappingInputs[0]?.metadataJson as Record<string, unknown>;
+  assert.equal(metadata.agentId, undefined);
+  assert.equal(metadata.botBindingId, undefined);
+  assert.equal(metadata.taskAgentId, "Atlas");
+  assert.equal(metadata.taskQueueId, "task-atlas-mention");
+  assert.equal(metadata.routerSessionId, "router-atlas-mention");
+  assert.equal(metadata.threadBindingId, "thread-binding-atlas-mention");
+  assert.equal(JSON.stringify(metadata).includes("C123"), false);
+  assert.equal(JSON.stringify(metadata).includes("U456"), false);
 });
 
 test("dispatches agent-scoped Slack bot mentions as AgentSpace @agent messages", () => {
@@ -616,6 +737,7 @@ test("dispatches agent-scoped Slack bot mentions as AgentSpace @agent messages",
   const metadata = mappingInputs[0]?.metadataJson as Record<string, unknown>;
   assert.equal(metadata.agentId, "Atlas");
   assert.equal(metadata.botBindingId, integrationId);
+  assert.equal(metadata.taskAgentId, "Atlas");
   assert.equal(metadata.taskQueueId, "task-agent-1");
   assert.equal(metadata.routerSessionId, "router-agent-1");
   assert.equal(metadata.threadBindingId, "thread-binding-agent");
