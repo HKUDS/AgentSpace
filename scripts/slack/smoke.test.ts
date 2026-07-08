@@ -925,6 +925,7 @@ test("Slack smoke live evidence artifact accumulates redacted post, app mention,
         channelReferences?: string[];
       };
       issues?: string[];
+      nextCommands?: string[];
     };
     assert.equal(verificationOutput.valid, true);
     assert.deepEqual(verificationOutput.summary?.satisfiedModes, ["post_message", "app_mention", "file_upload"]);
@@ -933,6 +934,10 @@ test("Slack smoke live evidence artifact accumulates redacted post, app mention,
     assert.equal(verificationOutput.summary?.channelMatched, true);
     assert.deepEqual(verificationOutput.summary?.channelReferences, [`channel ${slackRef("CEVIDENCE")}`]);
     assert.deepEqual(verificationOutput.issues, []);
+    assert.deepEqual(verificationOutput.nextCommands, [
+      "agent-space integrations slack outbox drain --workspace-id $AGENT_SPACE_WORKSPACE_ID --integration $AGENT_SPACE_SLACK_INTEGRATION_ID --json",
+      `agent-space integrations slack evidence --workspace-id $AGENT_SPACE_WORKSPACE_ID --integration $AGENT_SPACE_SLACK_INTEGRATION_ID --live-smoke-evidence ${evidencePath} --strict --require all --json`,
+    ]);
 
     const wrongEnvPath = join(directory, ".wrong.env");
     writeFileSync(wrongEnvPath, [
@@ -1053,6 +1058,7 @@ test("Slack smoke evidence verifier rejects live runs from different channels", 
         channelReferences?: string[];
       };
       issues?: string[];
+      nextCommands?: string[];
     };
     assert.equal(output.valid, false);
     assert.deepEqual(output.summary?.satisfiedModes, ["post_message", "app_mention", "file_upload"]);
@@ -1062,6 +1068,15 @@ test("Slack smoke evidence verifier rejects live runs from different channels", 
       `channel ${slackRef("CTWO")}`,
     ]);
     assert.ok(output.issues?.includes("slack_live_smoke_channel_mismatch"));
+    const expectedCommands = [
+      `npm run smoke:slack -- --env-file scripts/slack/.env --live --evidence ${evidencePath} --json`,
+      `SLACK_SMOKE_LIVE_MODE=app_mention npm run smoke:slack -- --env-file scripts/slack/.env --live --evidence ${evidencePath} --json`,
+      "agent-space integrations slack outbox drain --workspace-id $AGENT_SPACE_WORKSPACE_ID --integration $AGENT_SPACE_SLACK_INTEGRATION_ID --json",
+      `SLACK_SMOKE_LIVE_MODE=file_upload npm run smoke:slack -- --env-file scripts/slack/.env --live --evidence ${evidencePath} --json`,
+      "npm run smoke:slack:verify -- --env-file scripts/slack/.env --json",
+      `agent-space integrations slack evidence --workspace-id $AGENT_SPACE_WORKSPACE_ID --integration $AGENT_SPACE_SLACK_INTEGRATION_ID --live-smoke-evidence ${evidencePath} --strict --require all --json`,
+    ];
+    assert.deepEqual(output.nextCommands, expectedCommands);
     assert.doesNotMatch(result.stdout, /ACHANNELMATCH|TCHANNELMATCH|CONE|CTWO|UBOTCHANNEL|FCHANNELMATCH|178340010/);
   } finally {
     rmSync(directory, { recursive: true, force: true });

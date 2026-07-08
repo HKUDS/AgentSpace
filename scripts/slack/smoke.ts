@@ -104,6 +104,7 @@ interface SlackSmokeEvidenceVerificationOutput {
   };
   expectedContext?: SlackSmokeContext;
   issues: string[];
+  nextCommands: string[];
 }
 
 interface SlackSmokeFatalOutput {
@@ -974,6 +975,10 @@ function formatSlackSmokeEvidenceVerificationOutput(output: SlackSmokeEvidenceVe
       lines.push(`- ${issue}`);
     }
   }
+  lines.push("Next commands:");
+  for (const command of output.nextCommands) {
+    lines.push(`- ${command}`);
+  }
   return lines.join("\n");
 }
 
@@ -1205,10 +1210,11 @@ function verifySlackSmokeEvidenceFile(path: string, input: {
 
   const uniqueIssues = [...new Set(issues)];
   const missingModes = SLACK_SMOKE_REQUIRED_LIVE_MODES.filter((mode) => !satisfiedModes.includes(mode));
+  const valid = uniqueIssues.length === 0;
   return {
     evidencePath: path,
     checkedAt: checkedAt.toISOString(),
-    valid: uniqueIssues.length === 0,
+    valid,
     generatedAt,
     ...(context ? { context } : {}),
     ...(input.expectedContext ? { expectedContext: input.expectedContext } : {}),
@@ -1224,7 +1230,71 @@ function verifySlackSmokeEvidenceFile(path: string, input: {
       malformedReferenceCount,
     },
     issues: uniqueIssues,
+    nextCommands: buildSlackSmokeEvidenceVerificationNextCommands({
+      evidencePath: path,
+      valid,
+      missingModes,
+      issues: uniqueIssues,
+      expectedContext: input.expectedContext,
+    }),
   };
+}
+
+function buildSlackSmokeEvidenceVerificationNextCommands(input: {
+  evidencePath: string;
+  valid: boolean;
+  missingModes: SlackSmokeLiveMode[];
+  issues: string[];
+  expectedContext?: SlackSmokeContext;
+}): string[] {
+  const commands: string[] = [];
+  if (!slackSmokeEvidenceContextComplete(input.expectedContext)) {
+    commands.push("npm run smoke:slack -- --env-file scripts/slack/.env --check-env --json");
+  }
+  const modesToRun = input.valid
+    ? []
+    : input.missingModes.length > 0
+    ? input.missingModes
+    : shouldRegenerateSlackSmokeEvidence(input.issues)
+    ? SLACK_SMOKE_REQUIRED_LIVE_MODES
+    : [];
+  for (const mode of modesToRun) {
+    commands.push(buildSlackSmokeLiveCommand(mode, input.evidencePath));
+    if (mode === "app_mention") {
+      commands.push("agent-space integrations slack outbox drain --workspace-id $AGENT_SPACE_WORKSPACE_ID --integration $AGENT_SPACE_SLACK_INTEGRATION_ID --json");
+    }
+  }
+  if (!input.valid) {
+    commands.push("npm run smoke:slack:verify -- --env-file scripts/slack/.env --json");
+  }
+  commands.push("agent-space integrations slack outbox drain --workspace-id $AGENT_SPACE_WORKSPACE_ID --integration $AGENT_SPACE_SLACK_INTEGRATION_ID --json");
+  commands.push(`agent-space integrations slack evidence --workspace-id $AGENT_SPACE_WORKSPACE_ID --integration $AGENT_SPACE_SLACK_INTEGRATION_ID --live-smoke-evidence ${input.evidencePath} --strict --require all --json`);
+  return Array.from(new Set(commands));
+}
+
+function buildSlackSmokeLiveCommand(mode: SlackSmokeLiveMode, evidencePath: string): string {
+  const command = `npm run smoke:slack -- --env-file scripts/slack/.env --live --evidence ${evidencePath} --json`;
+  return mode === "post_message"
+    ? command
+    : `SLACK_SMOKE_LIVE_MODE=${mode} ${command}`;
+}
+
+function shouldRegenerateSlackSmokeEvidence(issues: string[]): boolean {
+  return issues.some((issue) =>
+    issue === "evidence_stale" ||
+    issue === "expected_context_mismatch" ||
+    issue === "run_context_mismatch" ||
+    issue === "artifact_context_incomplete" ||
+    issue === "slack_live_smoke_channel_mismatch" ||
+    issue === "slack_live_smoke_reference_malformed" ||
+    issue === "secret_like_value_in_evidence" ||
+    issue === "raw_slack_identifier_in_evidence" ||
+    issue === "raw_slack_identifier_fragment_in_evidence" ||
+    issue === "raw_slack_message_ts_in_evidence" ||
+    issue === "raw_slack_message_ts_fragment_in_evidence" ||
+    issue === "slack_private_file_url_in_evidence" ||
+    issue.endsWith("_unsafe")
+  );
 }
 
 function slackSmokeEvidenceRunSatisfiesMode(
