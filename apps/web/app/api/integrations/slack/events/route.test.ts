@@ -269,6 +269,39 @@ describe("Slack event route", () => {
     }));
   });
 
+  it("returns safe responses when Slack event processing fails", async () => {
+    mockProcessSlackInboundEvent.mockRejectedValue(new Error(
+      "download failed for xoxb-secret-token C_PROCESS_SECRET U_PROCESS_SECRET raw processing text",
+    ));
+
+    const response = await POST(buildRequest({
+      type: "event_callback",
+      api_app_id: "A123",
+      team_id: "T123",
+      event_id: "EvProcessFailed",
+      event: {
+        type: "app_mention",
+        channel: "C_PROCESS_SECRET",
+        user: "U_PROCESS_SECRET",
+        text: "<@UBOT> raw processing text",
+        ts: "1783400000.000250",
+      },
+    }));
+
+    expect(response.status).toBe(500);
+    const body = await response.json();
+    expect(body).toEqual({
+      ok: false,
+      errorCode: "slack.webhook_processing_failed",
+      errorMessage: "Slack webhook event processing failed.",
+    });
+    expect(JSON.stringify(body)).not.toContain("xoxb-secret-token");
+    expect(JSON.stringify(body)).not.toContain("C_PROCESS_SECRET");
+    expect(JSON.stringify(body)).not.toContain("U_PROCESS_SECRET");
+    expect(JSON.stringify(body)).not.toContain("raw processing text");
+    expect(mockDrainSlackOutboxMessages).not.toHaveBeenCalled();
+  });
+
   it("records safe rejected event summaries for Slack callback context mismatch", async () => {
     const response = await POST(buildRequest({
       type: "event_callback",

@@ -106,7 +106,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json(buildSlackWebhookErrorResponse({
       errorCode: "slack.webhook_processing_failed",
       errorMessage: "Slack webhook event processing failed.",
-      error,
     }), { status: 500 });
   }
 
@@ -265,16 +264,14 @@ async function drainSlackWebhookOutbox(input: {
 function buildSlackWebhookErrorResponse(input: {
   errorCode: string;
   errorMessage: string;
-  error: unknown;
 }): {
   ok: false;
   errorCode: string;
   errorMessage: string;
 } {
-  const errorMessage = input.error instanceof Error ? input.error.message : String(input.error);
   return {
     ok: false,
     errorCode: input.errorCode,
-    errorMessage: `${input.errorMessage} ${errorMessage}`,
+    errorMessage: input.errorMessage,
   };
 }

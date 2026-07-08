@@ -1035,7 +1035,7 @@ rawPayload = summarized payload or original safe subset
 - [x] signed event route。
 - [x] unsigned event rejected。
 - [x] wrong integration rejected。
-- [ ] event processing failure safe response。
+- [x] event processing failure safe response。
 
 ### Web UI tests
 
