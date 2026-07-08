@@ -837,7 +837,7 @@ rawPayload = summarized payload or original safe subset
   - [x] optional `blocks`
 - [ ] 使用 `@slack/web-api` `WebClient.chat.postMessage(...)`。
 - [ ] 成功后写 external message mapping。
-- [ ] 429 时读取 retry-after，写 `nextAttemptAt`。
+- [x] 429 时读取 retry-after，写 `nextAttemptAt`。
 - [ ] `channel_not_found` / `not_in_channel` / `missing_scope` / `invalid_auth` 等错误归一化。
 - [ ] CLI 支持 drain。
 - [ ] HTTP route 可 best-effort drain 当前 integration outbox。
@@ -847,7 +847,7 @@ rawPayload = summarized payload or original safe subset
 验收：
 
 - [x] Agent 回复写回 Slack thread 的 queue 主链路已接入 daemon。
-- [ ] rate limit 不丢消息，进入 pending retry。
+- [x] rate limit 不丢消息，进入 pending retry。
 - [ ] terminal failure 可在 settings/CLI 看到。
 - [ ] outbox 不泄露 bot token。
 

@@ -3,12 +3,17 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import type {
+  ExternalIntegrationRecord,
+  ExternalMessageOutboxRecord,
+} from "@agent-space/db";
 import {
   buildSlackAgentStatusCardOutboundMessage,
   buildSlackAppHomeOpenedWelcomeOutboundMessage,
   buildSlackAssistantSuggestedPromptsOutboundMessage,
   buildSlackFileUploadOutboundMessage,
   buildSlackTextOutboundMessage,
+  processSlackOutboxMessage,
   resolveSlackReplyTargetExternalMessageId,
   selectSlackOutboundChannelBindingForReply,
   sendSlackAssistantSuggestedPrompts,
@@ -401,3 +406,137 @@ test("surfaces Slack rate limits as retryable results", async () => {
   assert.equal(result.errorCode, "slack.rate_limited");
   assert.equal(result.retryAfterSeconds, 42);
 });
+
+test("keeps Slack outbox messages pending for retry after rate limits", async () => {
+  const outbox = buildExternalMessageOutbox({
+    attempts: 0,
+    payloadJson: JSON.stringify({
+      channel: "C123",
+      text: "Agent reply",
+      thread_ts: "1783400000.000100",
+    }),
+  });
+  const locked = buildExternalMessageOutbox({
+    ...outbox,
+    status: "locked",
+    attempts: 1,
+    lockedBy: "slack-worker-test",
+    lockedAt: "2026-07-07T04:53:20.000Z",
+  });
+  let failedInput: {
+    workspaceId?: string;
+    outboxId: string;
+    lastError: string;
+    nextAttemptAt?: string;
+    terminal?: boolean;
+  } | undefined;
+
+  const result = await processSlackOutboxMessage({
+    workspaceId: "workspace-1",
+    outbox,
+    integration: buildExternalIntegration(),
+    lockedBy: "slack-worker-test",
+    dependencies: {
+      markOutboxLocked: (input) => {
+        assert.deepEqual(input, {
+          workspaceId: "workspace-1",
+          outboxId: "outbox-1",
+          lockedBy: "slack-worker-test",
+        });
+        return locked;
+      },
+      readCredentials: () => ({ botToken: "xoxb-test" }),
+      sendChatPostMessage: async (input) => {
+        assert.equal(input.botToken, "xoxb-test");
+        assert.deepEqual(input.payload, {
+          channel: "C123",
+          text: "Agent reply",
+          thread_ts: "1783400000.000100",
+        });
+        return {
+          ok: false,
+          status: 429,
+          errorCode: "slack.rate_limited",
+          errorMessage: "Slack rate limited chat.postMessage.",
+          retryAfterSeconds: 42,
+        };
+      },
+      failOutbox: (input) => {
+        failedInput = input;
+        assert.equal(input.workspaceId, "workspace-1");
+        assert.equal(input.outboxId, "outbox-1");
+        assert.equal(input.lastError, "Slack rate limited chat.postMessage.");
+        assert.equal(input.terminal, false);
+        assert.match(input.nextAttemptAt ?? "", /^\d{4}-\d{2}-\d{2}T/);
+        return {
+          ...locked,
+          status: "pending",
+          nextAttemptAt: input.nextAttemptAt,
+          lastError: input.lastError,
+          lockedAt: undefined,
+          lockedBy: undefined,
+        };
+      },
+      completeOutbox: () => {
+        assert.fail("rate-limited outbox must not be marked sent");
+      },
+      createMessageMapping: () => {
+        assert.fail("rate-limited outbox must not create outbound mapping");
+      },
+    },
+  });
+
+  assert.equal(result.status, "failed");
+  assert.equal(result.errorCode, "slack.rate_limited");
+  assert.equal(result.retryable, true);
+  assert.equal(result.terminal, false);
+  assert.equal(result.nextAttemptAt, failedInput?.nextAttemptAt);
+  assert.ok(result.nextAttemptAt);
+});
+
+function buildExternalIntegration(
+  overrides: Partial<ExternalIntegrationRecord> = {},
+): ExternalIntegrationRecord {
+  return {
+    id: "slack-1",
+    workspaceId: "workspace-1",
+    provider: "slack",
+    displayName: "Slack",
+    status: "active",
+    transportMode: "http_webhook",
+    appId: "A123",
+    tenantKey: "T123",
+    encryptedCredentialsJson: "{}",
+    configJson: "{}",
+    capabilitiesJson: "[]",
+    scopesJson: "[]",
+    createdAt: "2026-07-07T04:53:20.000Z",
+    updatedAt: "2026-07-07T04:53:20.000Z",
+    ...overrides,
+  };
+}
+
+function buildExternalMessageOutbox(
+  overrides: Partial<ExternalMessageOutboxRecord> = {},
+): ExternalMessageOutboxRecord {
+  return {
+    id: "outbox-1",
+    workspaceId: "workspace-1",
+    integrationId: "slack-1",
+    channelBindingId: "channel-binding-1",
+    targetExternalChatId: "C123",
+    targetExternalThreadId: "1783400000.000100",
+    agentSpaceMessageId: "message-1",
+    payloadJson: JSON.stringify({
+      channel: "C123",
+      text: "Agent reply",
+      thread_ts: "1783400000.000100",
+    }),
+    metadataJson: "{}",
+    status: "pending",
+    attempts: 0,
+    createdAt: "2026-07-07T04:53:20.000Z",
+    updatedAt: "2026-07-07T04:53:20.000Z",
+    ...overrides,
+  };
+}

@@ -135,6 +135,28 @@ export interface SlackApiFileUploadResult extends SlackApiMethodResult {
   fileRefs?: string[];
 }
 
+export interface SlackOutboxProcessDependencies {
+  markOutboxLocked?: typeof markExternalMessageOutboxLockedSync;
+  readCredentials?: typeof readSlackIntegrationCredentials;
+  sendFileUpload?: typeof sendSlackFileUploadExternal;
+  sendSuggestedPrompts?: typeof sendSlackAssistantSuggestedPrompts;
+  sendChatPostMessage?: typeof sendSlackChatPostMessage;
+  completeOutbox?: typeof completeExternalMessageOutboxSync;
+  failOutbox?: typeof failExternalMessageOutboxSync;
+  createMessageMapping?: typeof createExternalMessageMappingSync;
+}
+
+interface ResolvedSlackOutboxProcessDependencies {
+  markOutboxLocked: typeof markExternalMessageOutboxLockedSync;
+  readCredentials: typeof readSlackIntegrationCredentials;
+  sendFileUpload: typeof sendSlackFileUploadExternal;
+  sendSuggestedPrompts: typeof sendSlackAssistantSuggestedPrompts;
+  sendChatPostMessage: typeof sendSlackChatPostMessage;
+  completeOutbox: typeof completeExternalMessageOutboxSync;
+  failOutbox: typeof failExternalMessageOutboxSync;
+  createMessageMapping: typeof createExternalMessageMappingSync;
+}
+
 export interface SlackFileUploadItem {
   attachmentId: string;
   filename: string;
@@ -797,27 +819,29 @@ export async function processSlackOutboxMessage(input: {
   lockedBy: string;
   baseUrl?: string;
   fetchImpl?: typeof fetch;
+  dependencies?: SlackOutboxProcessDependencies;
 }): Promise<SlackOutboxProcessResult> {
-  const locked = markExternalMessageOutboxLockedSync({
+  const dependencies = resolveSlackOutboxProcessDependencies(input.dependencies);
+  const locked = dependencies.markOutboxLocked({
     workspaceId: input.workspaceId,
     outboxId: input.outbox.id,
     lockedBy: input.lockedBy,
   });
-  const credentials = readSlackIntegrationCredentials(input.integration);
+  const credentials = dependencies.readCredentials(input.integration);
   const payload = readSlackOutboundPayload(locked.payloadJson);
   if (isSlackFileUploadPayload(payload)) {
-    const response = await sendSlackFileUploadExternal({
+    const response = await dependencies.sendFileUpload({
       botToken: credentials.botToken,
       payload,
       baseUrl: input.baseUrl,
       fetchImpl: input.fetchImpl,
     });
     if (response.ok) {
-      completeExternalMessageOutboxSync({
+      dependencies.completeOutbox({
         workspaceId: input.workspaceId,
         outboxId: locked.id,
       });
-      createExternalMessageMappingSync({
+      dependencies.createMessageMapping({
         workspaceId: input.workspaceId,
         integrationId: input.integration.id,
         channelBindingId: locked.channelBindingId,
@@ -847,17 +871,18 @@ export async function processSlackOutboxMessage(input: {
       locked,
       response,
       defaultErrorMessage: "Slack file upload failed.",
+      dependencies,
     });
   }
   if (isSlackAssistantSuggestedPromptsPayload(payload)) {
-    const response = await sendSlackAssistantSuggestedPrompts({
+    const response = await dependencies.sendSuggestedPrompts({
       botToken: credentials.botToken,
       payload,
       baseUrl: input.baseUrl,
       fetchImpl: input.fetchImpl,
     });
     if (response.ok) {
-      completeExternalMessageOutboxSync({
+      dependencies.completeOutbox({
         workspaceId: input.workspaceId,
         outboxId: locked.id,
       });
@@ -871,20 +896,21 @@ export async function processSlackOutboxMessage(input: {
       locked,
       response,
       defaultErrorMessage: "Slack assistant.threads.setSuggestedPrompts failed.",
+      dependencies,
     });
   }
-  const response = await sendSlackChatPostMessage({
+  const response = await dependencies.sendChatPostMessage({
     botToken: credentials.botToken,
     payload,
     baseUrl: input.baseUrl,
     fetchImpl: input.fetchImpl,
   });
   if (response.ok && response.ts) {
-    completeExternalMessageOutboxSync({
+    dependencies.completeOutbox({
       workspaceId: input.workspaceId,
       outboxId: locked.id,
     });
-    createExternalMessageMappingSync({
+    dependencies.createMessageMapping({
       workspaceId: input.workspaceId,
       integrationId: input.integration.id,
       channelBindingId: locked.channelBindingId,
@@ -911,6 +937,7 @@ export async function processSlackOutboxMessage(input: {
     locked,
     response,
     defaultErrorMessage: "Slack outbound message failed.",
+    dependencies,
   });
 }
 
@@ -1452,13 +1479,14 @@ function failSlackOutboxWithResponse(input: {
   locked: ExternalMessageOutboxRecord;
   response: SlackApiMethodResult;
   defaultErrorMessage: string;
+  dependencies: Pick<ResolvedSlackOutboxProcessDependencies, "failOutbox">;
 }): SlackOutboxProcessResult {
   const retryable = isSlackOutboundErrorRetryable(input.response);
   const terminal = !retryable || input.locked.attempts >= SLACK_OUTBOX_MAX_ATTEMPTS;
   const nextAttemptAt = retryable && !terminal
     ? computeSlackOutboxNextAttemptAt(input.response.retryAfterSeconds)
     : undefined;
-  failExternalMessageOutboxSync({
+  input.dependencies.failOutbox({
     workspaceId: input.workspaceId,
     outboxId: input.locked.id,
     lastError: input.response.errorMessage ?? input.response.errorCode ?? input.defaultErrorMessage,
@@ -1473,6 +1501,21 @@ function failSlackOutboxWithResponse(input: {
     retryable,
     terminal,
     nextAttemptAt,
+  };
+}
+
+function resolveSlackOutboxProcessDependencies(
+  dependencies: SlackOutboxProcessDependencies | undefined,
+): ResolvedSlackOutboxProcessDependencies {
+  return {
+    markOutboxLocked: dependencies?.markOutboxLocked ?? markExternalMessageOutboxLockedSync,
+    readCredentials: dependencies?.readCredentials ?? readSlackIntegrationCredentials,
+    sendFileUpload: dependencies?.sendFileUpload ?? sendSlackFileUploadExternal,
+    sendSuggestedPrompts: dependencies?.sendSuggestedPrompts ?? sendSlackAssistantSuggestedPrompts,
+    sendChatPostMessage: dependencies?.sendChatPostMessage ?? sendSlackChatPostMessage,
+    completeOutbox: dependencies?.completeOutbox ?? completeExternalMessageOutboxSync,
+    failOutbox: dependencies?.failOutbox ?? failExternalMessageOutboxSync,
+    createMessageMapping: dependencies?.createMessageMapping ?? createExternalMessageMappingSync,
   };
 }
 
