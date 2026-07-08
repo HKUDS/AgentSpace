@@ -462,6 +462,7 @@ export function buildSlackSmokePlanReport(input: {
     webhookReplay: "npm run smoke:slack -- --env-file scripts/slack/.env --replay-webhook --json",
     livePostMessage: `npm run smoke:slack -- --env-file scripts/slack/.env --live --evidence ${liveSmokeEvidencePath} --json`,
     liveAppMention: `SLACK_SMOKE_LIVE_MODE=app_mention npm run smoke:slack -- --env-file scripts/slack/.env --live --evidence ${liveSmokeEvidencePath} --json`,
+    drainOutbox: `agent-space integrations slack outbox drain --workspace-id ${input.workspaceId}${integrationFlag} --json`,
     liveFileUpload: `SLACK_SMOKE_LIVE_MODE=file_upload npm run smoke:slack -- --env-file scripts/slack/.env --live --evidence ${liveSmokeEvidencePath} --json`,
     verifyLiveEvidence: "npm run smoke:slack:verify -- --env-file scripts/slack/.env --json",
     finalEvidence: `agent-space integrations slack evidence --workspace-id ${input.workspaceId}${integrationFlag} --live-smoke-evidence ${liveSmokeEvidencePath} --strict --require all --json`,
@@ -533,6 +534,11 @@ export function buildSlackSmokePlanReport(input: {
         id: "live_app_mention",
         status: readiness.readyForMessageSmokeCount > 0 ? "manual" : "blocked",
         detail: commands.liveAppMention,
+      },
+      {
+        id: "drain_outbox_reply",
+        status: readiness.readyForMessageSmokeCount > 0 ? "manual" : "blocked",
+        detail: commands.drainOutbox,
       },
       {
         id: "live_file_upload",

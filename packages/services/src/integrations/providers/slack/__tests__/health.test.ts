@@ -214,10 +214,12 @@ test("builds Slack smoke plan and env template without raw external ids", () => 
   assert.match(plan.commands.webhookReplay, /--replay-webhook/);
   assert.match(plan.commands.livePostMessage, /--live --evidence runtime-output\/slack-smoke\/live\.json/);
   assert.match(plan.commands.liveAppMention, /SLACK_SMOKE_LIVE_MODE=app_mention/);
+  assert.equal(plan.commands.drainOutbox, "agent-space integrations slack outbox drain --workspace-id workspace-1 --integration slack-1 --json");
   assert.match(plan.commands.liveFileUpload, /SLACK_SMOKE_LIVE_MODE=file_upload/);
   assert.equal(plan.commands.verifyLiveEvidence, "npm run smoke:slack:verify -- --env-file scripts/slack/.env --json");
   assert.match(plan.commands.finalEvidence, /--live-smoke-evidence runtime-output\/slack-smoke\/live\.json --strict --require all --json/);
   assert.equal(plan.checklist.find((item) => item.id === "live_file_upload")?.status, "manual");
+  assert.equal(plan.checklist.find((item) => item.id === "drain_outbox_reply")?.detail, plan.commands.drainOutbox);
   assert.equal(plan.checklist.find((item) => item.id === "verify_live_evidence")?.detail, "npm run smoke:slack:verify -- --env-file scripts/slack/.env --json");
   assert.equal(plan.checklist.find((item) => item.id === "final_evidence")?.status, "manual");
   assert.equal(env.ready, true);
