@@ -488,6 +488,7 @@ function buildSlackEvidenceIntegrationItem(input: {
       ? files.satisfied ? [] : buildSlackFileEvidenceBlockers(files)
       : []),
     ...(staleEvidenceBlocksRequired ? ["local_evidence_stale"] : []),
+    ...(failures.pendingOutbox > 0 ? ["pending_outbox_unresolved"] : []),
     ...(failures.failedEvents > 0 ? ["failed_events_unresolved"] : []),
   ];
   const warnings = [
@@ -500,6 +501,7 @@ function buildSlackEvidenceIntegrationItem(input: {
   const requiredSatisfied = locallySatisfied &&
     failures.failedEvents === 0 &&
     failures.failedOutbox === 0 &&
+    failures.pendingOutbox === 0 &&
     (!healthCheck.required || (healthCheck.healthy && healthCheck.fresh));
   return {
     integrationId: integration.id,
