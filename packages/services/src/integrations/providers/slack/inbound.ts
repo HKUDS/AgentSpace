@@ -64,11 +64,18 @@ export interface ProcessSlackInboundEventInput {
   payload: Record<string, unknown>;
   integration?: ExternalIntegrationRecord;
   attachmentDownloader?: SlackInboundAttachmentDownloader;
+  dependencies?: SlackInboundProcessDependencies;
 }
 
 export interface SlackInboundPermissionNoticeOutboxInput {
   message: Pick<ExternalMessageEnvelope, "externalChatId" | "externalThreadId">;
   text: string;
+}
+
+export interface SlackInboundProcessDependencies {
+  recordEvent?: typeof recordExternalIntegrationEventSync;
+  updateEventStatus?: typeof updateExternalIntegrationEventStatusSync;
+  readMessageMappingByExternalMessage?: typeof readExternalMessageMappingByExternalMessageSync;
 }
 
 interface SlackInboundPreparedDispatch {
@@ -83,6 +90,13 @@ interface SlackInboundPreparedDispatch {
   displayName: string;
   text: string;
   agentContext: ReturnType<typeof summarizeSlackAgentContextPayload>;
+  dependencies: ResolvedSlackInboundProcessDependencies;
+}
+
+interface ResolvedSlackInboundProcessDependencies {
+  recordEvent: typeof recordExternalIntegrationEventSync;
+  updateEventStatus: typeof updateExternalIntegrationEventStatusSync;
+  readMessageMappingByExternalMessage: typeof readExternalMessageMappingByExternalMessageSync;
 }
 
 type SlackInboundPrepareResult =
@@ -141,8 +155,9 @@ export async function processSlackInboundEvent(input: ProcessSlackInboundEventIn
 }
 
 function prepareSlackInboundDispatchSync(input: ProcessSlackInboundEventInput): SlackInboundPrepareResult {
+  const dependencies = resolveSlackInboundProcessDependencies(input.dependencies);
   const externalEventId = resolveSlackEventId(input.payload);
-  const event = recordExternalIntegrationEventSync({
+  const event = dependencies.recordEvent({
     workspaceId: input.context.workspaceId,
     integrationId: input.context.integrationId,
     provider: SLACK_PROVIDER_ID,
@@ -156,6 +171,7 @@ function prepareSlackInboundDispatchSync(input: ProcessSlackInboundEventInput): 
       ready: false,
       result: finishIgnored({
         context: input.context,
+        dependencies,
         event,
         message: null,
         reasonCode: "slack.agent_context_changed",
@@ -170,6 +186,7 @@ function prepareSlackInboundDispatchSync(input: ProcessSlackInboundEventInput): 
         ready: false,
         result: finishIgnored({
           context: input.context,
+          dependencies,
           event,
           message: null,
           reasonCode: "slack.app_home_opened_integration_missing",
@@ -188,6 +205,7 @@ function prepareSlackInboundDispatchSync(input: ProcessSlackInboundEventInput): 
       ready: false,
       result: finishIgnored({
         context: input.context,
+        dependencies,
         event,
         message: null,
         reasonCode: welcomeResult.status === "queued"
@@ -207,6 +225,7 @@ function prepareSlackInboundDispatchSync(input: ProcessSlackInboundEventInput): 
       ready: false,
       result: finishIgnored({
         context: input.context,
+        dependencies,
         event,
         message: null,
         reasonCode: "slack.non_message_event",
@@ -214,13 +233,13 @@ function prepareSlackInboundDispatchSync(input: ProcessSlackInboundEventInput): 
     };
   }
 
-  const existingMapping = readExternalMessageMappingByExternalMessageSync({
+  const existingMapping = dependencies.readMessageMappingByExternalMessage({
     workspaceId: input.context.workspaceId,
     integrationId: input.context.integrationId,
     externalMessageId: message.externalMessageId,
   });
   if (existingMapping) {
-    const ignored = updateExternalIntegrationEventStatusSync({
+    const ignored = dependencies.updateEventStatus({
       workspaceId: input.context.workspaceId,
       provider: SLACK_PROVIDER_ID,
       externalEventId,
@@ -249,6 +268,7 @@ function prepareSlackInboundDispatchSync(input: ProcessSlackInboundEventInput): 
       ready: false,
       result: finishIgnored({
         context: input.context,
+        dependencies,
         event,
         message,
         reasonCode: "slack.channel_binding_missing",
@@ -268,6 +288,7 @@ function prepareSlackInboundDispatchSync(input: ProcessSlackInboundEventInput): 
       ready: false,
       result: finishIgnored({
         context: input.context,
+        dependencies,
         event,
         message,
         reasonCode: "slack.user_binding_missing",
@@ -312,6 +333,7 @@ function prepareSlackInboundDispatchSync(input: ProcessSlackInboundEventInput): 
       ready: false,
       result: finishIgnored({
         context: input.context,
+        dependencies,
         event,
         message,
         mappedChannelName: channelBinding.channelName,
@@ -353,6 +375,7 @@ function prepareSlackInboundDispatchSync(input: ProcessSlackInboundEventInput): 
       ready: false,
       result: finishIgnored({
         context: input.context,
+        dependencies,
         event,
         message,
         mappedChannelName: channelBinding.channelName,
@@ -377,6 +400,7 @@ function prepareSlackInboundDispatchSync(input: ProcessSlackInboundEventInput): 
       displayName,
       text,
       agentContext,
+      dependencies,
     },
   };
 }
@@ -417,7 +441,7 @@ function dispatchPreparedSlackInboundEventSync(input: SlackInboundPreparedDispat
       },
     );
   } catch (error) {
-    const failed = updateExternalIntegrationEventStatusSync({
+    const failed = input.dependencies.updateEventStatus({
       workspaceId: input.context.workspaceId,
       provider: SLACK_PROVIDER_ID,
       externalEventId: input.externalEventId,
@@ -481,7 +505,7 @@ function dispatchPreparedSlackInboundEventSync(input: SlackInboundPreparedDispat
       ...fileMetadata,
     },
   });
-  const processed = updateExternalIntegrationEventStatusSync({
+  const processed = input.dependencies.updateEventStatus({
     workspaceId: input.context.workspaceId,
     provider: SLACK_PROVIDER_ID,
     externalEventId: input.externalEventId,
@@ -515,6 +539,7 @@ function resolveSlackDispatchedTaskSync(input: {
 
 function finishIgnored(input: {
   context: IntegrationRuntimeContext;
+  dependencies: ResolvedSlackInboundProcessDependencies;
   event: ExternalIntegrationEventRecord;
   message: ExternalMessageEnvelope | null;
   reasonCode: string;
@@ -522,7 +547,7 @@ function finishIgnored(input: {
   mapping?: ExternalMessageMappingRecord;
   noticeOutbox?: ExternalMessageOutboxRecord;
 }): SlackInboundProcessResult {
-  const ignored = updateExternalIntegrationEventStatusSync({
+  const ignored = input.dependencies.updateEventStatus({
     workspaceId: input.context.workspaceId,
     provider: SLACK_PROVIDER_ID,
     externalEventId: input.event.externalEventId,
@@ -673,7 +698,7 @@ function finishFailedDispatch(input: SlackInboundPreparedDispatch & {
   reasonCode: string;
   error: unknown;
 }): SlackInboundProcessResult {
-  const failed = updateExternalIntegrationEventStatusSync({
+  const failed = input.dependencies.updateEventStatus({
     workspaceId: input.context.workspaceId,
     provider: SLACK_PROVIDER_ID,
     externalEventId: input.externalEventId,
@@ -709,6 +734,17 @@ function finishFailedDispatch(input: SlackInboundPreparedDispatch & {
     dispatchStatus: "failed",
     reasonCode: input.reasonCode,
     mapping,
+  };
+}
+
+function resolveSlackInboundProcessDependencies(
+  dependencies: SlackInboundProcessDependencies | undefined,
+): ResolvedSlackInboundProcessDependencies {
+  return {
+    recordEvent: dependencies?.recordEvent ?? recordExternalIntegrationEventSync,
+    updateEventStatus: dependencies?.updateEventStatus ?? updateExternalIntegrationEventStatusSync,
+    readMessageMappingByExternalMessage: dependencies?.readMessageMappingByExternalMessage
+      ?? readExternalMessageMappingByExternalMessageSync,
   };
 }
 

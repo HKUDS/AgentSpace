@@ -35,11 +35,22 @@ test("normalizes Slack app mentions and removes the bot mention", () => {
 
   assert.ok(message);
   assert.equal(message.provider, SLACK_PROVIDER_ID);
+  assert.equal(message.integrationId, "external-integration-slack");
+  assert.equal(message.externalEventId, "Ev123");
+  assert.equal(message.eventType, "event_callback.app_mention");
   assert.equal(message.externalChatId, "C123");
   assert.equal(message.externalMessageId, "1783400000.000100");
   assert.equal(message.externalThreadId, "1783400000.000100");
   assert.equal(message.externalSenderId, "U456");
   assert.equal(message.text, "@Atlas summarize the report (https://example.com)");
+  assert.equal(message.receivedAt, "2026-07-07T04:53:20.000Z");
+  assert.equal(message.rawPayload.type, "event_callback");
+  assert.equal(message.rawPayload.eventType, "event_callback.app_mention");
+  assert.equal(String(message.rawPayload.eventRef).startsWith("ref_"), true);
+  assert.equal(String(message.rawPayload.appRef).startsWith("ref_"), true);
+  assert.equal(String(message.rawPayload.teamRef).startsWith("ref_"), true);
+  assert.equal(String(message.rawPayload.channelRef).startsWith("ref_"), true);
+  assert.equal(String(message.rawPayload.userRef).startsWith("ref_"), true);
 });
 
 test("normalizes Slack direct messages", () => {
@@ -68,8 +79,14 @@ test("normalizes Slack direct messages", () => {
   });
 
   assert.ok(message);
+  assert.equal(message.provider, SLACK_PROVIDER_ID);
+  assert.equal(message.integrationId, "external-integration-slack");
+  assert.equal(message.externalEventId, "EvDM");
+  assert.equal(message.eventType, "event_callback.message");
   assert.equal(message.externalChatId, "D123");
+  assert.equal(message.externalMessageId, "1783400001.000100");
   assert.equal(message.externalThreadId, "1783400000.000100");
+  assert.equal(message.externalSenderId, "U456");
   assert.equal(message.text, "hello from DM");
   assert.equal(message.rawPayload.hasAgentContext, true);
   assert.doesNotMatch(JSON.stringify(message.rawPayload), /C_VIEWED|T_VIEWED/);

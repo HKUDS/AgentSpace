@@ -763,21 +763,21 @@ deploy/slack-worker/slack-worker.env.example
 
 ### Phase 4：消息归一化
 
-- [ ] 新增 `normalize-message.ts`。
-- [ ] 支持 `app_mention`。
-- [ ] 支持 `message.im`。
-- [ ] 忽略 bot 自己发的 message。
+- [x] 新增 `normalize-message.ts`。
+- [x] 支持 `app_mention`。
+- [x] 支持 `message.im`。
+- [x] 忽略 bot 自己发的 message。
 - [x] 忽略 message subtype：
   - [x] `bot_message`
   - [x] `message_changed`
   - [x] `message_deleted`
   - [x] `channel_join`
   - [x] 其他非用户文本事件
-- [ ] text 清理：
-  - [ ] 去掉当前 bot mention token。
-  - [ ] 保留普通用户输入，不做命令解析。
-  - [ ] Slack `<@U...>`、`<#C...|name>`、links 先做安全摘要，不把 raw id 全量塞进 prompt。
-- [ ] 输出 `ExternalMessageEnvelope`。
+- [x] text 清理：
+  - [x] 去掉当前 bot mention token。
+  - [x] 保留普通用户输入，不做命令解析。
+  - [x] Slack `<@U...>`、`<#C...|name>`、links 先做安全摘要，不把 raw id 全量塞进 prompt。
+- [x] 输出 `ExternalMessageEnvelope`。
 
 字段映射：
 
@@ -796,10 +796,10 @@ rawPayload = summarized payload or original safe subset
 
 验收：
 
-- [ ] app mention 能归一化为 envelope。
-- [ ] DM message 能归一化为 envelope。
-- [ ] bot/self message 不触发。
-- [ ] duplicate message 不重复派发 task。
+- [x] app mention 能归一化为 envelope。
+- [x] DM message 能归一化为 envelope。
+- [x] bot/self message 不触发。
+- [x] duplicate message 不重复派发 task。
 
 ### Phase 5：入站 dispatch
 
