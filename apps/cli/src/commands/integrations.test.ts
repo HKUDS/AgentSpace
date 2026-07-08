@@ -553,6 +553,10 @@ test("Slack create CLI stores encrypted credentials and returns redacted setup o
     assert.equal(report.integrationId, "slack-created");
     assert.equal(report.provider, "slack");
     assert.equal(report.transportMode, "websocket_worker");
+    assert.match(String(report.appReference), /^ref_[a-f0-9]{8}$/);
+    assert.match(String(report.teamReference), /^ref_[a-f0-9]{8}$/);
+    assert.equal("appId" in report, false);
+    assert.equal("teamId" in report, false);
     assert.equal(report.eventCallbackPath, "/api/integrations/slack/events");
     assert.equal(report.interactionCallbackPath, "/api/integrations/slack/interactions");
     assert.equal(report.secretRedacted, true);
@@ -565,6 +569,7 @@ test("Slack create CLI stores encrypted credentials and returns redacted setup o
     });
     const serialized = JSON.stringify({ report, createInputs });
     assert.doesNotMatch(serialized, /xoxb-workspace-secret|workspace-signing-secret|xapp-workspace-secret|client-secret-value/);
+    assert.doesNotMatch(JSON.stringify(report), /A-workspace|T-workspace/);
     assert.match(serialized, /encrypted-bot-token/);
     assert.match(serialized, /messageTransport/);
 
@@ -810,10 +815,14 @@ test("Slack agent bot CLI defaults to Socket Mode and redacts credentials", () =
   assert.equal(report.agentBotBinding, true);
   assert.equal(report.agentId, "Codex");
   assert.equal(report.transportMode, "websocket_worker");
+  assert.match(String(report.appReference), /^ref_[a-f0-9]{8}$/);
+  assert.match(String(report.teamReference), /^ref_[a-f0-9]{8}$/);
+  assert.equal("appId" in report, false);
+  assert.equal("teamId" in report, false);
   assert.equal(report.interactionCallbackPath, "/api/integrations/slack/interactions");
   assert.equal(report.secretRedacted, true);
   assert.match(String((report.nextCommands as Record<string, string>).workerDryRun), /worker --workspace-id workspace-1 --integration slack-agent-bot-codex --dry-run --json/);
-  assert.doesNotMatch(JSON.stringify(report), /xoxb-agent-bot-secret|signing-agent-bot-secret|xapp-agent-bot-secret/);
+  assert.doesNotMatch(JSON.stringify(report), /xoxb-agent-bot-secret|signing-agent-bot-secret|xapp-agent-bot-secret|A-agent|T-agent/);
 
   rmSync(envDir, { recursive: true, force: true });
 });
@@ -854,8 +863,12 @@ test("Slack agent bot CLI can disable by agent without exposing external ids", (
   assert.equal(report.action, "disabled");
   assert.equal(report.agentId, "Codex");
   assert.equal(report.agentBotBinding, true);
+  assert.match(String(report.appReference), /^ref_[a-f0-9]{8}$/);
+  assert.match(String(report.teamReference), /^ref_[a-f0-9]{8}$/);
+  assert.equal("appId" in report, false);
+  assert.equal("teamId" in report, false);
   assert.equal(report.secretRedacted, true);
-  assert.doesNotMatch(JSON.stringify(report), /xoxb-agent-bot-secret|xapp-agent-bot-secret|signing-agent-bot-secret/);
+  assert.doesNotMatch(JSON.stringify(report), /xoxb-agent-bot-secret|xapp-agent-bot-secret|signing-agent-bot-secret|A-agent|T-agent/);
 });
 
 test("feishu worker --help prints usage without starting the worker", async () => {
