@@ -162,10 +162,17 @@ test("Slack smoke dry-run accepts filled non-secret env", () => {
       summary: {
         failed: number;
       };
+      manualActions?: Array<{ id?: string; detail?: string }>;
       nextCommands: string[];
     };
     assert.equal(output.ready, true);
     assert.equal(output.summary.failed, 0);
+    assert.deepEqual(output.manualActions?.map((action) => action.id), [
+      "native_agent_experience",
+      "approval_block_actions",
+    ]);
+    assert.match(output.manualActions?.[0]?.detail ?? "", /app-home welcome/);
+    assert.match(output.manualActions?.[1]?.detail ?? "", /approval status outbox/);
     const livePostMessageCommand =
       "npm run smoke:slack -- --env-file scripts/slack/.env --live --evidence runtime-output/slack-smoke/live.json --json";
     const liveAppMentionCommand =
@@ -188,6 +195,24 @@ test("Slack smoke dry-run accepts filled non-secret env", () => {
     assert.deepEqual(commandIndexes.every((index) => index >= 0), true);
     assert.deepEqual(commandIndexes, [...commandIndexes].sort((left, right) => left - right));
     assert.doesNotMatch(result.stdout, /A123|T123|C123|U123|xoxb|xapp/);
+
+    const textResult = spawnSync(process.execPath, [
+      "--experimental-strip-types",
+      "scripts/slack/smoke.ts",
+      "--",
+      "--env-file",
+      envPath,
+      "--check-env",
+    ], {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      env: {},
+    });
+    assert.equal(textResult.status, 0, textResult.stderr);
+    assert.match(textResult.stdout, /Manual actions:/);
+    assert.match(textResult.stdout, /native_agent_experience/);
+    assert.match(textResult.stdout, /approval_block_actions/);
+    assert.doesNotMatch(textResult.stdout, /A123|T123|C123|U123|xoxb|xapp/);
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }

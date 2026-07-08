@@ -27,6 +27,7 @@ interface SlackSmokeOutput {
   };
   missingRequired: string[];
   items: SlackSmokeEnvItem[];
+  manualActions: SlackSmokeManualAction[];
   nextCommands: string[];
   evidenceArtifact?: SlackSmokeEvidenceArtifactStatus;
 }
@@ -204,6 +205,7 @@ export function buildSlackSmokeDryRunOutput(env: Record<string, string | undefin
     },
     missingRequired,
     items,
+    manualActions: buildSlackSmokeManualActions(),
     nextCommands: [
       "agent-space integrations slack health-check --workspace-id $AGENT_SPACE_WORKSPACE_ID --integration $AGENT_SPACE_SLACK_INTEGRATION_ID --json",
       "agent-space integrations slack readiness --workspace-id $AGENT_SPACE_WORKSPACE_ID --integration $AGENT_SPACE_SLACK_INTEGRATION_ID --strict --json",
@@ -956,6 +958,10 @@ function formatSlackSmokeDryRunOutput(output: SlackSmokeOutput): string {
       lines.push(`- reason: ${output.evidenceArtifact.reasonCode}`);
     }
   }
+  lines.push("Manual actions:");
+  for (const action of output.manualActions) {
+    lines.push(`- ${action.id}: ${action.detail}`);
+  }
   lines.push("Next commands:");
   for (const command of output.nextCommands) {
     lines.push(`- ${command}`);
@@ -1252,6 +1258,10 @@ function verifySlackSmokeEvidenceFile(path: string, input: {
 }
 
 function buildSlackSmokeEvidenceVerificationManualActions(): SlackSmokeManualAction[] {
+  return buildSlackSmokeManualActions();
+}
+
+function buildSlackSmokeManualActions(): SlackSmokeManualAction[] {
   return [{
     id: "native_agent_experience",
     detail: "Open the Slack app Messages tab, then send one app-context DM or agent-view message so AgentSpace records app context, app-home welcome, and assistant suggested prompt evidence.",
