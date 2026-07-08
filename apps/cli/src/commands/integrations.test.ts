@@ -480,7 +480,19 @@ test("Slack evidence text output summarizes manual actions and blockers", async 
             integrationIds: ["slack-1"],
             detail: "Open the Slack app Messages tab.",
           }],
-          nextCommands: ["agent-space integrations slack evidence --workspace-id workspace-1 --strict --require all --json"],
+          nextCommands: [
+            "agent-space integrations slack smoke-env --workspace-id workspace-1 --integration slack-1 --app-url https://agentspace.example.com",
+            "agent-space integrations slack health-check --workspace-id workspace-1 --integration slack-1 --json",
+            "agent-space integrations slack readiness --workspace-id workspace-1 --integration slack-1 --strict --json",
+            "agent-space integrations slack smoke-plan --workspace-id workspace-1 --integration slack-1 --strict --require all --json",
+            "npm run smoke:slack -- --env-file scripts/slack/.env --check-env --json",
+            "npm run smoke:slack -- --env-file scripts/slack/.env --live --evidence runtime-output/slack-smoke/live.json --json",
+            "SLACK_SMOKE_LIVE_MODE=app_mention npm run smoke:slack -- --env-file scripts/slack/.env --live --evidence runtime-output/slack-smoke/live.json --json",
+            "agent-space integrations slack outbox drain --workspace-id workspace-1 --integration slack-1 --json",
+            "SLACK_SMOKE_LIVE_MODE=file_upload npm run smoke:slack -- --env-file scripts/slack/.env --live --evidence runtime-output/slack-smoke/live.json --json",
+            "npm run smoke:slack:verify -- --env-file scripts/slack/.env --json",
+            "agent-space integrations slack evidence --workspace-id workspace-1 --integration slack-1 --live-smoke-evidence runtime-output/slack-smoke/live.json --strict --require all --json",
+          ],
         } as never),
       },
     );
@@ -493,6 +505,10 @@ test("Slack evidence text output summarizes manual actions and blockers", async 
   assert.match(output, /Manual actions:/);
   assert.match(output, /native_agent_experience: slack-1/);
   assert.match(output, /app_home_welcome_evidence_missing/);
+  assert.match(output, /SLACK_SMOKE_LIVE_MODE=file_upload npm run smoke:slack/);
+  assert.match(output, /npm run smoke:slack:verify -- --env-file scripts\/slack\/\.env --json/);
+  assert.match(output, /live-smoke-evidence runtime-output\/slack-smoke\/live\.json --strict --require all --json/);
+  assert.doesNotMatch(output, /\.\.\. 3 more command/);
   assert.doesNotMatch(output, /\[object Object\]/);
 });
 

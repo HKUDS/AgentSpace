@@ -780,11 +780,8 @@ export function formatSlackEvidenceCommandText(report: SlackEvidenceReport): str
   }
 
   lines.push("", "Next commands:");
-  for (const command of report.nextCommands.slice(0, 8)) {
+  for (const command of report.nextCommands) {
     lines.push(`- ${command}`);
-  }
-  if (report.nextCommands.length > 8) {
-    lines.push(`- ... ${report.nextCommands.length - 8} more command(s); rerun with --json for all details.`);
   }
   return lines.join("\n");
 }
