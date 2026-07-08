@@ -819,10 +819,15 @@ export function formatSlackSmokePlanCommandText(report: SlackSmokePlanReport): s
 
   lines.push("", "Commands:");
   const commandKeys = [
+    "create",
     "smokeEnv",
     "healthCheck",
     "readiness",
     "workerDryRun",
+    "bindChannel",
+    "bindUser",
+    "drySmoke",
+    "webhookReplay",
     "livePostMessage",
     "liveAppMention",
     "drainOutbox",

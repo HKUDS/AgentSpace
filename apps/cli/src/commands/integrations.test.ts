@@ -517,8 +517,13 @@ test("Slack smoke-plan text output summarizes manual actions and commands", asyn
           },
           appSetup: {},
           commands: {
+            create: "agent-space integrations slack create --workspace-id workspace-1 --json",
             smokeEnv: "agent-space integrations slack smoke-env --workspace-id workspace-1 --json",
             healthCheck: "agent-space integrations slack health-check --workspace-id workspace-1 --integration slack-1 --json",
+            bindChannel: "agent-space integrations slack bind-channel --workspace-id workspace-1 --integration slack-1 --json",
+            bindUser: "agent-space integrations slack bind-user --workspace-id workspace-1 --integration slack-1 --json",
+            drySmoke: "npm run smoke:slack -- --env-file scripts/slack/.env --check-env --json",
+            webhookReplay: "npm run smoke:slack -- --env-file scripts/slack/.env --replay-webhook --json",
             finalEvidence: "agent-space integrations slack evidence --workspace-id workspace-1 --integration slack-1 --strict --require all --json",
           },
           manualActions: [{
@@ -541,6 +546,10 @@ test("Slack smoke-plan text output summarizes manual actions and commands", asyn
   assert.match(output, /AgentSpace Slack smoke plan/);
   assert.match(output, /\[blocked\] approval_block_actions/);
   assert.match(output, /Commands:/);
+  assert.match(output, /create: agent-space integrations slack create/);
+  assert.match(output, /bindChannel: agent-space integrations slack bind-channel/);
+  assert.match(output, /bindUser: agent-space integrations slack bind-user/);
+  assert.match(output, /webhookReplay: npm run smoke:slack/);
   assert.match(output, /finalEvidence: agent-space integrations slack evidence/);
   assert.doesNotMatch(output, /\[object Object\]/);
 });

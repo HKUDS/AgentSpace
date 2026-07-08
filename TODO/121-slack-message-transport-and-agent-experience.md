@@ -1197,6 +1197,7 @@ rawPayload = summarized payload or original safe subset
 - `smoke-plan` 和 final evidence remediation 的最终 `evidence --strict --require all` 命令在尚未选择 integration 时也会带 `CHANGE_ME_SLACK_INTEGRATION_ID`，确保 live artifact、health-check、outbox drain 和最终证据都指向同一个 Slack integration。
 - 真实 `agent-space integrations slack --help`、`smoke-plan --strict --require all --json` 和 `evidence --strict --require all --json` 入口现在按需加载 CLI 命令模块，不会为了 Slack setup/help/evidence 路径加载 `agent-space-daemon` runtime bundle；CLI 顶层 `--json` 异常 fallback 会把缺 DB 配置等基础阻断输出为结构化 `agent_space_cli.*` JSON，`apps/cli/src/commands/integrations.test.ts` 覆盖这些启动路径，避免 daemon bundle 的 Slack SDK 动态 require 或空 stdout 阻断验收命令。
 - Slack CLI `evidence` / `smoke-plan` 的非 JSON text 输出现在使用专用摘要，显式展示 blockers、manualActions 和关键 next commands，避免通用对象渲染成 `[object Object]` 导致人工验收漏步骤。
+- Slack CLI `smoke-plan` 的 text 输出现在也列出 `create`、`bindChannel`、`bindUser`、dry smoke 和 webhook replay 命令，避免不使用 `--json` 时漏掉 setup / binding / replay 步骤。
 - `packages/services/src/integrations/providers/slack/__tests__/evidence.test.ts` 覆盖 strict all 需要 redacted live smoke evidence；`scripts/slack/smoke.test.ts` 覆盖同一 artifact 累积 `post_message` + `app_mention` + `file_upload` 三次 live runs。
 
 ## 验收标准
