@@ -30,8 +30,13 @@ export {
   type ExternalNoticeMetadataInput,
 } from "./notices.ts";
 export {
+  recordExternalInboundEventSync,
+  resolveExternalInboundDuplicateMessageSync,
   resolveExternalDispatchedTaskFromRecords,
   resolveExternalDispatchedTaskSync,
+  type ExternalInboundDuplicateMessageInput,
+  type ExternalInboundDuplicateMessageResult,
+  type ExternalInboundEventRecordInput,
   type ExternalDispatchedTaskLookupInput,
   type ExternalDispatchedTaskMatchInput,
   type ExternalDispatchedTaskRecord,

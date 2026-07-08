@@ -3,7 +3,6 @@ import {
   createExternalMessageMappingSync,
   readEmployeeRuntimeBindingSync,
   readExternalChannelBindingByExternalChatSync,
-  readExternalMessageMappingByExternalMessageSync,
   readExternalUserBindingByExternalUserSync,
   readUserSync,
   readWorkspaceMembershipSync,
@@ -21,7 +20,9 @@ import type { ChannelRecord, MessageAttachment } from "@agent-space/domain/works
 import {
   buildExternalIdHash,
   buildExternalNoticeMetadata,
+  recordExternalInboundEventSync,
   resolveExternalDispatchedTaskSync,
+  resolveExternalInboundDuplicateMessageSync,
   type ExternalMessageEnvelope,
   type IntegrationRuntimeContext,
 } from "../../core/index.ts";
@@ -200,10 +201,8 @@ export async function processFeishuInboundEvent(
 function prepareFeishuInboundDispatchSync(input: ProcessFeishuInboundEventInput): FeishuInboundPrepareResult {
   const externalEventId = resolveFeishuEventId(input.payload);
   const eventType = resolveFeishuEventType(input.payload);
-  const event = recordExternalIntegrationEventSync({
-    workspaceId: input.context.workspaceId,
-    integrationId: input.context.integrationId,
-    provider: FEISHU_PROVIDER_ID,
+  const event = recordExternalInboundEventSync({
+    context: input.context,
     externalEventId,
     eventType,
     payloadJson: summarizeFeishuInboundEventPayload(input.payload),
@@ -253,27 +252,20 @@ function prepareFeishuInboundDispatchSync(input: ProcessFeishuInboundEventInput)
     };
   }
 
-  const existingMapping = readExternalMessageMappingByExternalMessageSync({
-    workspaceId: input.context.workspaceId,
-    integrationId: input.context.integrationId,
+  const duplicate = resolveExternalInboundDuplicateMessageSync({
+    context: input.context,
+    externalEventId,
     externalMessageId: message.externalMessageId,
   });
-  if (existingMapping) {
-    const ignored = updateExternalIntegrationEventStatusSync({
-      workspaceId: input.context.workspaceId,
-      provider: FEISHU_PROVIDER_ID,
-      externalEventId,
-      status: "ignored",
-      errorMessage: "duplicate_external_message",
-    });
+  if (duplicate) {
     return {
       ready: false,
       result: {
-        event: ignored,
+        event: duplicate.event,
         message,
         dispatchStatus: "duplicate",
-        reasonCode: "duplicate_external_message",
-        mapping: existingMapping,
+        reasonCode: duplicate.reasonCode,
+        mapping: duplicate.mapping,
       },
     };
   }

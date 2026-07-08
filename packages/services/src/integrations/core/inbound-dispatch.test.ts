@@ -1,6 +1,123 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { resolveExternalDispatchedTaskFromRecords } from "./inbound-dispatch.ts";
+import type {
+  ExternalIntegrationEventRecord,
+  ExternalMessageMappingRecord,
+  readExternalMessageMappingByExternalMessageSync,
+  recordExternalIntegrationEventSync,
+  updateExternalIntegrationEventStatusSync,
+} from "@agent-space/db";
+import type { IntegrationRuntimeContext } from "./types.ts";
+import {
+  recordExternalInboundEventSync,
+  resolveExternalDispatchedTaskFromRecords,
+  resolveExternalInboundDuplicateMessageSync,
+} from "./inbound-dispatch.ts";
+
+const context: IntegrationRuntimeContext = {
+  workspaceId: "workspace-1",
+  integrationId: "integration-1",
+  provider: "provider-1",
+};
+
+test("records common inbound events through the provider runtime context", () => {
+  let recordedInput: Parameters<typeof recordExternalIntegrationEventSync>[0] | undefined;
+  const recordEvent: typeof recordExternalIntegrationEventSync = (input) => {
+    recordedInput = input;
+    return integrationEventRecord({
+      externalEventId: input.externalEventId,
+      eventType: input.eventType,
+    });
+  };
+  const event = recordExternalInboundEventSync({
+    context,
+    externalEventId: "event-1",
+    eventType: "message",
+    payloadJson: {
+      safe: true,
+    },
+    receivedAt: "2026-07-08T08:00:00.000Z",
+    recordEvent,
+  });
+
+  assert.equal(event.externalEventId, "event-1");
+  assert.deepEqual(recordedInput, {
+    workspaceId: "workspace-1",
+    integrationId: "integration-1",
+    provider: "provider-1",
+    externalEventId: "event-1",
+    eventType: "message",
+    payloadJson: {
+      safe: true,
+    },
+    receivedAt: "2026-07-08T08:00:00.000Z",
+  });
+});
+
+test("resolves duplicate external messages and marks the inbound event ignored", () => {
+  let readInput: Parameters<typeof readExternalMessageMappingByExternalMessageSync>[0] | undefined;
+  let updateInput: Parameters<typeof updateExternalIntegrationEventStatusSync>[0] | undefined;
+  const mapping = messageMappingRecord({
+    externalMessageId: "message-1",
+  });
+  const readMessageMapping: typeof readExternalMessageMappingByExternalMessageSync = (input) => {
+    readInput = input;
+    return mapping;
+  };
+  const updateEventStatus: typeof updateExternalIntegrationEventStatusSync = (input) => {
+    updateInput = input;
+    return integrationEventRecord({
+      externalEventId: input.externalEventId,
+      status: "ignored",
+      errorMessage: input.errorMessage,
+    });
+  };
+
+  const duplicate = resolveExternalInboundDuplicateMessageSync({
+    context,
+    externalEventId: "event-1",
+    externalMessageId: "message-1",
+    readMessageMappingByExternalMessage: readMessageMapping,
+    updateEventStatus,
+  });
+
+  assert.equal(duplicate?.mapping, mapping);
+  assert.equal(duplicate?.reasonCode, "duplicate_external_message");
+  assert.equal(duplicate?.event.status, "ignored");
+  assert.deepEqual(readInput, {
+    workspaceId: "workspace-1",
+    integrationId: "integration-1",
+    externalMessageId: "message-1",
+  });
+  assert.deepEqual(updateInput, {
+    workspaceId: "workspace-1",
+    provider: "provider-1",
+    externalEventId: "event-1",
+    status: "ignored",
+    errorMessage: "duplicate_external_message",
+  });
+});
+
+test("does not update inbound event status when no duplicate mapping exists", () => {
+  let updateCalled = false;
+  const readMessageMapping: typeof readExternalMessageMappingByExternalMessageSync = () => null;
+  const updateEventStatus: typeof updateExternalIntegrationEventStatusSync = () => {
+    updateCalled = true;
+    return integrationEventRecord({
+      externalEventId: "event-1",
+    });
+  };
+  const duplicate = resolveExternalInboundDuplicateMessageSync({
+    context,
+    externalEventId: "event-1",
+    externalMessageId: "message-1",
+    readMessageMappingByExternalMessage: readMessageMapping,
+    updateEventStatus,
+  });
+
+  assert.equal(duplicate, null);
+  assert.equal(updateCalled, false);
+});
 
 test("resolves the newest queued task for a dispatched external message", () => {
   const task = resolveExternalDispatchedTaskFromRecords([
@@ -82,5 +199,39 @@ function taskRecord(input: {
       sourceMessageId: input.sourceMessageId,
     }),
     createdAt: input.createdAt ?? "2026-07-08T08:02:00.000Z",
+  };
+}
+
+function integrationEventRecord(input: {
+  externalEventId: string;
+  eventType?: string;
+  status?: ExternalIntegrationEventRecord["status"];
+  errorMessage?: string;
+}): ExternalIntegrationEventRecord {
+  return {
+    id: `event-${input.externalEventId}`,
+    workspaceId: "workspace-1",
+    integrationId: "integration-1",
+    provider: "provider-1",
+    externalEventId: input.externalEventId,
+    eventType: input.eventType ?? "message",
+    status: input.status ?? "received",
+    payloadJson: "{}",
+    errorMessage: input.errorMessage,
+    receivedAt: "2026-07-08T08:00:00.000Z",
+  };
+}
+
+function messageMappingRecord(input: {
+  externalMessageId: string;
+}): ExternalMessageMappingRecord {
+  return {
+    id: `mapping-${input.externalMessageId}`,
+    workspaceId: "workspace-1",
+    integrationId: "integration-1",
+    direction: "inbound",
+    externalMessageId: input.externalMessageId,
+    metadataJson: "{}",
+    createdAt: "2026-07-08T08:00:00.000Z",
   };
 }

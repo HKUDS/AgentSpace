@@ -17,7 +17,9 @@ import {
 import type { AgentSpaceState, MessageAttachment, WorkspaceMessage } from "@agent-space/domain/workspace";
 import {
   buildExternalNoticeMetadata,
+  recordExternalInboundEventSync,
   resolveExternalDispatchedTaskSync,
+  resolveExternalInboundDuplicateMessageSync,
   type ExternalMessageEnvelope,
   type IntegrationRuntimeContext,
 } from "../../core/index.ts";
@@ -184,14 +186,13 @@ export async function processSlackInboundEvent(input: ProcessSlackInboundEventIn
 function prepareSlackInboundDispatchSync(input: ProcessSlackInboundEventInput): SlackInboundPrepareResult {
   const dependencies = resolveSlackInboundProcessDependencies(input.dependencies);
   const externalEventId = resolveSlackEventId(input.payload);
-  const event = dependencies.recordEvent({
-    workspaceId: input.context.workspaceId,
-    integrationId: input.context.integrationId,
-    provider: SLACK_PROVIDER_ID,
+  const event = recordExternalInboundEventSync({
+    context: input.context,
     externalEventId,
     eventType: resolveSlackEventType(input.payload),
     payloadJson: summarizeSlackInboundEventPayload(input.payload),
     receivedAt: resolveSlackEventReceivedAt(input.payload),
+    recordEvent: dependencies.recordEvent,
   });
   if (isSlackAgentContextChangedEvent(input.payload)) {
     return {
@@ -260,27 +261,22 @@ function prepareSlackInboundDispatchSync(input: ProcessSlackInboundEventInput): 
     };
   }
 
-  const existingMapping = dependencies.readMessageMappingByExternalMessage({
-    workspaceId: input.context.workspaceId,
-    integrationId: input.context.integrationId,
+  const duplicate = resolveExternalInboundDuplicateMessageSync({
+    context: input.context,
+    externalEventId,
     externalMessageId: message.externalMessageId,
+    readMessageMappingByExternalMessage: dependencies.readMessageMappingByExternalMessage,
+    updateEventStatus: dependencies.updateEventStatus,
   });
-  if (existingMapping) {
-    const ignored = dependencies.updateEventStatus({
-      workspaceId: input.context.workspaceId,
-      provider: SLACK_PROVIDER_ID,
-      externalEventId,
-      status: "ignored",
-      errorMessage: "duplicate_external_message",
-    });
+  if (duplicate) {
     return {
       ready: false,
       result: {
-        event: ignored,
+        event: duplicate.event,
         message,
         dispatchStatus: "duplicate",
-        reasonCode: "duplicate_external_message",
-        mapping: existingMapping,
+        reasonCode: duplicate.reasonCode,
+        mapping: duplicate.mapping,
       },
     };
   }

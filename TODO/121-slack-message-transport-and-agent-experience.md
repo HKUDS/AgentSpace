@@ -863,6 +863,7 @@ rawPayload = summarized payload or original safe subset
 - `packages/services/src/integrations/providers/slack/evidence.ts` 的 message gate 现在要求 inbound mapping 具备 task queue 证据；缺 `taskQueueId` 或 task agent 不匹配会产生 `agent_task_queue_evidence_missing` blocker，避免最终 `--strict --require all` 在未证明 task 创建时误通过。
 - `packages/services/src/integrations/providers/slack/__tests__/evidence.test.ts` 覆盖上述正反行为。真实 DB-backed task 创建仍由 `AGENT_SPACE_SLACK_INBOUND_DB_TESTS=1` gated 测试和 live smoke 验收证明。
 - `packages/services/src/integrations/core/inbound-dispatch.ts` 抽出 provider-neutral `resolveExternalDispatchedTaskSync(...)` / `resolveExternalDispatchedTaskFromRecords(...)`，Slack 和 Feishu inbound 成功 dispatch 后都复用同一套 task queue evidence 回查逻辑。
+- `packages/services/src/integrations/core/inbound-dispatch.ts` 进一步提供 `recordExternalInboundEventSync(...)` 和 `resolveExternalInboundDuplicateMessageSync(...)`，Slack / Feishu 入站都复用同一套 event record + duplicate external message guard。
 
 ### Phase 6：出站和 outbox drain
 
@@ -1044,7 +1045,7 @@ rawPayload = summarized payload or original safe subset
 - Slack inbound setup / identity / permission notices 复用 common notice metadata helper，并保留 `ref_<8 hex>` 引用格式。
 - Feishu inbound setup card、plain setup / identity / permission notices、external guest identity card 复用 common notice metadata helper，并保留 `<16 hex>` 引用格式。
 - `packages/services/src/integrations/core/notices.test.ts`、Slack inbound tests、Feishu inbound tests 覆盖 notice metadata 类型、reasonCode 和 raw external id 不落 metadata。
-- `packages/services/src/integrations/core/inbound-dispatch.test.ts` 覆盖 task queue evidence 只匹配同 agent / channel / source message，并选择最新 task；Slack inbound 和 Feishu inbound 复用该 helper 后仍保留各自 provider-specific guard / notice / native bot 逻辑。
+- `packages/services/src/integrations/core/inbound-dispatch.test.ts` 覆盖 common inbound event record、duplicate external message guard、task queue evidence 匹配；Slack inbound 和 Feishu inbound 复用该 helper 后仍保留各自 provider-specific guard / notice / native bot 逻辑。
 - `node --experimental-strip-types --test packages/services/src/integrations/providers/feishu/__tests__/*.test.ts` 本地回归通过：141 pass / 53 skipped（skipped 均为需要测试 PostgreSQL 的 DB-gated tests）/ 0 fail。
 
 验收：
