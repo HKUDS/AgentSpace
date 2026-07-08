@@ -1027,7 +1027,7 @@ rawPayload = summarized payload or original safe subset
 - [ ] 抽出 common external inbound dispatcher。
 - [x] 抽出 common setup notice / identity notice。
 - [ ] 抽出 common integration settings cards。
-- [ ] 抽出 common health/outbox panel。
+- [x] 抽出 common health/outbox panel。
 - [x] 抽出 common redacted external id reference。
 - [x] 抽出 common worker metrics shape。
 
@@ -1047,6 +1047,7 @@ rawPayload = summarized payload or original safe subset
 - `packages/services/src/integrations/core/notices.test.ts`、Slack inbound tests、Feishu inbound tests 覆盖 notice metadata 类型、reasonCode 和 raw external id 不落 metadata。
 - `packages/services/src/integrations/core/inbound-dispatch.test.ts` 覆盖 common inbound event record、duplicate external message guard、task queue evidence 匹配；Slack inbound 和 Feishu inbound 复用该 helper 后仍保留各自 provider-specific guard / notice / native bot 逻辑。
 - `node --experimental-strip-types --test packages/services/src/integrations/providers/feishu/__tests__/*.test.ts` 本地回归通过：141 pass / 53 skipped（skipped 均为需要测试 PostgreSQL 的 DB-gated tests）/ 0 fail。
+- `apps/web/features/integrations/integration-health-outbox-panel.tsx` 提供 provider-neutral `IntegrationOutboxFailureList` / `IntegrationInboundEventList`，Slack 和 Feishu settings health panel 共用最近出站失败、最近入站事件、状态 chip 和重试/错误展示逻辑。
 
 验收：
 

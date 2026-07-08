@@ -1,6 +1,10 @@
 "use client";
 
 import { type FormEvent, type TransitionStartFunction, useState } from "react";
+import {
+  IntegrationInboundEventList,
+  IntegrationOutboxFailureList,
+} from "@/features/integrations/integration-health-outbox-panel";
 import type { SettingsTx } from "@/features/settings/settings-types";
 import { translateSettingsActionError } from "@/features/settings/settings-utils";
 import { EmptyState } from "@/shared/ui/empty-state";
@@ -77,69 +81,39 @@ export function FeishuHealthPanel({
                   <p className="settings-panel-note">{integration.lastError}</p>
                 ) : null}
 
-                {integration.recentOutboxFailures.length > 0 ? (
-                  <div className="feishu-outbox-failure-list">
-                    <strong>{tx("最近出站失败", "Recent Outbound Failures")}</strong>
-                    {integration.recentOutboxFailures.map((item) => (
-                      <div className="feishu-outbox-failure" key={item.id}>
-                        <div>
-                          <span className={`status-chip ${item.status === "failed" ? "status-chip--danger" : "status-chip--warning"}`}>
-                            {translateOutboxStatus(item.status, tx)}
-                          </span>
-                          <span>{tx("尝试", "Attempts")}: {item.attempts}</span>
-                          {item.nextAttemptAt ? (
-                            <span>{tx("下次重试", "Next Retry")}: {item.nextAttemptAt}</span>
-                          ) : null}
-                          {item.agentId ? (
-                            <span>{tx("Agent", "Agent")}: {item.agentId}</span>
-                          ) : null}
-                          {item.botBindingId ? (
-                            <span>{tx("Bot 绑定", "Bot binding")}: {item.botBindingId}</span>
-                          ) : null}
-                          <span>{tx("飞书会话", "Feishu Chat")}: {item.targetExternalChatReference}</span>
-                        </div>
-                        <p>{item.lastError ?? tx("无错误详情", "No error detail")}</p>
-                      </div>
-                    ))}
-                  </div>
-                ) : null}
+                <IntegrationOutboxFailureList
+                  items={integration.recentOutboxFailures.map((item) => ({
+                    ...item,
+                    targetReference: item.targetExternalChatReference,
+                  }))}
+                  targetLabel={tx("飞书会话", "Feishu Chat")}
+                  tx={tx}
+                />
 
-                {integration.recentInboundEvents.length > 0 ? (
-                  <div className="feishu-inbound-event-list">
-                    <div>
-                      <strong>{tx("最近入站事件", "Recent Inbound Events")}</strong>
-                      <span>{tx("未绑定用户", "Unbound Users")}: {unboundUserEventCount}</span>
-                      <span>{tx("未绑定群", "Unbound Chats")}: {unboundChannelEventCount}</span>
-                    </div>
-                    {integration.recentInboundEvents.map((item) => (
-                      <div className="feishu-inbound-event" key={item.id}>
-                        <div>
-                          <span className={`status-chip ${resolveInboundEventStatusClass(item.status)}`}>
-                            {translateInboundEventStatus(item.status, tx)}
-                          </span>
-                          <span>{item.eventType}</span>
-                          <span>{item.externalEventId}</span>
-                        </div>
-                        <p>
-                          {item.errorMessage
-                            ? `${tx("原因", "Reason")}: ${item.errorMessage}`
-                            : tx("无失败原因", "No failure reason")}
-                        </p>
-                        {item.bindingSuggestion ? (
-                          <FeishuInboundBindingSuggestion
-                            suggestion={item.bindingSuggestion}
-                            setFeedback={setFeedback}
-                            tx={tx}
-                          />
-                        ) : null}
-                        <small>
-                          {tx("接收", "Received")}: {item.receivedAt}
-                          {item.processedAt ? ` · ${tx("处理", "Processed")}: ${item.processedAt}` : ""}
-                        </small>
-                      </div>
-                    ))}
-                  </div>
-                ) : null}
+                <IntegrationInboundEventList
+                  items={integration.recentInboundEvents.map((item) => ({
+                    ...item,
+                    eventReference: item.externalEventId,
+                  }))}
+                  renderBindingSuggestion={(item) => item.bindingSuggestion ? (
+                    <FeishuInboundBindingSuggestion
+                      suggestion={item.bindingSuggestion}
+                      setFeedback={setFeedback}
+                      tx={tx}
+                    />
+                  ) : null}
+                  summaries={[
+                    {
+                      label: tx("未绑定用户", "Unbound Users"),
+                      value: unboundUserEventCount,
+                    },
+                    {
+                      label: tx("未绑定群", "Unbound Chats"),
+                      value: unboundChannelEventCount,
+                    },
+                  ]}
+                  tx={tx}
+                />
 
                 <label className="form-field">
                   <span>{tx("事件回调地址", "Event Callback URL")}</span>
@@ -709,52 +683,6 @@ function translateIntegrationStatus(status: FeishuIntegrationSettingsItem["statu
 
 function translateTransportMode(mode: FeishuIntegrationSettingsItem["transportMode"], tx: SettingsTx): string {
   return mode === "http_webhook" ? tx("事件回调", "Event callback") : tx("长连接", "WebSocket worker");
-}
-
-function translateOutboxStatus(
-  status: FeishuIntegrationSettingsItem["recentOutboxFailures"][number]["status"],
-  tx: SettingsTx,
-): string {
-  switch (status) {
-    case "failed":
-      return tx("失败", "Failed");
-    case "pending":
-      return tx("待重试", "Retry Pending");
-    case "locked":
-      return tx("发送中", "Sending");
-    case "sent":
-      return tx("已发送", "Sent");
-    case "cancelled":
-      return tx("已取消", "Cancelled");
-  }
-}
-
-function translateInboundEventStatus(
-  status: FeishuIntegrationSettingsItem["recentInboundEvents"][number]["status"],
-  tx: SettingsTx,
-): string {
-  switch (status) {
-    case "received":
-      return tx("已接收", "Received");
-    case "processed":
-      return tx("已处理", "Processed");
-    case "ignored":
-      return tx("已忽略", "Ignored");
-    case "failed":
-      return tx("失败", "Failed");
-  }
-}
-
-function resolveInboundEventStatusClass(status: FeishuIntegrationSettingsItem["recentInboundEvents"][number]["status"]): string {
-  switch (status) {
-    case "processed":
-      return "status-chip--active";
-    case "ignored":
-    case "received":
-      return "status-chip--warning";
-    case "failed":
-      return "status-chip--danger";
-  }
 }
 
 function countInboundEventsByReason(integration: FeishuIntegrationSettingsItem, reasonCode: string): number {

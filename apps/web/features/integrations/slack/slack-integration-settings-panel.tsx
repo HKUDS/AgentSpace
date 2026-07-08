@@ -2,6 +2,10 @@
 
 import { type FormEvent, type TransitionStartFunction, useEffect, useMemo, useState } from "react";
 import type { WorkspaceRole } from "@agent-space/db";
+import {
+  IntegrationInboundEventList,
+  IntegrationOutboxFailureList,
+} from "@/features/integrations/integration-health-outbox-panel";
 import type { SettingsTx } from "@/features/settings/settings-types";
 import { translateSettingsActionError } from "@/features/settings/settings-utils";
 import {
@@ -440,57 +444,39 @@ function SlackHealthPanel({
               <code className="feishu-callback-url">{integration.callbackUrl}</code>
             </label>
 
-            {integration.recentOutboxFailures.length > 0 ? (
-              <div className="feishu-outbox-failure-list">
-                <strong>{tx("最近出站失败", "Recent Outbound Failures")}</strong>
-                {integration.recentOutboxFailures.map((item) => (
-                  <div className="feishu-outbox-failure" key={item.id}>
-                    <div>
-                      <span className={`status-chip ${item.status === "failed" ? "status-chip--danger" : "status-chip--warning"}`}>
-                        {translateOutboxStatus(item.status, tx)}
-                      </span>
-                      <span>{tx("尝试", "Attempts")}: {item.attempts}</span>
-                      <span>{tx("Slack 频道", "Slack Channel")}: {item.targetExternalChannelReference}</span>
-                      {item.nextAttemptAt ? <span>{tx("下次重试", "Next Retry")}: {item.nextAttemptAt}</span> : null}
-                    </div>
-                    <p>{item.lastError ?? tx("无错误详情", "No error detail")}</p>
-                  </div>
-                ))}
-              </div>
-            ) : null}
+            <IntegrationOutboxFailureList
+              items={integration.recentOutboxFailures.map((item) => ({
+                ...item,
+                targetReference: item.targetExternalChannelReference,
+              }))}
+              targetLabel={tx("Slack 频道", "Slack Channel")}
+              tx={tx}
+            />
 
-            {integration.recentInboundEvents.length > 0 ? (
-              <div className="feishu-inbound-event-list">
-                <div>
-                  <strong>{tx("最近入站事件", "Recent Inbound Events")}</strong>
-                  <span>{tx("未绑定用户", "Unbound Users")}: {countInboundEventsByReason(integration, "slack.user_binding_missing")}</span>
-                  <span>{tx("未绑定频道", "Unbound Channels")}: {countInboundEventsByReason(integration, "slack.channel_binding_missing")}</span>
-                </div>
-                {integration.recentInboundEvents.map((item) => (
-                  <div className="feishu-inbound-event" key={item.id}>
-                    <div>
-                      <span className={`status-chip ${resolveInboundEventStatusClass(item.status)}`}>
-                        {translateInboundEventStatus(item.status, tx)}
-                      </span>
-                      <span>{item.eventType}</span>
-                      <span>{item.externalEventReference}</span>
-                    </div>
-                    <p>
-                      {item.errorMessage
-                        ? `${tx("原因", "Reason")}: ${item.errorMessage}`
-                        : tx("无失败原因", "No failure reason")}
-                    </p>
-                    {item.bindingSuggestion ? (
-                      <small>
-                        {item.bindingSuggestion.kind === "channel"
-                          ? `${tx("建议绑定频道", "Suggested channel binding")}: ${item.bindingSuggestion.externalChannelReference}`
-                          : `${tx("建议绑定用户", "Suggested user binding")}: ${item.bindingSuggestion.externalUserReference}`}
-                      </small>
-                    ) : null}
-                  </div>
-                ))}
-              </div>
-            ) : null}
+            <IntegrationInboundEventList
+              items={integration.recentInboundEvents.map((item) => ({
+                ...item,
+                eventReference: item.externalEventReference,
+              }))}
+              renderBindingSuggestion={(item) => item.bindingSuggestion ? (
+                <small>
+                  {item.bindingSuggestion.kind === "channel"
+                    ? `${tx("建议绑定频道", "Suggested channel binding")}: ${item.bindingSuggestion.externalChannelReference}`
+                    : `${tx("建议绑定用户", "Suggested user binding")}: ${item.bindingSuggestion.externalUserReference}`}
+                </small>
+              ) : null}
+              summaries={[
+                {
+                  label: tx("未绑定用户", "Unbound Users"),
+                  value: countInboundEventsByReason(integration, "slack.user_binding_missing"),
+                },
+                {
+                  label: tx("未绑定频道", "Unbound Channels"),
+                  value: countInboundEventsByReason(integration, "slack.channel_binding_missing"),
+                },
+              ]}
+              tx={tx}
+            />
 
             {integration.setupGuide ? <SlackSetupGuide integration={integration} setFeedback={setFeedback} tx={tx} /> : null}
 
@@ -1070,48 +1056,6 @@ function translateHealthStatus(status: SlackIntegrationSettingsItem["lastHealthS
     return tx("异常", "Error");
   }
   return tx("未知", "Unknown");
-}
-
-function translateOutboxStatus(status: string, tx: SettingsTx): string {
-  if (status === "failed") {
-    return tx("失败", "Failed");
-  }
-  if (status === "pending") {
-    return tx("待发送", "Pending");
-  }
-  if (status === "locked") {
-    return tx("发送中", "Locked");
-  }
-  if (status === "sent") {
-    return tx("已发送", "Sent");
-  }
-  return tx("已取消", "Cancelled");
-}
-
-function translateInboundEventStatus(status: string, tx: SettingsTx): string {
-  if (status === "processed") {
-    return tx("已处理", "Processed");
-  }
-  if (status === "ignored") {
-    return tx("已忽略", "Ignored");
-  }
-  if (status === "failed") {
-    return tx("失败", "Failed");
-  }
-  return tx("已接收", "Received");
-}
-
-function resolveInboundEventStatusClass(status: string): string {
-  if (status === "processed") {
-    return "status-chip--active";
-  }
-  if (status === "failed") {
-    return "status-chip--danger";
-  }
-  if (status === "ignored") {
-    return "status-chip--warning";
-  }
-  return "";
 }
 
 function translateSetupCheckKey(key: SlackIntegrationSetupCheck["key"], tx: SettingsTx): string {
