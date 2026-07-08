@@ -998,6 +998,7 @@ function buildSlackEvidenceNextCommands(
     `npm run smoke:slack -- --env-file scripts/slack/.env --live --evidence ${evidencePath} --json`,
     `SLACK_SMOKE_LIVE_MODE=app_mention npm run smoke:slack -- --env-file scripts/slack/.env --live --evidence ${evidencePath} --json`,
     `SLACK_SMOKE_LIVE_MODE=file_upload npm run smoke:slack -- --env-file scripts/slack/.env --live --evidence ${evidencePath} --json`,
+    "npm run smoke:slack:verify -- --json",
     `agent-space integrations slack evidence --workspace-id ${workspaceId}${integrationFlag} --live-smoke-evidence ${evidencePath} --strict --require ${required} --json`,
   ];
 }
