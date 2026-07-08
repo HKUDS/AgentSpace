@@ -290,6 +290,134 @@ test("Slack smoke live sends a disposable channel message with redacted output",
   }
 });
 
+test("Slack smoke live evidence drops runs from another Slack context", async () => {
+  const requests: Array<Record<string, unknown>> = [];
+  const server = createServer((request, response) => {
+    const chunks: Buffer[] = [];
+    request.on("data", (chunk: Buffer) => {
+      chunks.push(chunk);
+    });
+    request.on("end", () => {
+      requests.push(JSON.parse(Buffer.concat(chunks).toString("utf8")) as Record<string, unknown>);
+      response.setHeader("content-type", "application/json");
+      response.end(JSON.stringify({
+        ok: true,
+        channel: "C123LIVE",
+        ts: "1783400000.000100",
+      }));
+    });
+  });
+  await new Promise<void>((resolve) => {
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  const address = server.address();
+  assert.ok(address && typeof address === "object");
+  const directory = mkdtempSync(join(tmpdir(), "agentspace-slack-smoke-"));
+  try {
+    const evidencePath = join(directory, "live.json");
+    writeFileSync(evidencePath, JSON.stringify({
+      schemaVersion: 1,
+      provider: "slack",
+      generatedAt: new Date().toISOString(),
+      context: {
+        workspaceId: "default",
+        integrationId: "slack-other",
+        appReference: "ref_otherapp",
+        teamReference: "ref_otherteam",
+      },
+      runs: [
+        {
+          generatedAt: new Date().toISOString(),
+          mode: "live",
+          live: true,
+          ready: true,
+          context: {
+            workspaceId: "default",
+            integrationId: "slack-other",
+            appReference: "ref_otherapp",
+            teamReference: "ref_otherteam",
+          },
+          liveResult: {
+            attempted: true,
+            ok: true,
+            mode: "post_message",
+            channelReference: "channel OLD...THER",
+            messageReference: "message old...ther",
+          },
+        },
+        {
+          generatedAt: new Date().toISOString(),
+          mode: "live",
+          live: true,
+          ready: true,
+          context: {
+            workspaceId: "default",
+            integrationId: "slack-1",
+            appReference: "ref_otherapp",
+            teamReference: "ref_otherteam",
+          },
+          liveResult: {
+            attempted: true,
+            ok: true,
+            mode: "post_message",
+            channelReference: "channel OLD...TEAM",
+            messageReference: "message old...team",
+          },
+        },
+      ],
+    }, null, 2));
+    const envPath = join(directory, ".env");
+    writeFileSync(envPath, [
+      "AGENT_SPACE_WORKSPACE_ID=default",
+      "AGENT_SPACE_SLACK_INTEGRATION_ID=slack-1",
+      "AGENT_SPACE_PUBLIC_APP_URL=https://agentspace.test",
+      "SLACK_SMOKE_CALLBACK_URL=https://agentspace.test/api/integrations/slack/events",
+      "SLACK_SMOKE_CHANNEL_ID=C123LIVE",
+      "SLACK_SMOKE_USER_ID=U123LIVE",
+      "SLACK_SMOKE_APP_ID=ALIVE123",
+      "SLACK_SMOKE_TEAM_ID=TLIVE123",
+      "SLACK_SMOKE_MESSAGE_TEXT=AgentSpace Slack smoke",
+      "SLACK_BOT_TOKEN=xoxb-live-secret",
+      `SLACK_API_BASE_URL=http://127.0.0.1:${address.port}`,
+    ].join("\n"));
+
+    const result = await runSmokeScript([
+      "--env-file",
+      envPath,
+      "--live",
+      "--evidence",
+      evidencePath,
+      "--json",
+    ]);
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(requests.length, 1);
+    const artifact = JSON.parse(readFileSync(evidencePath, "utf8")) as {
+      context?: {
+        integrationId?: string;
+        appReference?: string;
+        teamReference?: string;
+      };
+      runs?: Array<{
+        context?: {
+          integrationId?: string;
+          appReference?: string;
+          teamReference?: string;
+        };
+      }>;
+    };
+    assert.equal(artifact.context?.integrationId, "slack-1");
+    assert.equal(artifact.context?.appReference, "ref_5a958510");
+    assert.equal(artifact.context?.teamReference, "ref_0d36a946");
+    assert.deepEqual(artifact.runs?.map((run) => run.context), [artifact.context]);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+    await new Promise<void>((resolve) => {
+      server.close(() => resolve());
+    });
+  }
+});
+
 test("Slack smoke live app_mention mode posts a bot mention from the configured post token", async () => {
   const requests: Array<{
     authorization?: string;

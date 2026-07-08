@@ -924,8 +924,11 @@ function writeSlackSmokeEvidenceArtifactIfRequested(
 
 function writeSlackSmokeEvidenceArtifact(path: string, output: SlackSmokeOutput): void {
   const existing = readSlackSmokeEvidenceArtifact(path);
+  const retainedExisting = output.context
+    ? existing.filter((run) => slackSmokeEvidenceRunContextMatches(run, output.context))
+    : existing;
   const runs = [
-    ...existing,
+    ...retainedExisting,
     {
       generatedAt: output.generatedAt,
       mode: output.mode,
@@ -946,6 +949,26 @@ function writeSlackSmokeEvidenceArtifact(path: string, output: SlackSmokeOutput)
   };
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, `${JSON.stringify(artifact, null, 2)}\n`, "utf8");
+}
+
+function slackSmokeEvidenceRunContextMatches(run: Record<string, unknown>, expected: SlackSmokeContext): boolean {
+  const context = readSlackSmokeEvidenceRunContext(run);
+  return (!expected.workspaceId || context.workspaceId === expected.workspaceId) &&
+    (!expected.integrationId || context.integrationId === expected.integrationId) &&
+    (!expected.appReference || context.appReference === expected.appReference) &&
+    (!expected.teamReference || context.teamReference === expected.teamReference);
+}
+
+function readSlackSmokeEvidenceRunContext(run: Record<string, unknown>): SlackSmokeContext {
+  const context = typeof run.context === "object" && run.context !== null && !Array.isArray(run.context)
+    ? run.context as Record<string, unknown>
+    : {};
+  return {
+    workspaceId: readString(context.workspaceId),
+    integrationId: readString(context.integrationId),
+    appReference: readString(context.appReference),
+    teamReference: readString(context.teamReference),
+  };
 }
 
 function readSlackSmokeEvidenceArtifact(path: string): Record<string, unknown>[] {
