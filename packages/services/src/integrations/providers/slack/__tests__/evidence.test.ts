@@ -573,6 +573,65 @@ test("Slack live smoke evidence requires per-run context for accumulated artifac
   assert.equal(legacyVerification.summary?.postMessageLiveOk, true);
 });
 
+test("Slack live smoke evidence requires safe result references", () => {
+  const missingPostMessageReference = makeLiveSmokeEvidence();
+  const postMessageLiveResult = (
+    (missingPostMessageReference.runs as Array<Record<string, unknown>>)[0]?.liveResult ?? {}
+  ) as Record<string, unknown>;
+  delete postMessageLiveResult.messageReference;
+  const missingPostMessageReport = buildSlackEvidenceReport({
+    workspaceId: "workspace-1",
+    strict: true,
+    required: "all",
+    requireLiveSmokeEvidence: true,
+    liveSmokeEvidence: missingPostMessageReference,
+    dependencies: makeCompleteSlackEvidenceDependencies(),
+  });
+
+  assert.equal(missingPostMessageReport.strictSatisfied, false);
+  assert.equal(missingPostMessageReport.liveSmokeEvidence?.summary?.postMessageLiveOk, false);
+  assert.ok(missingPostMessageReport.liveSmokeEvidence?.issues.includes("slack_live_post_message_evidence_missing"));
+  assert.deepEqual(missingPostMessageReport.liveSmokeEvidence?.summary?.satisfiedIntegrationIds, []);
+
+  const missingAppMentionReference = makeLiveSmokeEvidence();
+  const appMentionLiveResult = (
+    (missingAppMentionReference.runs as Array<Record<string, unknown>>)[1]?.liveResult ?? {}
+  ) as Record<string, unknown>;
+  delete appMentionLiveResult.botUserReference;
+  const missingAppMentionReport = buildSlackEvidenceReport({
+    workspaceId: "workspace-1",
+    strict: true,
+    required: "all",
+    requireLiveSmokeEvidence: true,
+    liveSmokeEvidence: missingAppMentionReference,
+    dependencies: makeCompleteSlackEvidenceDependencies(),
+  });
+
+  assert.equal(missingAppMentionReport.strictSatisfied, false);
+  assert.equal(missingAppMentionReport.liveSmokeEvidence?.summary?.appMentionLiveOk, false);
+  assert.ok(missingAppMentionReport.liveSmokeEvidence?.issues.includes("slack_live_app_mention_evidence_missing"));
+  assert.deepEqual(missingAppMentionReport.liveSmokeEvidence?.summary?.satisfiedIntegrationIds, []);
+
+  const missingFileReference = makeLiveSmokeEvidence();
+  const fileUploadLiveResult = (
+    (missingFileReference.runs as Array<Record<string, unknown>>)[2]?.liveResult ?? {}
+  ) as Record<string, unknown>;
+  delete fileUploadLiveResult.fileReference;
+  const missingFileReport = buildSlackEvidenceReport({
+    workspaceId: "workspace-1",
+    strict: true,
+    required: "all",
+    requireLiveSmokeEvidence: true,
+    liveSmokeEvidence: missingFileReference,
+    dependencies: makeCompleteSlackEvidenceDependencies(),
+  });
+
+  assert.equal(missingFileReport.strictSatisfied, false);
+  assert.equal(missingFileReport.liveSmokeEvidence?.summary?.fileUploadLiveOk, false);
+  assert.ok(missingFileReport.liveSmokeEvidence?.issues.includes("slack_live_file_upload_evidence_missing"));
+  assert.deepEqual(missingFileReport.liveSmokeEvidence?.summary?.satisfiedIntegrationIds, []);
+});
+
 test("Slack live smoke evidence ignores stale accumulated runs", () => {
   const staleEvidence = makeLiveSmokeEvidence();
   const staleRuns = staleEvidence.runs as Array<Record<string, unknown>>;

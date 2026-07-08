@@ -252,6 +252,7 @@ export function verifySlackLiveSmokeEvidence(input: {
   const postMessageLiveOk = runs.some((run) => {
     const liveResult = parseJsonRecord(run.liveResult);
     return isSlackLiveSmokeRunOk(run, artifact, liveResult, "post_message") &&
+      hasSlackLiveSmokeResultReferences(liveResult, ["channelReference", "messageReference"]) &&
       slackLiveSmokeContextMatches(run, artifact, expectedContext);
   });
   const appMentionLiveOk = runs.some((run) => {
@@ -260,6 +261,7 @@ export function verifySlackLiveSmokeEvidence(input: {
       return false;
     }
     return isSlackLiveSmokeRunOk(run, artifact, liveResult, "app_mention") &&
+      hasSlackLiveSmokeResultReferences(liveResult, ["channelReference", "botUserReference"]) &&
       liveResult.appMentionText === true &&
       slackLiveSmokeContextMatches(run, artifact, expectedContext);
   });
@@ -269,6 +271,7 @@ export function verifySlackLiveSmokeEvidence(input: {
       return false;
     }
     return isSlackLiveSmokeRunOk(run, artifact, liveResult, "file_upload") &&
+      hasSlackLiveSmokeResultReferences(liveResult, ["channelReference", "fileReference"]) &&
       liveResult.fileUpload === true &&
       liveResult.uploadCompleted === true &&
       slackLiveSmokeContextMatches(run, artifact, expectedContext);
@@ -827,6 +830,15 @@ function isSlackLiveSmokeRunFresh(run: Record<string, unknown>, artifact: Record
   return generatedAt ? isFreshIsoTimestamp(generatedAt, 24 * 60 * 60 * 1000) : false;
 }
 
+function hasSlackLiveSmokeResultReferences(
+  liveResult: Record<string, unknown> | undefined,
+  requiredKeys: string[],
+): boolean {
+  return liveResult
+    ? requiredKeys.every((key) => Boolean(readJsonStringFieldFromRecord(liveResult, key)))
+    : false;
+}
+
 function buildSlackLiveSmokeSatisfiedIntegrationIds(input: {
   artifact: Record<string, unknown>;
   runs: Record<string, unknown>[];
@@ -848,13 +860,15 @@ function buildSlackLiveSmokeSatisfiedIntegrationIds(input: {
     const postMessageLiveOk = input.runs.some((run) => {
       const liveResult = parseJsonRecord(run.liveResult);
       return runMatchesIntegration(run) &&
-        isSlackLiveSmokeRunOk(run, input.artifact, liveResult, "post_message");
+        isSlackLiveSmokeRunOk(run, input.artifact, liveResult, "post_message") &&
+        hasSlackLiveSmokeResultReferences(liveResult, ["channelReference", "messageReference"]);
     });
     const appMentionLiveOk = input.runs.some((run) => {
       const liveResult = parseJsonRecord(run.liveResult);
       return Boolean(liveResult) &&
         runMatchesIntegration(run) &&
         isSlackLiveSmokeRunOk(run, input.artifact, liveResult, "app_mention") &&
+        hasSlackLiveSmokeResultReferences(liveResult, ["channelReference", "botUserReference"]) &&
         liveResult?.appMentionText === true;
     });
     const fileUploadLiveOk = input.runs.some((run) => {
@@ -862,6 +876,7 @@ function buildSlackLiveSmokeSatisfiedIntegrationIds(input: {
       return Boolean(liveResult) &&
         runMatchesIntegration(run) &&
         isSlackLiveSmokeRunOk(run, input.artifact, liveResult, "file_upload") &&
+        hasSlackLiveSmokeResultReferences(liveResult, ["channelReference", "fileReference"]) &&
         liveResult?.fileUpload === true &&
         liveResult?.uploadCompleted === true;
     });

@@ -1154,6 +1154,7 @@ rawPayload = summarized payload or original safe subset
 - smoke 脚本复用同一 evidence path 时会按当前 workspace/integration/app/team context 过滤历史 runs，避免切换 Slack app 或 integration 后把其他验收上下文混进最终 artifact。
 - `--verify-evidence` / `npm run smoke:slack:verify -- --json` 会在最终 AgentSpace evidence 前离线验证 artifact：必须 24 小时内覆盖 `post_message`、`app_mention`、`file_upload` 三种 live run，每条 run 都带 workspace/integration/app/team context，且不能包含 token-like 值、raw Slack id、raw message ts 或 private file URL。
 - `smoke-plan`、`smoke-env` 和 final evidence remediation 的 next commands 都包含 `npm run smoke:slack:verify -- --json`，避免操作者跳过 live artifact 离线校验。
+- final evidence gate 也要求 live run 具备对应的安全引用：`post_message` 需要 channel/message reference，`app_mention` 需要 channel/bot user reference，`file_upload` 需要 channel/file reference，避免仅凭 `ok=true` 的不完整 artifact 通过。
 - strict final evidence 要求累积 artifact 的每条 live run 都自带 workspace/integration/app/team context，且逐条满足 24 小时 freshness；只有旧版单 run artifact 才允许回退使用顶层 context，避免历史 contextless 或 stale runs 在追加新 run 后被误复用。
 - strict Slack evidence 会忽略超过 24 小时的本地 event / mapping / outbox 证据；如果旧记录本可满足门禁但 fresh 证据不足，最终报告会以 `local_evidence_stale` 阻断，避免用历史 smoke 误通过验收。
 - strict Slack evidence 还要求最近 24 小时内的 healthy health-check；如果 credential/scope/socket 状态已退化或 health-check 过期，最终报告会以 `health_check_required_or_unhealthy` / `health_check_stale_or_missing` 阻断。
