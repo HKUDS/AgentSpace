@@ -1303,8 +1303,14 @@ function findSlackSmokeEvidenceRedactionIssues(text: string): string[] {
   if (/\b(?:A|C|D|F|G|T|U|W)[A-Z0-9]{8,}\b/.test(text)) {
     issues.push("raw_slack_identifier_in_evidence");
   }
+  if (/\b(?:channel|user|file)\s+[ACDFGTUW][A-Z0-9]{1,4}\.\.\.[A-Z0-9]{2,}\b/i.test(text)) {
+    issues.push("raw_slack_identifier_fragment_in_evidence");
+  }
   if (/\b\d{10}\.\d{6}\b/.test(text)) {
     issues.push("raw_slack_message_ts_in_evidence");
+  }
+  if (/\bmessage\s+\d{2,4}\.\.\.\d{2,6}\b/i.test(text)) {
+    issues.push("raw_slack_message_ts_fragment_in_evidence");
   }
   if (/url_private|files\.slack\.com|slack-files\.com/i.test(text)) {
     issues.push("slack_private_file_url_in_evidence");
@@ -1505,10 +1511,7 @@ function buildSafeReference(kind: string, value: string | undefined): string | u
   if (!normalized) {
     return undefined;
   }
-  if (normalized.length <= 8) {
-    return `${kind} ${normalized.slice(0, 2)}...${normalized.slice(-2)}`;
-  }
-  return `${kind} ${normalized.slice(0, 4)}...${normalized.slice(-4)}`;
+  return `${kind} ${buildSlackSmokeExternalReference(normalized)}`;
 }
 
 function buildSafeUrlReference(value: string | undefined): string | undefined {

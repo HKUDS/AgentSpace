@@ -379,9 +379,9 @@ test("Slack smoke live sends a disposable channel message with redacted output",
     assert.equal(output.ready, true);
     assert.equal(output.live, true);
     assert.equal(output.liveResult?.ok, true);
-    assert.equal(output.liveResult?.channelReference, "channel C1...VE");
+    assert.equal(output.liveResult?.channelReference, `channel ${slackRef("C123LIVE")}`);
     assert.equal(output.liveResult?.channelRef, slackRef("C123LIVE"));
-    assert.equal(output.liveResult?.messageReference, "message 1783...0100");
+    assert.equal(output.liveResult?.messageReference, `message ${slackRef("1783400000.000100")}`);
     assert.equal(output.liveResult?.messageRef, slackRef("1783400000.000100"));
     assert.doesNotMatch(result.stdout, /xoxb-live-secret|C123LIVE|U123LIVE|ALIVE123|TLIVE123/);
   } finally {
@@ -443,8 +443,8 @@ test("Slack smoke live evidence drops runs from another Slack context", async ()
             attempted: true,
             ok: true,
             mode: "post_message",
-            channelReference: "channel OLD...THER",
-            messageReference: "message old...ther",
+            channelReference: `channel ${slackRef("COLDOTHER")}`,
+            messageReference: `message ${slackRef("old-other")}`,
           },
         },
         {
@@ -462,8 +462,8 @@ test("Slack smoke live evidence drops runs from another Slack context", async ()
             attempted: true,
             ok: true,
             mode: "post_message",
-            channelReference: "channel OLD...TEAM",
-            messageReference: "message old...team",
+            channelReference: `channel ${slackRef("COLDTEAM")}`,
+            messageReference: `message ${slackRef("old-team")}`,
           },
         },
       ],
@@ -600,11 +600,11 @@ test("Slack smoke live app_mention mode posts a bot mention from the configured 
     assert.equal(output.liveResult?.ok, true);
     assert.equal(output.liveResult?.mode, "app_mention");
     assert.equal(output.liveResult?.appMentionText, true);
-    assert.equal(output.liveResult?.channelReference, "channel CAPP...TION");
+    assert.equal(output.liveResult?.channelReference, `channel ${slackRef("CAPPMENTION")}`);
     assert.equal(output.liveResult?.channelRef, slackRef("CAPPMENTION"));
-    assert.equal(output.liveResult?.botUserReference, "user UB...VE");
+    assert.equal(output.liveResult?.botUserReference, `user ${slackRef("UBOTLIVE")}`);
     assert.equal(output.liveResult?.botUserRef, slackRef("UBOTLIVE"));
-    assert.equal(output.liveResult?.messageReference, "message 1783...0200");
+    assert.equal(output.liveResult?.messageReference, `message ${slackRef("1783400001.000200")}`);
     assert.equal(output.liveResult?.messageRef, slackRef("1783400001.000200"));
     assert.doesNotMatch(result.stdout, /xoxp-user-secret|xoxb-bot-secret|CAPPMENTION|UPOSTER|UBOTLIVE|AAPPMENTION|TAPPMENTION/);
   } finally {
@@ -732,9 +732,9 @@ test("Slack smoke live file_upload mode uses the external upload flow", async ()
     assert.equal(output.liveResult?.mode, "file_upload");
     assert.equal(output.liveResult?.fileUpload, true);
     assert.equal(output.liveResult?.uploadCompleted, true);
-    assert.equal(output.liveResult?.channelReference, "channel CFIL...LIVE");
+    assert.equal(output.liveResult?.channelReference, `channel ${slackRef("CFILELIVE")}`);
     assert.equal(output.liveResult?.channelRef, slackRef("CFILELIVE"));
-    assert.equal(output.liveResult?.fileReference, "file FSMO...E123");
+    assert.equal(output.liveResult?.fileReference, `file ${slackRef("FSMOKEFILE123")}`);
     assert.equal(output.liveResult?.fileRef, slackRef("FSMOKEFILE123"));
     assert.doesNotMatch(result.stdout, /xoxb-file-secret|CFILELIVE|UFILELIVE|AFILELIVE|TFILELIVE|FSMOKEFILE123|upload\/F/);
   } finally {
@@ -1003,8 +1003,9 @@ test("Slack smoke evidence verifier rejects incomplete or unsafe artifacts", asy
           attempted: true,
           ok: true,
           mode: "app_mention",
-          channelReference: "channel SAFE...CHAN",
+          channelReference: "channel CSAFE...CHAN",
           botUserReference: "user UB...OT",
+          messageReference: "message 1783...0200",
           appMentionText: true,
         },
       }],
@@ -1028,7 +1029,9 @@ test("Slack smoke evidence verifier rejects incomplete or unsafe artifacts", asy
     assert.ok(output.summary?.missingModes?.includes("file_upload"));
     assert.ok(output.issues?.includes("live_mode_app_mention_message_ref_missing"));
     assert.ok(output.issues?.includes("raw_slack_identifier_in_evidence"));
+    assert.ok(output.issues?.includes("raw_slack_identifier_fragment_in_evidence"));
     assert.ok(output.issues?.includes("raw_slack_message_ts_in_evidence"));
+    assert.ok(output.issues?.includes("raw_slack_message_ts_fragment_in_evidence"));
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }

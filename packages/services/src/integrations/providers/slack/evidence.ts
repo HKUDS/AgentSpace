@@ -1146,7 +1146,9 @@ function countUnsafeSlackLiveSmokeEvidenceValues(value: unknown): number {
 function isUnsafeSlackLiveSmokeEvidenceString(value: string): boolean {
   return /\b(xox[abprs]?|xapp)-[A-Za-z0-9-]+\b/i.test(value) ||
     /\b[ACDGTUWF][A-Z0-9]{7,}\b/.test(value) ||
+    /\b(?:channel|user|file)\s+[ACDFGTUW][A-Z0-9]{1,4}\.\.\.[A-Z0-9]{2,}\b/i.test(value) ||
     /\b\d{10}\.\d{6}\b/.test(value) ||
+    /\bmessage\s+\d{2,4}\.\.\.\d{2,6}\b/i.test(value) ||
     /files\.slack\.com|slack-files\.com|url_private/i.test(value);
 }
 

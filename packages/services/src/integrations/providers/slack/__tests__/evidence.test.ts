@@ -664,7 +664,7 @@ test("Slack evidence strict all correlates live app mentions with local inbound 
   const appMentionLiveResult = (
     (wrongLiveMention.runs as Array<Record<string, unknown>>)[1]?.liveResult ?? {}
   ) as Record<string, unknown>;
-  appMentionLiveResult.messageReference = "message 1783...9999";
+  appMentionLiveResult.messageReference = `message ${buildSlackReference("1783499999.000200")}`;
   appMentionLiveResult.messageRef = buildSlackReference("1783499999.000200");
 
   const report = buildSlackEvidenceReport({
@@ -730,9 +730,9 @@ test("Slack live smoke evidence requires per-run context for accumulated artifac
       attempted: true,
       ok: true,
       mode: "post_message",
-      channelReference: "channel C123...LIVE",
+      channelReference: `channel ${buildSlackReference("C123LIVE")}`,
       channelRef: buildSlackReference("C123LIVE"),
-      messageReference: "message 1783...0100",
+      messageReference: `message ${buildSlackReference(SLACK_SMOKE_POST_MESSAGE_ID)}`,
       messageRef: buildSlackReference(SLACK_SMOKE_POST_MESSAGE_ID),
     },
   };
@@ -845,6 +845,25 @@ test("Slack live smoke evidence requires safe result references", () => {
   assert.equal(missingFileReport.liveSmokeEvidence?.summary?.fileUploadLiveOk, false);
   assert.ok(missingFileReport.liveSmokeEvidence?.issues.includes("slack_live_file_upload_evidence_missing"));
   assert.deepEqual(missingFileReport.liveSmokeEvidence?.summary?.satisfiedIntegrationIds, []);
+
+  const unsafeFragmentEvidence = makeLiveSmokeEvidence();
+  const unsafePostMessageResult = (
+    (unsafeFragmentEvidence.runs as Array<Record<string, unknown>>)[0]?.liveResult ?? {}
+  ) as Record<string, unknown>;
+  unsafePostMessageResult.channelReference = "channel C123...LIVE";
+  unsafePostMessageResult.messageReference = "message 1783...0100";
+  const unsafeFragmentReport = buildSlackEvidenceReport({
+    workspaceId: "workspace-1",
+    strict: true,
+    required: "all",
+    requireLiveSmokeEvidence: true,
+    liveSmokeEvidence: unsafeFragmentEvidence,
+    dependencies: makeCompleteSlackEvidenceDependencies(),
+  });
+
+  assert.equal(unsafeFragmentReport.strictSatisfied, false);
+  assert.ok((unsafeFragmentReport.liveSmokeEvidence?.summary?.unsafeRawValueCount ?? 0) > 0);
+  assert.ok(unsafeFragmentReport.liveSmokeEvidence?.issues.includes("slack_live_smoke_evidence_unsafe"));
 });
 
 test("Slack live smoke evidence ignores stale accumulated runs", () => {
@@ -1301,9 +1320,9 @@ function makeLiveSmokeEvidence(input: {
           attempted: true,
           ok: true,
           mode: "post_message",
-          channelReference: "channel C123...LIVE",
+          channelReference: `channel ${buildSlackReference("C123LIVE")}`,
           channelRef: buildSlackReference("C123LIVE"),
-          messageReference: "message 1783...0100",
+          messageReference: `message ${buildSlackReference(SLACK_SMOKE_POST_MESSAGE_ID)}`,
           messageRef: buildSlackReference(SLACK_SMOKE_POST_MESSAGE_ID),
         },
       },
@@ -1317,11 +1336,11 @@ function makeLiveSmokeEvidence(input: {
           attempted: true,
           ok: true,
           mode: "app_mention",
-          channelReference: "channel CAPP...TION",
+          channelReference: `channel ${buildSlackReference("CAPPMENTION")}`,
           channelRef: buildSlackReference("CAPPMENTION"),
-          botUserReference: "user UB...VE",
+          botUserReference: `user ${buildSlackReference("UBOTLIVE")}`,
           botUserRef: buildSlackReference("UBOTLIVE"),
-          messageReference: "message 1783...0200",
+          messageReference: `message ${buildSlackReference(SLACK_SMOKE_APP_MENTION_MESSAGE_ID)}`,
           messageRef: buildSlackReference(SLACK_SMOKE_APP_MENTION_MESSAGE_ID),
           appMentionText: true,
         },
@@ -1336,9 +1355,9 @@ function makeLiveSmokeEvidence(input: {
           attempted: true,
           ok: true,
           mode: "file_upload",
-          channelReference: "channel CFILE...LIVE",
+          channelReference: `channel ${buildSlackReference("CFILELIVE")}`,
           channelRef: buildSlackReference("CFILELIVE"),
-          fileReference: "file FSMO...E123",
+          fileReference: `file ${buildSlackReference("FSMOKEFILE123")}`,
           fileRef: buildSlackReference("FSMOKEFILE123"),
           fileUpload: true,
           uploadCompleted: true,
