@@ -553,6 +553,164 @@ test("Slack evidence strict all requires fresh healthy integration health", () =
   assert.ok(staleHealth.integrations[0]?.blockers.includes("health_check_stale_or_missing"));
 });
 
+test("Slack evidence strict all requires live artifact for the same satisfied integration", () => {
+  const timestamp = freshTimestamp();
+  const satisfiedIntegration = makeIntegration({ id: "slack-1", displayName: "Slack Atlas" });
+  const otherIntegration = makeIntegration({ id: "slack-2", displayName: "Slack Nova", agentId: "Nova" });
+  const report = buildSlackEvidenceReport({
+    workspaceId: "workspace-1",
+    strict: true,
+    required: "all",
+    requireLiveSmokeEvidence: true,
+    liveSmokeEvidence: makeLiveSmokeEvidence({ integrationId: "slack-2" }),
+    dependencies: {
+      listIntegrations: () => [satisfiedIntegration, otherIntegration],
+      listChannelBindings: ({ integrationId }) => integrationId === "slack-1"
+        ? [makeChannelBinding({ integrationId: "slack-1" })]
+        : [],
+      listUserBindings: ({ integrationId }) => integrationId === "slack-1"
+        ? [makeUserBinding({ integrationId: "slack-1" })]
+        : [],
+      listEvents: ({ integrationId }) => integrationId === "slack-1"
+        ? [
+          makeEvent({
+            integrationId: "slack-1",
+            eventType: "event_callback.app_mention",
+            status: "processed",
+            receivedAt: timestamp,
+            processedAt: timestamp,
+            payloadJson: {
+              hasAgentContext: true,
+              hasFiles: true,
+              fileCount: 1,
+            },
+          }),
+          makeEvent({
+            id: "event-approval-1",
+            integrationId: "slack-1",
+            eventType: "block_actions",
+            status: "processed",
+            receivedAt: timestamp,
+            processedAt: timestamp,
+          }),
+        ]
+        : [],
+      listMessageMappings: ({ integrationId }) => integrationId === "slack-1"
+        ? [
+          makeMapping({
+            integrationId: "slack-1",
+            createdAt: timestamp,
+            direction: "inbound",
+            metadataJson: {
+              provider: "slack",
+              agentId: "Atlas",
+              taskAgentId: "Atlas",
+              taskQueueId: "task-safe-1",
+              slackFileCount: 1,
+              slackStoredAttachmentCount: 1,
+              slackFileDownloadStatus: "stored_attachment",
+              agentContext: {
+                entities: [{ type: "slack#/types/channel_id", valueRef: "ref_safechan" }],
+              },
+            },
+          }),
+          makeMapping({
+            id: "mapping-outbound-1",
+            integrationId: "slack-1",
+            createdAt: timestamp,
+            direction: "outbound",
+            metadataJson: {
+              provider: "slack",
+              externalChatReference: "ref_safechat",
+            },
+          }),
+          makeMapping({
+            id: "mapping-home-1",
+            integrationId: "slack-1",
+            createdAt: timestamp,
+            direction: "outbound",
+            metadataJson: {
+              provider: "slack",
+              mappingSource: "app_home_opened_welcome",
+              externalChatReference: "ref_safechat",
+            },
+          }),
+        ]
+        : [],
+      listOutbox: ({ integrationId }) => integrationId === "slack-1"
+        ? [
+          makeOutbox({
+            integrationId: "slack-1",
+            createdAt: timestamp,
+            updatedAt: timestamp,
+            sentAt: timestamp,
+            status: "sent",
+            metadataJson: {
+              provider: "slack",
+              outboxSource: "agent_reply",
+            },
+          }),
+          makeOutbox({
+            id: "outbox-home-1",
+            integrationId: "slack-1",
+            createdAt: timestamp,
+            updatedAt: timestamp,
+            sentAt: timestamp,
+            status: "sent",
+            metadataJson: {
+              provider: "slack",
+              outboxSource: "app_home_opened_welcome",
+            },
+          }),
+          makeOutbox({
+            id: "outbox-prompts-1",
+            integrationId: "slack-1",
+            createdAt: timestamp,
+            updatedAt: timestamp,
+            sentAt: timestamp,
+            status: "sent",
+            metadataJson: {
+              provider: "slack",
+              outboxSource: "assistant_suggested_prompts",
+              assistantMethod: "assistant.threads.setSuggestedPrompts",
+            },
+          }),
+          makeOutbox({
+            id: "outbox-approval-1",
+            integrationId: "slack-1",
+            createdAt: timestamp,
+            updatedAt: timestamp,
+            sentAt: timestamp,
+            status: "sent",
+            metadataJson: {
+              provider: "slack",
+              outboxSource: "agent_status_card",
+            },
+          }),
+          makeOutbox({
+            id: "outbox-file-1",
+            integrationId: "slack-1",
+            createdAt: timestamp,
+            updatedAt: timestamp,
+            sentAt: timestamp,
+            status: "sent",
+            metadataJson: {
+              provider: "slack",
+              outboxSource: "slack_file_upload",
+              slackUploadFlow: "external_upload",
+            },
+          }),
+        ]
+        : [],
+    },
+  });
+
+  assert.equal(report.integrations.find((item) => item.integrationId === "slack-1")?.requiredSatisfied, true);
+  assert.equal(report.liveSmokeEvidence?.valid, true);
+  assert.deepEqual(report.liveSmokeEvidence?.summary?.satisfiedIntegrationIds, ["slack-2"]);
+  assert.equal(report.strictSatisfied, false);
+});
+
 function makeIntegration(overrides: Partial<ExternalIntegrationRecord> = {}): ExternalIntegrationRecord {
   const timestamp = freshTimestamp();
   return {
