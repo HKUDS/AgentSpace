@@ -1,0 +1,406 @@
+import {
+  listExternalChannelBindingsSync,
+  listExternalIntegrationEventsSync,
+  listExternalIntegrationsSync,
+  listExternalMessageMappingsSync,
+  listExternalMessageOutboxSync,
+  listExternalUserBindingsSync,
+  type ExternalChannelBindingRecord,
+  type ExternalIntegrationEventRecord,
+  type ExternalIntegrationRecord,
+  type ExternalMessageMappingRecord,
+  type ExternalMessageOutboxRecord,
+  type ExternalUserBindingRecord,
+} from "@agent-space/db";
+import { SLACK_PROVIDER_ID } from "./constants.ts";
+import { buildSlackReference } from "./events.ts";
+
+export type SlackEvidenceRequirement = "message" | "native" | "approval" | "all";
+
+export interface SlackEvidenceReport {
+  workspaceId: string;
+  provider: typeof SLACK_PROVIDER_ID;
+  generatedAt: string;
+  required: SlackEvidenceRequirement;
+  strict: boolean;
+  integrationCount: number;
+  strictSatisfied: boolean;
+  summary: {
+    messageSatisfiedCount: number;
+    nativeSatisfiedCount: number;
+    approvalSatisfiedCount: number;
+    unresolvedFailureCount: number;
+  };
+  integrations: SlackEvidenceIntegrationItem[];
+  nextCommands: string[];
+}
+
+export interface SlackEvidenceIntegrationItem {
+  integrationId: string;
+  displayName: string;
+  status: ExternalIntegrationRecord["status"];
+  transportMode: ExternalIntegrationRecord["transportMode"];
+  agentId?: string | null;
+  healthStatus?: ExternalIntegrationRecord["lastHealthStatus"];
+  appRef?: string;
+  teamRef?: string;
+  bindings: {
+    activeChannels: number;
+    activeUsers: number;
+  };
+  message: {
+    satisfied: boolean;
+    processedInboundEvents: number;
+    inboundMappings: number;
+    outboundMappings: number;
+    sentOutbox: number;
+  };
+  nativeExperience: {
+    satisfied: boolean;
+    agentContextEvidence: number;
+    appHomeWelcomeEvidence: number;
+    suggestedPromptsEvidence: number;
+  };
+  approvals: {
+    satisfied: boolean;
+    processedBlockActions: number;
+    failedBlockActions: number;
+    approvalStatusOutbox: number;
+  };
+  failures: {
+    failedEvents: number;
+    failedOutbox: number;
+    pendingOutbox: number;
+  };
+  blockers: string[];
+  warnings: string[];
+  requiredSatisfied: boolean;
+  nextCommands: string[];
+}
+
+interface SlackEvidenceDependencies {
+  listIntegrations?: typeof listExternalIntegrationsSync;
+  listChannelBindings?: typeof listExternalChannelBindingsSync;
+  listUserBindings?: typeof listExternalUserBindingsSync;
+  listEvents?: typeof listExternalIntegrationEventsSync;
+  listMessageMappings?: typeof listExternalMessageMappingsSync;
+  listOutbox?: typeof listExternalMessageOutboxSync;
+}
+
+export function buildSlackEvidenceReport(input: {
+  workspaceId: string;
+  integrationId?: string;
+  strict?: boolean;
+  required?: SlackEvidenceRequirement;
+  dependencies?: SlackEvidenceDependencies;
+}): SlackEvidenceReport {
+  const dependencies = input.dependencies ?? {};
+  const required = input.required ?? "message";
+  const integrations = (dependencies.listIntegrations ?? listExternalIntegrationsSync)({
+    workspaceId: input.workspaceId,
+    provider: SLACK_PROVIDER_ID,
+    includeDisabled: true,
+  }).filter((integration) =>
+    !input.integrationId || integration.id === input.integrationId
+  );
+  const items = integrations.map((integration) => buildSlackEvidenceIntegrationItem({
+    workspaceId: input.workspaceId,
+    integration,
+    required,
+    dependencies,
+  }));
+  const strictSatisfied = items.some((item) => item.requiredSatisfied);
+  return {
+    workspaceId: input.workspaceId,
+    provider: SLACK_PROVIDER_ID,
+    generatedAt: new Date().toISOString(),
+    required,
+    strict: Boolean(input.strict),
+    integrationCount: items.length,
+    strictSatisfied,
+    summary: {
+      messageSatisfiedCount: items.filter((item) => item.message.satisfied).length,
+      nativeSatisfiedCount: items.filter((item) => item.nativeExperience.satisfied).length,
+      approvalSatisfiedCount: items.filter((item) => item.approvals.satisfied).length,
+      unresolvedFailureCount: items.reduce((count, item) => count + item.failures.failedEvents + item.failures.failedOutbox, 0),
+    },
+    integrations: items,
+    nextCommands: buildSlackEvidenceNextCommands(input.workspaceId, input.integrationId, required),
+  };
+}
+
+function buildSlackEvidenceIntegrationItem(input: {
+  workspaceId: string;
+  integration: ExternalIntegrationRecord;
+  required: SlackEvidenceRequirement;
+  dependencies: SlackEvidenceDependencies;
+}): SlackEvidenceIntegrationItem {
+  const { integration } = input;
+  const channelBindings = (input.dependencies.listChannelBindings ?? listExternalChannelBindingsSync)({
+    workspaceId: input.workspaceId,
+    integrationId: integration.id,
+    status: "active",
+  });
+  const userBindings = (input.dependencies.listUserBindings ?? listExternalUserBindingsSync)({
+    workspaceId: input.workspaceId,
+    integrationId: integration.id,
+    status: "active",
+  });
+  const events = (input.dependencies.listEvents ?? listExternalIntegrationEventsSync)({
+    workspaceId: input.workspaceId,
+    provider: SLACK_PROVIDER_ID,
+    integrationId: integration.id,
+    limit: 200,
+  });
+  const mappings = (input.dependencies.listMessageMappings ?? listExternalMessageMappingsSync)({
+    workspaceId: input.workspaceId,
+    integrationId: integration.id,
+    limit: 500,
+  });
+  const outbox = (input.dependencies.listOutbox ?? listExternalMessageOutboxSync)({
+    workspaceId: input.workspaceId,
+    integrationId: integration.id,
+    limit: 500,
+  });
+
+  const message = buildMessageEvidence(events, mappings, outbox, channelBindings, userBindings, integration);
+  const nativeExperience = buildNativeEvidence(events, mappings, outbox);
+  const approvals = buildApprovalEvidence(events, outbox);
+  const failures = {
+    failedEvents: events.filter((event) => event.status === "failed").length,
+    failedOutbox: outbox.filter((item) => item.status === "failed").length,
+    pendingOutbox: outbox.filter((item) => item.status === "pending").length,
+  };
+  const blockers = [
+    ...(message.satisfied ? [] : buildSlackMessageEvidenceBlockers(message, integration, channelBindings, userBindings, failures)),
+    ...(input.required === "native" || input.required === "all"
+      ? nativeExperience.satisfied ? [] : buildSlackNativeEvidenceBlockers(nativeExperience)
+      : []),
+    ...(input.required === "approval" || input.required === "all"
+      ? approvals.satisfied ? [] : ["slack_approval_block_action_evidence_missing"]
+      : []),
+  ];
+  const warnings = [
+    ...(failures.pendingOutbox > 0 ? ["pending_outbox_messages"] : []),
+    ...(failures.failedEvents > 0 ? ["failed_events_visible"] : []),
+    ...(failures.failedOutbox > 0 ? ["failed_outbox_visible"] : []),
+  ];
+  const requiredSatisfied = isSlackEvidenceRequirementSatisfied(input.required, {
+    message: message.satisfied,
+    native: nativeExperience.satisfied,
+    approval: approvals.satisfied,
+  });
+  return {
+    integrationId: integration.id,
+    displayName: integration.displayName,
+    status: integration.status,
+    transportMode: integration.transportMode,
+    agentId: integration.agentId,
+    healthStatus: integration.lastHealthStatus,
+    appRef: integration.appId ? buildSlackReference(integration.appId) : undefined,
+    teamRef: integration.tenantKey ? buildSlackReference(integration.tenantKey) : undefined,
+    bindings: {
+      activeChannels: channelBindings.length,
+      activeUsers: userBindings.length,
+    },
+    message,
+    nativeExperience,
+    approvals,
+    failures,
+    blockers: Array.from(new Set(blockers)),
+    warnings: Array.from(new Set(warnings)),
+    requiredSatisfied,
+    nextCommands: buildSlackEvidenceIntegrationNextCommands(input.workspaceId, integration.id),
+  };
+}
+
+function buildMessageEvidence(
+  events: ExternalIntegrationEventRecord[],
+  mappings: ExternalMessageMappingRecord[],
+  outbox: ExternalMessageOutboxRecord[],
+  channelBindings: ExternalChannelBindingRecord[],
+  userBindings: ExternalUserBindingRecord[],
+  integration: ExternalIntegrationRecord,
+): SlackEvidenceIntegrationItem["message"] {
+  const processedInboundEvents = events.filter((event) =>
+    event.status === "processed" &&
+    (event.eventType === "event_callback.app_mention" || event.eventType === "event_callback.message")
+  ).length;
+  const inboundMappings = mappings.filter((mapping) => mapping.direction === "inbound").length;
+  const outboundMappings = mappings.filter((mapping) => mapping.direction === "outbound" && !isSlackAppHomeWelcomeMapping(mapping)).length;
+  const sentOutbox = outbox.filter((item) => item.status === "sent").length;
+  const failedOutbox = outbox.filter((item) => item.status === "failed").length;
+  const satisfied = integration.status === "active" &&
+    channelBindings.length > 0 &&
+    userBindings.length > 0 &&
+    processedInboundEvents > 0 &&
+    inboundMappings > 0 &&
+    (outboundMappings > 0 || sentOutbox > 0) &&
+    failedOutbox === 0;
+  return {
+    satisfied,
+    processedInboundEvents,
+    inboundMappings,
+    outboundMappings,
+    sentOutbox,
+  };
+}
+
+function buildNativeEvidence(
+  events: ExternalIntegrationEventRecord[],
+  mappings: ExternalMessageMappingRecord[],
+  outbox: ExternalMessageOutboxRecord[],
+): SlackEvidenceIntegrationItem["nativeExperience"] {
+  const agentContextEvidence = events.filter((event) => hasSlackAgentContextEvidence(event.payloadJson)).length +
+    mappings.filter((mapping) => hasSlackAgentContextEvidence(mapping.metadataJson)).length;
+  const appHomeWelcomeEvidence = mappings.filter(isSlackAppHomeWelcomeMapping).length +
+    outbox.filter((item) => readJsonStringField(item.metadataJson, "outboxSource") === "app_home_opened_welcome").length;
+  const suggestedPromptsEvidence = outbox.filter((item) =>
+    readJsonStringField(item.metadataJson, "assistantMethod") === "assistant.threads.setSuggestedPrompts"
+  ).length;
+  return {
+    satisfied: agentContextEvidence > 0 && appHomeWelcomeEvidence > 0 && suggestedPromptsEvidence > 0,
+    agentContextEvidence,
+    appHomeWelcomeEvidence,
+    suggestedPromptsEvidence,
+  };
+}
+
+function buildApprovalEvidence(
+  events: ExternalIntegrationEventRecord[],
+  outbox: ExternalMessageOutboxRecord[],
+): SlackEvidenceIntegrationItem["approvals"] {
+  const blockActionEvents = events.filter((event) => event.eventType === "block_actions");
+  return {
+    satisfied: blockActionEvents.some((event) => event.status === "processed"),
+    processedBlockActions: blockActionEvents.filter((event) => event.status === "processed").length,
+    failedBlockActions: blockActionEvents.filter((event) => event.status === "failed").length,
+    approvalStatusOutbox: outbox.filter((item) =>
+      readJsonStringField(item.metadataJson, "outboxSource") === "agent_status_card"
+    ).length,
+  };
+}
+
+function buildSlackMessageEvidenceBlockers(
+  message: SlackEvidenceIntegrationItem["message"],
+  integration: ExternalIntegrationRecord,
+  channelBindings: ExternalChannelBindingRecord[],
+  userBindings: ExternalUserBindingRecord[],
+  failures: SlackEvidenceIntegrationItem["failures"],
+): string[] {
+  const blockers: string[] = [];
+  if (integration.status !== "active") {
+    blockers.push("integration_not_active");
+  }
+  if (channelBindings.length === 0) {
+    blockers.push("channel_binding_missing");
+  }
+  if (userBindings.length === 0) {
+    blockers.push("user_binding_missing");
+  }
+  if (message.processedInboundEvents === 0) {
+    blockers.push("processed_inbound_event_evidence_missing");
+  }
+  if (message.inboundMappings === 0) {
+    blockers.push("inbound_mapping_evidence_missing");
+  }
+  if (message.outboundMappings === 0 && message.sentOutbox === 0) {
+    blockers.push("outbound_reply_evidence_missing");
+  }
+  if (failures.failedOutbox > 0) {
+    blockers.push("failed_outbox_unresolved");
+  }
+  return blockers;
+}
+
+function buildSlackNativeEvidenceBlockers(native: SlackEvidenceIntegrationItem["nativeExperience"]): string[] {
+  const blockers: string[] = [];
+  if (native.agentContextEvidence === 0) {
+    blockers.push("agent_context_evidence_missing");
+  }
+  if (native.appHomeWelcomeEvidence === 0) {
+    blockers.push("app_home_welcome_evidence_missing");
+  }
+  if (native.suggestedPromptsEvidence === 0) {
+    blockers.push("suggested_prompts_evidence_missing");
+  }
+  return blockers;
+}
+
+function isSlackEvidenceRequirementSatisfied(
+  required: SlackEvidenceRequirement,
+  evidence: {
+    message: boolean;
+    native: boolean;
+    approval: boolean;
+  },
+): boolean {
+  if (required === "message") {
+    return evidence.message;
+  }
+  if (required === "native") {
+    return evidence.message && evidence.native;
+  }
+  if (required === "approval") {
+    return evidence.message && evidence.approval;
+  }
+  return evidence.message && evidence.native && evidence.approval;
+}
+
+function isSlackAppHomeWelcomeMapping(mapping: ExternalMessageMappingRecord): boolean {
+  return readJsonStringField(mapping.metadataJson, "mappingSource") === "app_home_opened_welcome";
+}
+
+function hasSlackAgentContextEvidence(metadataJson: string): boolean {
+  const metadata = parseJsonRecord(metadataJson);
+  const agentContext = parseJsonRecord(metadata?.agentContext) ?? parseJsonRecord(metadata?.slackAgentContext);
+  return Boolean(agentContext) || metadata?.hasAgentContext === true;
+}
+
+function readJsonStringField(metadataJson: string, field: string): string | undefined {
+  const metadata = parseJsonRecord(metadataJson);
+  const value = metadata?.[field];
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function parseJsonRecord(value: unknown): Record<string, unknown> | undefined {
+  if (!value) {
+    return undefined;
+  }
+  if (typeof value === "object" && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function buildSlackEvidenceNextCommands(
+  workspaceId: string,
+  integrationId: string | undefined,
+  required: SlackEvidenceRequirement,
+): string[] {
+  const integrationFlag = integrationId ? ` --integration ${integrationId}` : "";
+  return [
+    `agent-space integrations slack readiness --workspace-id ${workspaceId}${integrationFlag} --strict --json`,
+    `agent-space integrations slack smoke-plan --workspace-id ${workspaceId}${integrationFlag} --strict --require message --json`,
+    `agent-space integrations slack evidence --workspace-id ${workspaceId}${integrationFlag} --strict --require ${required} --json`,
+  ];
+}
+
+function buildSlackEvidenceIntegrationNextCommands(workspaceId: string, integrationId: string): string[] {
+  const flags = `--workspace-id ${workspaceId} --integration ${integrationId}`;
+  return [
+    `agent-space integrations slack health-check ${flags} --json`,
+    `agent-space integrations slack readiness ${flags} --strict --json`,
+    `agent-space integrations slack outbox drain ${flags} --json`,
+  ];
+}

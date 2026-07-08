@@ -143,6 +143,12 @@ export {
   type SlackSocketModeHealthResult,
 } from "./health.ts";
 export {
+  buildSlackEvidenceReport,
+  type SlackEvidenceIntegrationItem,
+  type SlackEvidenceReport,
+  type SlackEvidenceRequirement,
+} from "./evidence.ts";
+export {
   openSlackSocketModeConnection,
   processSlackSocketModeEnvelope,
   startSlackSocketModeWorker,

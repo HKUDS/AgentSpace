@@ -8,6 +8,7 @@ import {
 } from "@agent-space/db";
 import {
   buildEncryptedSlackCredentials,
+  buildSlackEvidenceReport,
   buildSlackHealthSnapshotConfigJson,
   buildSlackReadinessReport,
   buildSlackSmokeEnvTemplateReport,
@@ -25,6 +26,7 @@ import {
   startSlackSocketModeWorker,
   summarizeSlackStoredCredentials,
   type SlackAgentBotBinding,
+  type SlackEvidenceRequirement,
   type SlackReadinessRequirement,
   type SlackSocketModeWorkerMetrics,
 } from "@agent-space/services";
@@ -82,6 +84,16 @@ export async function runSlackIntegrationCommand(args: string[], format: OutputF
       integrationId: getStringFlag(parsed.flags, "integration") ?? getStringFlag(parsed.flags, "integration-id"),
       strict: parsed.flags.strict === true,
       required: readSlackReadinessRequirement(parsed.flags),
+    });
+    writeData(format, result);
+    return result.strict && !result.strictSatisfied ? 1 : 0;
+  }
+  if (subcommand === "evidence") {
+    const result = buildSlackEvidenceReport({
+      workspaceId: getStringFlag(parsed.flags, "workspace-id") ?? "default",
+      integrationId: getStringFlag(parsed.flags, "integration") ?? getStringFlag(parsed.flags, "integration-id"),
+      strict: parsed.flags.strict === true,
+      required: readSlackEvidenceRequirement(parsed.flags),
     });
     writeData(format, result);
     return result.strict && !result.strictSatisfied ? 1 : 0;
@@ -596,6 +608,14 @@ function readSlackReadinessRequirement(flags: Record<string, string | boolean>):
   throw new Error("slack.readiness.invalid_requirement");
 }
 
+function readSlackEvidenceRequirement(flags: Record<string, string | boolean>): SlackEvidenceRequirement {
+  const value = getStringFlag(flags, "require") ?? "message";
+  if (value === "message" || value === "native" || value === "approval" || value === "all") {
+    return value;
+  }
+  throw new Error("slack.evidence.invalid_requirement");
+}
+
 async function waitForShutdownSignal(): Promise<void> {
   await new Promise<void>((resolve) => {
     const cleanup = () => {
@@ -621,6 +641,7 @@ function printSlackHelp(): void {
   agent-space integrations slack worker [--workspace-id <id>] [--integration <id>] [--limit <n>] [--base-url <url>] [--feishu-base-url <url>] [--locked-by <id>] [--dry-run] [--include-webhook] [--drain-outbox|--once] [--json]
   agent-space integrations slack health-check --workspace-id <id> --integration <id> [--base-url <url>] [--json]
   agent-space integrations slack readiness [--workspace-id <id>] [--integration <id>] [--strict] [--require message|worker|all] [--json]
+  agent-space integrations slack evidence [--workspace-id <id>] [--integration <id>] [--strict] [--require message|native|approval|all] [--json]
   agent-space integrations slack smoke-plan [--workspace-id <id>] [--integration <id>] [--app-url <url>] [--strict] [--require message|worker|all] [--json]
   agent-space integrations slack smoke-env [--workspace-id <id>] [--integration <id>] [--app-url <url>] [--json]
   agent-space integrations slack outbox drain [--workspace-id <id>] [--integration <id>] [--limit <n>] [--base-url <url>] [--locked-by <id>] [--json]
@@ -636,7 +657,8 @@ Options:
   --app-url <url>              Public AgentSpace URL used to build Slack callback smoke env
   --feishu-base-url <url>      Feishu OpenAPI base URL for Slack approval execution; defaults to AGENT_SPACE_FEISHU_API_BASE_URL
   --require message|worker|all Readiness/smoke gate to enforce; defaults to message
-  --strict                     Exit non-zero unless the requested readiness gate is satisfied
+  --require message|native|approval|all Evidence gate to enforce for the evidence command
+  --strict                     Exit non-zero unless the requested gate is satisfied
   --dry-run                    Validate Socket Mode worker config without opening live connections
   --include-webhook            Include HTTP webhook integrations in worker diagnostics
   --json                       Print machine-readable output`);

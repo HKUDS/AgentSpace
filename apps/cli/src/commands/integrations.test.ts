@@ -161,12 +161,14 @@ test("integrations help documents Slack message transport commands", async () =>
   assert.match(output, /integrations slack worker/);
   assert.match(output, /integrations slack health-check/);
   assert.match(output, /integrations slack readiness/);
+  assert.match(output, /integrations slack evidence/);
   assert.match(output, /integrations slack smoke-plan/);
   assert.match(output, /integrations slack smoke-env/);
   assert.match(output, /integrations slack outbox drain/);
   assert.match(output, /--bot-token-env SLACK_BOT_TOKEN/);
   assert.match(output, /--signing-secret-env SLACK_SIGNING_SECRET/);
   assert.match(output, /--require message\|worker\|all/);
+  assert.match(output, /--require message\|native\|approval\|all/);
 });
 
 test("slack --help prints usage without touching external services", async () => {
@@ -184,6 +186,7 @@ test("slack --help prints usage without touching external services", async () =>
   assert.match(output, /agent-space integrations slack worker/);
   assert.match(output, /agent-space integrations slack health-check/);
   assert.match(output, /agent-space integrations slack readiness/);
+  assert.match(output, /agent-space integrations slack evidence/);
   assert.match(output, /agent-space integrations slack smoke-plan/);
   assert.match(output, /agent-space integrations slack smoke-env/);
   assert.match(output, /agent-space integrations slack outbox drain/);
