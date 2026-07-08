@@ -83,7 +83,10 @@ export interface SlackInboundProcessDependencies {
   readUser?: typeof readUserSync;
   readWorkspaceMembership?: typeof readWorkspaceMembershipSync;
   canWriteChannelForActor?: typeof canWriteChannelForActorSync;
+  evaluateAgentRouteGuard?: typeof evaluateSlackAgentRouteGuardSync;
   sendChannelHumanMessage?: typeof sendChannelHumanMessageSync;
+  resolveDispatchedTask?: typeof resolveSlackDispatchedTaskSync;
+  recordThreadBinding?: typeof recordSlackThreadBindingSync;
   createMessageMapping?: typeof createExternalMessageMappingSync;
   createNoticeOutbox?: typeof createExternalMessageOutboxSync;
 }
@@ -112,7 +115,10 @@ interface ResolvedSlackInboundProcessDependencies {
   readUser: typeof readUserSync;
   readWorkspaceMembership: typeof readWorkspaceMembershipSync;
   canWriteChannelForActor: typeof canWriteChannelForActorSync;
+  evaluateAgentRouteGuard: typeof evaluateSlackAgentRouteGuardSync;
   sendChannelHumanMessage: typeof sendChannelHumanMessageSync;
+  resolveDispatchedTask: typeof resolveSlackDispatchedTaskSync;
+  recordThreadBinding: typeof recordSlackThreadBindingSync;
   createMessageMapping: typeof createExternalMessageMappingSync;
   createNoticeOutbox: typeof createExternalMessageOutboxSync;
 }
@@ -383,7 +389,7 @@ function prepareSlackInboundDispatchSync(input: ProcessSlackInboundEventInput): 
     };
   }
 
-  const routeGuard = evaluateSlackAgentRouteGuardSync({
+  const routeGuard = dependencies.evaluateAgentRouteGuard({
     workspaceId: input.context.workspaceId,
     channelName: channelBinding.channelName,
     integration: input.integration,
@@ -500,7 +506,7 @@ function dispatchPreparedSlackInboundEventSync(input: SlackInboundPreparedDispat
 
   const agentSpaceMessage = findDispatchedWorkspaceMessage(state, input.message);
   const dispatchedTask = agentSpaceMessage?.id && input.integration?.agentId
-    ? resolveSlackDispatchedTaskSync({
+    ? input.dependencies.resolveDispatchedTask({
       workspaceId: input.context.workspaceId,
       channelName: input.channelBinding.channelName,
       agentId: input.integration.agentId,
@@ -508,7 +514,7 @@ function dispatchPreparedSlackInboundEventSync(input: SlackInboundPreparedDispat
     })
     : null;
   const threadBinding = input.integration?.agentId && agentSpaceMessage?.id
-    ? recordSlackThreadBindingSync({
+    ? input.dependencies.recordThreadBinding({
       workspaceId: input.context.workspaceId,
       integration: input.integration,
       channelBinding: input.channelBinding,
@@ -799,7 +805,10 @@ function resolveSlackInboundProcessDependencies(
     readUser: dependencies?.readUser ?? readUserSync,
     readWorkspaceMembership: dependencies?.readWorkspaceMembership ?? readWorkspaceMembershipSync,
     canWriteChannelForActor: dependencies?.canWriteChannelForActor ?? canWriteChannelForActorSync,
+    evaluateAgentRouteGuard: dependencies?.evaluateAgentRouteGuard ?? evaluateSlackAgentRouteGuardSync,
     sendChannelHumanMessage: dependencies?.sendChannelHumanMessage ?? sendChannelHumanMessageSync,
+    resolveDispatchedTask: dependencies?.resolveDispatchedTask ?? resolveSlackDispatchedTaskSync,
+    recordThreadBinding: dependencies?.recordThreadBinding ?? recordSlackThreadBindingSync,
     createMessageMapping: dependencies?.createMessageMapping ?? createExternalMessageMappingSync,
     createNoticeOutbox: dependencies?.createNoticeOutbox ?? createExternalMessageOutboxSync,
   };
