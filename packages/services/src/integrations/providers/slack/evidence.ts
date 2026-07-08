@@ -549,8 +549,8 @@ function buildMessageEvidence(
   const agentTaskQueueEvidence = mappings.filter((mapping) =>
     mapping.direction === "inbound" && hasSlackAgentTaskQueueEvidence(mapping, integration)
   ).length;
-  const outboundMappings = mappings.filter((mapping) => mapping.direction === "outbound" && !isSlackAppHomeWelcomeMapping(mapping)).length;
-  const sentOutbox = outbox.filter((item) => item.status === "sent").length;
+  const outboundMappings = mappings.filter(isSlackMessageReplyMapping).length;
+  const sentOutbox = outbox.filter(isSlackMessageReplyOutbox).length;
   const liveAppMentionInboundMappings = liveAppMentionCorrelationRequired
     ? mappings.filter((mapping) =>
       mapping.direction === "inbound" &&
@@ -561,7 +561,7 @@ function buildMessageEvidence(
   const liveAppMentionOutboundMappings = liveAppMentionCorrelationRequired
     ? mappings.filter((mapping) =>
       mapping.direction === "outbound" &&
-      !isSlackAppHomeWelcomeMapping(mapping) &&
+      isSlackMessageReplyMapping(mapping) &&
       mapping.externalThreadId &&
       liveAppMentionMessageRefSet.has(buildSlackReference(mapping.externalThreadId))
     ).length
@@ -569,6 +569,7 @@ function buildMessageEvidence(
   const liveAppMentionOutboxReplies = liveAppMentionCorrelationRequired
     ? outbox.filter((item) =>
       item.status === "sent" &&
+      isSlackMessageReplyOutbox(item) &&
       item.targetExternalThreadId &&
       liveAppMentionMessageRefSet.has(buildSlackReference(item.targetExternalThreadId))
     ).length
@@ -788,6 +789,23 @@ function isSlackEvidenceRequirementSatisfied(
 
 function isSlackAppHomeWelcomeMapping(mapping: ExternalMessageMappingRecord): boolean {
   return readJsonStringField(mapping.metadataJson, "mappingSource") === "app_home_opened_welcome";
+}
+
+function isSlackMessageReplyMapping(mapping: ExternalMessageMappingRecord): boolean {
+  if (mapping.direction !== "outbound") {
+    return false;
+  }
+  const outboxSource = readJsonStringField(mapping.metadataJson, "outboxSource");
+  return isSlackMessageReplyOutboxSource(outboxSource);
+}
+
+function isSlackMessageReplyOutbox(item: ExternalMessageOutboxRecord): boolean {
+  return item.status === "sent" &&
+    isSlackMessageReplyOutboxSource(readJsonStringField(item.metadataJson, "outboxSource"));
+}
+
+function isSlackMessageReplyOutboxSource(outboxSource: string | undefined): boolean {
+  return outboxSource === "agent_reply" || outboxSource === "direct_outbound_message";
 }
 
 function hasSlackAgentTaskQueueEvidence(

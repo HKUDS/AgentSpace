@@ -917,6 +917,7 @@ export async function processSlackOutboxMessage(input: {
     fetchImpl: input.fetchImpl,
   });
   if (response.ok && response.ts) {
+    const outboxMetadata = readSlackOutboxMetadata(locked.metadataJson);
     dependencies.completeOutbox({
       workspaceId: input.workspaceId,
       outboxId: locked.id,
@@ -931,6 +932,9 @@ export async function processSlackOutboxMessage(input: {
       agentSpaceMessageId: locked.agentSpaceMessageId,
       metadataJson: {
         provider: SLACK_PROVIDER_ID,
+        ...(outboxMetadata.outboxSource ? { outboxSource: outboxMetadata.outboxSource } : {}),
+        ...(outboxMetadata.agentId ? { agentId: outboxMetadata.agentId } : {}),
+        ...(outboxMetadata.botBindingId ? { botBindingId: outboxMetadata.botBindingId } : {}),
         externalChatReference: formatSlackOutboundReference(response.channel ?? payload.channel),
         externalThreadReference: formatSlackOutboundReference(payload.thread_ts),
         externalChatIdRedacted: true,
@@ -1973,6 +1977,30 @@ function formatSlackOutboundReference(value: string | undefined): string | undef
 
 function readString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function readSlackOutboxMetadata(metadataJson: string): {
+  outboxSource?: string;
+  agentId?: string;
+  botBindingId?: string;
+} {
+  const metadata = parseJsonRecord(metadataJson);
+  return {
+    outboxSource: readString(metadata?.outboxSource),
+    agentId: readString(metadata?.agentId),
+    botBindingId: readString(metadata?.botBindingId),
+  };
+}
+
+function parseJsonRecord(value: string): Record<string, unknown> | undefined {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function isSlackOutboundErrorRetryable(response: SlackApiMethodResult): boolean {

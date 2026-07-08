@@ -599,6 +599,12 @@ test("completes Slack outbox messages and records safe outbound mappings", async
       text: "Agent reply",
       thread_ts: "1783400000.000100",
     }),
+    metadataJson: JSON.stringify({
+      provider: "slack",
+      outboxSource: "agent_reply",
+      externalChatReference: "ref_safechat",
+      externalThreadReference: "ref_safethread",
+    }),
   });
   const locked = buildExternalMessageOutbox({
     ...outbox,
@@ -669,6 +675,8 @@ test("completes Slack outbox messages and records safe outbound mappings", async
         assert.equal(input.externalMessageId, "1783400002.000100");
         assert.equal(input.externalThreadId, "1783400000.000100");
         assert.equal(input.agentSpaceMessageId, "message-1");
+        const metadata = input.metadataJson as Record<string, unknown>;
+        assert.equal(metadata.outboxSource, "agent_reply");
         assert.doesNotMatch(JSON.stringify(input.metadataJson), /xoxb-secret-token|CSECRET123/);
         return buildExternalMessageMapping({
           externalMessageId: input.externalMessageId,

@@ -90,6 +90,7 @@ test("builds strict Slack evidence reports without raw external ids", () => {
           externalThreadId: "1783400000.000100",
           metadataJson: {
             provider: "slack",
+            outboxSource: "agent_reply",
             externalChatReference: "ref_safechat",
           },
         }),
@@ -220,6 +221,70 @@ test("Slack evidence reports actionable blockers when message smoke evidence is 
   ));
 });
 
+test("Slack evidence message gate ignores non-reply outbox evidence", () => {
+  const report = buildSlackEvidenceReport({
+    workspaceId: "workspace-1",
+    strict: true,
+    required: "message",
+    dependencies: {
+      listIntegrations: () => [makeIntegration()],
+      listChannelBindings: () => [makeChannelBinding()],
+      listUserBindings: () => [makeUserBinding()],
+      listEvents: () => [
+        makeEvent({
+          eventType: "event_callback.app_mention",
+          status: "processed",
+        }),
+      ],
+      listMessageMappings: () => [
+        makeMapping({
+          direction: "inbound",
+          metadataJson: {
+            provider: "slack",
+            agentId: "Atlas",
+            taskAgentId: "Atlas",
+            taskQueueId: "task-safe-1",
+          },
+        }),
+        makeMapping({
+          direction: "outbound",
+          externalMessageId: "1783400009.000100",
+          metadataJson: {
+            provider: "slack",
+            outboxSource: "agent_status_card",
+            externalChatReference: "ref_safechat",
+          },
+        }),
+      ],
+      listOutbox: () => [
+        makeOutbox({
+          status: "sent",
+          metadataJson: {
+            provider: "slack",
+            outboxSource: "agent_status_card",
+            externalChatReference: "ref_safechat",
+          },
+        }),
+        makeOutbox({
+          status: "sent",
+          metadataJson: {
+            provider: "slack",
+            outboxSource: "assistant_suggested_prompts",
+            externalChatReference: "ref_safechat",
+          },
+        }),
+      ],
+    },
+  });
+
+  assert.equal(report.strictSatisfied, false);
+  assert.equal(report.integrations[0]?.message.inboundMappings, 1);
+  assert.equal(report.integrations[0]?.message.agentTaskQueueEvidence, 1);
+  assert.equal(report.integrations[0]?.message.outboundMappings, 0);
+  assert.equal(report.integrations[0]?.message.sentOutbox, 0);
+  assert.ok(report.integrations[0]?.blockers.includes("outbound_reply_evidence_missing"));
+});
+
 test("Slack evidence exposes top-level blockers for final evidence automation", () => {
   const report = buildSlackEvidenceReport({
     workspaceId: "workspace-1",
@@ -298,6 +363,7 @@ test("Slack evidence omits top-level blockers when any workspace integration sat
             direction: "outbound",
             metadataJson: {
               provider: "slack",
+              outboxSource: "agent_reply",
               externalChatReference: "ref_safechat",
             },
           }),
@@ -1259,6 +1325,7 @@ test("Slack evidence strict all requires live artifact for the same satisfied in
             direction: "outbound",
             metadataJson: {
               provider: "slack",
+              outboxSource: "agent_reply",
               externalChatReference: "ref_safechat",
             },
           }),
@@ -1426,6 +1493,7 @@ function makeCompleteSlackEvidenceDependencies(input: {
         externalThreadId: SLACK_SMOKE_APP_MENTION_MESSAGE_ID,
         metadataJson: {
           provider: "slack",
+          outboxSource: "agent_reply",
           externalChatReference: "ref_safechat",
         },
       }),
