@@ -211,8 +211,13 @@ test("builds Slack smoke plan and env template without raw external ids", () => 
   assert.equal(plan.appSetup.manifest.settings.event_subscriptions.request_url, "https://agentspace.test/api/integrations/slack/events");
   assert.equal(plan.appSetup.manifest.settings.interactivity.request_url, "https://agentspace.test/api/integrations/slack/interactions");
   assert.equal(plan.appSetup.manifest.settings.socket_mode_enabled, true);
+  assert.match(plan.commands.webhookReplay, /--replay-webhook/);
   assert.equal(env.ready, true);
   assert.match(env.template, /SLACK_SMOKE_CHANNEL_ID=CHANGE_ME_SLACK_CHANNEL_ID/);
+  assert.match(env.template, /SLACK_SMOKE_APP_ID=CHANGE_ME_SLACK_APP_ID/);
+  assert.match(env.template, /SLACK_SMOKE_TEAM_ID=CHANGE_ME_SLACK_TEAM_ID/);
+  assert.match(env.template, /AGENT_SPACE_SMOKE_CALLBACK_BASE_URL=/);
+  assert.match(env.nextCommands.join("\n"), /--replay-webhook/);
   assert.doesNotMatch(JSON.stringify({ plan, env }), /A111|T111|xoxb|xapp/);
 });
 

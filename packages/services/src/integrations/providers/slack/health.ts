@@ -458,6 +458,7 @@ export function buildSlackSmokePlanReport(input: {
     bindChannel: `agent-space integrations slack bind-channel --workspace-id ${input.workspaceId}${integrationFlag || " --integration CHANGE_ME_SLACK_INTEGRATION_ID"} --channel CHANGE_ME_AGENTSPACE_CHANNEL --slack-channel CHANGE_ME_SLACK_CHANNEL_ID --json`,
     bindUser: `agent-space integrations slack bind-user --workspace-id ${input.workspaceId}${integrationFlag || " --integration CHANGE_ME_SLACK_INTEGRATION_ID"} --user-id CHANGE_ME_AGENTSPACE_USER_ID --slack-user CHANGE_ME_SLACK_USER_ID --json`,
     drySmoke: "npm run smoke:slack -- --env-file scripts/slack/.env --check-env --json",
+    webhookReplay: "npm run smoke:slack -- --env-file scripts/slack/.env --replay-webhook --json",
   };
   return {
     workspaceId: input.workspaceId,
@@ -549,13 +550,18 @@ export function buildSlackSmokeEnvTemplateReport(input: {
     `SLACK_SMOKE_CALLBACK_URL=${callbackUrl ?? "https://agentspace.example.com/api/integrations/slack/events"}`,
     "SLACK_SMOKE_CHANNEL_ID=CHANGE_ME_SLACK_CHANNEL_ID",
     "SLACK_SMOKE_USER_ID=CHANGE_ME_SLACK_USER_ID",
+    "SLACK_SMOKE_APP_ID=CHANGE_ME_SLACK_APP_ID",
+    "SLACK_SMOKE_TEAM_ID=CHANGE_ME_SLACK_TEAM_ID",
+    "SLACK_SMOKE_BOT_USER_ID=",
     "SLACK_SMOKE_MESSAGE_TEXT=AgentSpace Slack smoke",
     "SLACK_SMOKE_THREAD_TS=",
+    "AGENT_SPACE_SMOKE_CALLBACK_BASE_URL=",
   ];
   const nextCommands = [
     `agent-space integrations slack health-check --workspace-id ${input.workspaceId} --integration ${integrationId} --json`,
     `agent-space integrations slack readiness --workspace-id ${input.workspaceId} --integration ${integrationId} --strict --json`,
     "npm run smoke:slack -- --env-file scripts/slack/.env --check-env --json",
+    "npm run smoke:slack -- --env-file scripts/slack/.env --replay-webhook --json",
   ];
   return {
     workspaceId: input.workspaceId,

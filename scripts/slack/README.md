@@ -26,6 +26,14 @@ npm run cli -- integrations slack evidence --workspace-id default --integration 
 
 `evidence` reads local AgentSpace integration events, message mappings, bindings, and outbox state. Use `--require message` for the core message transport gate, `--require native` for app-home/agent-context/suggested-prompt evidence, `--require approval` for Block Kit approval evidence, `--require files` for the Slack files data-plane gate, or `--require all` before final sign-off.
 
+Replay signed Slack webhook calls against the configured AgentSpace callback:
+
+```bash
+npm run smoke:slack -- --env-file scripts/slack/.env --replay-webhook --json
+```
+
+The replay sends a signed `url_verification` challenge and a signed `app_mention` event using `SLACK_SIGNING_SECRET`, `SLACK_SMOKE_APP_ID`, and `SLACK_SMOKE_TEAM_ID`. It appends `workspaceId` and `integrationId` query params when they are missing from `SLACK_SMOKE_CALLBACK_URL`, and its output redacts signing secrets and raw Slack ids.
+
 Bind a Slack app to one AgentSpace agent when testing agent-scoped routing:
 
 ```bash
