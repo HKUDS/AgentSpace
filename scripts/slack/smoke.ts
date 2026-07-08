@@ -43,9 +43,13 @@ interface SlackSmokeLiveResult {
   ok: boolean;
   mode: SlackSmokeLiveMode;
   channelReference?: string;
+  channelRef?: string;
   messageReference?: string;
+  messageRef?: string;
   botUserReference?: string;
+  botUserRef?: string;
   fileReference?: string;
+  fileRef?: string;
   appMentionText?: boolean;
   fileUpload?: boolean;
   uploadCompleted?: boolean;
@@ -604,8 +608,11 @@ async function sendSlackSmokeMessage(input: {
       ok,
       mode: input.mode,
       channelReference: buildSafeReference("channel", typeof data.channel === "string" ? data.channel : input.channelId),
+      channelRef: buildSlackSmokeExternalReference(typeof data.channel === "string" ? data.channel : input.channelId),
       messageReference: typeof data.ts === "string" ? buildSafeReference("message", data.ts) : undefined,
+      messageRef: typeof data.ts === "string" ? buildSlackSmokeExternalReference(data.ts) : undefined,
       botUserReference: input.mode === "app_mention" ? buildSafeReference("user", input.botUserId) : undefined,
+      botUserRef: input.mode === "app_mention" && input.botUserId ? buildSlackSmokeExternalReference(input.botUserId) : undefined,
       appMentionText: input.mode === "app_mention" ? true : undefined,
       retryAfterSeconds: Number.isFinite(retryAfter) ? retryAfter : undefined,
       errorCode: ok ? undefined : normalizeSlackSmokeErrorCode(data.error, response.status),
@@ -625,7 +632,9 @@ async function sendSlackSmokeMessage(input: {
       ok: false,
       mode: input.mode,
       channelReference: buildSafeReference("channel", input.channelId),
+      channelRef: buildSlackSmokeExternalReference(input.channelId),
       botUserReference: input.mode === "app_mention" ? buildSafeReference("user", input.botUserId) : undefined,
+      botUserRef: input.mode === "app_mention" && input.botUserId ? buildSlackSmokeExternalReference(input.botUserId) : undefined,
       appMentionText: input.mode === "app_mention" ? true : undefined,
       errorCode: "slack.smoke.network_failed",
       errorMessage: sanitizeSlackSmokeMessage(error instanceof Error ? error.message : String(error), [
@@ -672,6 +681,7 @@ async function sendSlackSmokeFileUpload(input: {
         ok: false,
         mode: "file_upload",
         channelReference: buildSafeReference("channel", input.channelId),
+        channelRef: buildSlackSmokeExternalReference(input.channelId),
         fileUpload: true,
         uploadCompleted: false,
         retryAfterSeconds: ticket.retryAfterSeconds,
@@ -692,7 +702,9 @@ async function sendSlackSmokeFileUpload(input: {
         ok: false,
         mode: "file_upload",
         channelReference: buildSafeReference("channel", input.channelId),
+        channelRef: buildSlackSmokeExternalReference(input.channelId),
         fileReference: buildSafeReference("file", ticket.fileId),
+        fileRef: buildSlackSmokeExternalReference(ticket.fileId),
         fileUpload: true,
         uploadCompleted: false,
         retryAfterSeconds: upload.retryAfterSeconds,
@@ -716,7 +728,9 @@ async function sendSlackSmokeFileUpload(input: {
       ok: completed.ok,
       mode: "file_upload",
       channelReference: buildSafeReference("channel", input.channelId),
+      channelRef: buildSlackSmokeExternalReference(input.channelId),
       fileReference: buildSafeReference("file", ticket.fileId),
+      fileRef: buildSlackSmokeExternalReference(ticket.fileId),
       fileUpload: true,
       uploadCompleted: completed.ok,
       retryAfterSeconds: completed.retryAfterSeconds,
@@ -729,6 +743,7 @@ async function sendSlackSmokeFileUpload(input: {
       ok: false,
       mode: "file_upload",
       channelReference: buildSafeReference("channel", input.channelId),
+      channelRef: buildSlackSmokeExternalReference(input.channelId),
       fileUpload: true,
       uploadCompleted: false,
       errorCode: "slack.smoke.network_failed",
@@ -1229,6 +1244,10 @@ function slackSmokeEvidenceRunSatisfiesMode(
     return Boolean(readString(liveResult.messageReference));
   }
   if (requiredMode === "app_mention") {
+    if (!readString(liveResult.messageRef)) {
+      issues.push("live_mode_app_mention_message_ref_missing");
+      return false;
+    }
     if (!readString(liveResult.messageReference)) {
       issues.push("live_mode_app_mention_message_reference_missing");
       return false;

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
-import { createHmac } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
@@ -353,14 +353,18 @@ test("Slack smoke live sends a disposable channel message with redacted output",
       liveResult?: {
         ok: boolean;
         channelReference?: string;
+        channelRef?: string;
         messageReference?: string;
+        messageRef?: string;
       };
     };
     assert.equal(output.ready, true);
     assert.equal(output.live, true);
     assert.equal(output.liveResult?.ok, true);
     assert.equal(output.liveResult?.channelReference, "channel C1...VE");
+    assert.equal(output.liveResult?.channelRef, slackRef("C123LIVE"));
     assert.equal(output.liveResult?.messageReference, "message 1783...0100");
+    assert.equal(output.liveResult?.messageRef, slackRef("1783400000.000100"));
     assert.doesNotMatch(result.stdout, /xoxb-live-secret|C123LIVE|U123LIVE|ALIVE123|TLIVE123/);
   } finally {
     rmSync(directory, { recursive: true, force: true });
@@ -567,8 +571,11 @@ test("Slack smoke live app_mention mode posts a bot mention from the configured 
         mode?: string;
         appMentionText?: boolean;
         channelReference?: string;
+        channelRef?: string;
         botUserReference?: string;
+        botUserRef?: string;
         messageReference?: string;
+        messageRef?: string;
       };
     };
     assert.equal(output.ready, true);
@@ -576,8 +583,11 @@ test("Slack smoke live app_mention mode posts a bot mention from the configured 
     assert.equal(output.liveResult?.mode, "app_mention");
     assert.equal(output.liveResult?.appMentionText, true);
     assert.equal(output.liveResult?.channelReference, "channel CAPP...TION");
+    assert.equal(output.liveResult?.channelRef, slackRef("CAPPMENTION"));
     assert.equal(output.liveResult?.botUserReference, "user UB...VE");
+    assert.equal(output.liveResult?.botUserRef, slackRef("UBOTLIVE"));
     assert.equal(output.liveResult?.messageReference, "message 1783...0200");
+    assert.equal(output.liveResult?.messageRef, slackRef("1783400001.000200"));
     assert.doesNotMatch(result.stdout, /xoxp-user-secret|xoxb-bot-secret|CAPPMENTION|UPOSTER|UBOTLIVE|AAPPMENTION|TAPPMENTION/);
   } finally {
     rmSync(directory, { recursive: true, force: true });
@@ -694,7 +704,9 @@ test("Slack smoke live file_upload mode uses the external upload flow", async ()
         fileUpload?: boolean;
         uploadCompleted?: boolean;
         channelReference?: string;
+        channelRef?: string;
         fileReference?: string;
+        fileRef?: string;
       };
     };
     assert.equal(output.ready, true);
@@ -703,7 +715,9 @@ test("Slack smoke live file_upload mode uses the external upload flow", async ()
     assert.equal(output.liveResult?.fileUpload, true);
     assert.equal(output.liveResult?.uploadCompleted, true);
     assert.equal(output.liveResult?.channelReference, "channel CFIL...LIVE");
+    assert.equal(output.liveResult?.channelRef, slackRef("CFILELIVE"));
     assert.equal(output.liveResult?.fileReference, "file FSMO...E123");
+    assert.equal(output.liveResult?.fileRef, slackRef("FSMOKEFILE123"));
     assert.doesNotMatch(result.stdout, /xoxb-file-secret|CFILELIVE|UFILELIVE|AFILELIVE|TFILELIVE|FSMOKEFILE123|upload\/F/);
   } finally {
     rmSync(directory, { recursive: true, force: true });
@@ -841,7 +855,14 @@ test("Slack smoke live evidence artifact accumulates redacted post, app mention,
           workspaceId?: string;
           integrationId?: string;
         };
-        liveResult?: { mode?: string; appMentionText?: boolean; fileUpload?: boolean; uploadCompleted?: boolean };
+        liveResult?: {
+          mode?: string;
+          messageRef?: string;
+          appMentionText?: boolean;
+          fileUpload?: boolean;
+          uploadCompleted?: boolean;
+          fileRef?: string;
+        };
       }>;
     };
     assert.equal(artifact.provider, "slack");
@@ -853,10 +874,13 @@ test("Slack smoke live evidence artifact accumulates redacted post, app mention,
     });
     assert.deepEqual(artifact.runs?.map((run) => run.context?.integrationId), ["slack-1", "slack-1", "slack-1"]);
     assert.deepEqual(artifact.runs?.map((run) => run.liveResult?.mode), ["post_message", "app_mention", "file_upload"]);
+    assert.equal(artifact.runs?.[0]?.liveResult?.messageRef, slackRef("1783400001.000100"));
     assert.equal(artifact.runs?.[1]?.liveResult?.appMentionText, true);
+    assert.equal(artifact.runs?.[1]?.liveResult?.messageRef, slackRef("1783400002.000100"));
     assert.equal(artifact.runs?.[2]?.liveResult?.fileUpload, true);
     assert.equal(artifact.runs?.[2]?.liveResult?.uploadCompleted, true);
-    assert.doesNotMatch(artifactText, /xoxb-bot-secret|xoxp-user-secret|CEVIDENCE|UEVIDENCE|UBOTEVIDENCE|AEVIDENCE123|TEVIDENCE123|FEVIDENCEFILE|1783400001\.000100/);
+    assert.equal(artifact.runs?.[2]?.liveResult?.fileRef, slackRef("FEVIDENCEFILE"));
+    assert.doesNotMatch(artifactText, /xoxb-bot-secret|xoxp-user-secret|CEVIDENCE|UEVIDENCE|UBOTEVIDENCE|AEVIDENCE123|TEVIDENCE123|FEVIDENCEFILE|1783400001\.000100|1783400002\.000100/);
 
     const verification = await runSmokeScript([
       "--verify-evidence",
@@ -984,7 +1008,7 @@ test("Slack smoke evidence verifier rejects incomplete or unsafe artifacts", asy
     assert.equal(output.valid, false);
     assert.ok(output.summary?.missingModes?.includes("app_mention"));
     assert.ok(output.summary?.missingModes?.includes("file_upload"));
-    assert.ok(output.issues?.includes("live_mode_app_mention_message_reference_missing"));
+    assert.ok(output.issues?.includes("live_mode_app_mention_message_ref_missing"));
     assert.ok(output.issues?.includes("raw_slack_identifier_in_evidence"));
     assert.ok(output.issues?.includes("raw_slack_message_ts_in_evidence"));
   } finally {
@@ -1187,4 +1211,8 @@ function signSlackBody(signingSecret: string, timestamp: string, body: string): 
   return `v0=${createHmac("sha256", signingSecret)
     .update(`v0:${timestamp}:${body}`, "utf8")
     .digest("hex")}`;
+}
+
+function slackRef(value: string): string {
+  return `ref_${createHash("sha256").update(value, "utf8").digest("hex").slice(0, 8)}`;
 }

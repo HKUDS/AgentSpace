@@ -57,6 +57,8 @@ export interface SlackLiveSmokeEvidenceVerification {
     fileUploadLiveOk: boolean;
     contextMatched: boolean;
     satisfiedIntegrationIds: string[];
+    appMentionMessageRefs: string[];
+    appMentionMessageRefsByIntegration: Record<string, string[]>;
     unsafeRawValueCount: number;
   };
 }
@@ -88,6 +90,9 @@ export interface SlackEvidenceIntegrationItem {
     agentTaskQueueEvidence: number;
     outboundMappings: number;
     sentOutbox: number;
+    liveAppMentionCorrelationRequired: boolean;
+    liveAppMentionInboundMappings: number;
+    liveAppMentionOutboundReplies: number;
   };
   nativeExperience: {
     satisfied: boolean;
@@ -162,13 +167,6 @@ export function buildSlackEvidenceReport(input: {
   }).filter((integration) =>
     !input.integrationId || integration.id === input.integrationId
   );
-  const items = integrations.map((integration) => buildSlackEvidenceIntegrationItem({
-    workspaceId: input.workspaceId,
-    integration,
-    required,
-    requireFreshEvidence: Boolean(input.strict),
-    dependencies,
-  }));
   const liveSmokeEvidence = input.requireLiveSmokeEvidence ||
     input.liveSmokeEvidencePath ||
     input.liveSmokeEvidence !== undefined
@@ -185,6 +183,14 @@ export function buildSlackEvidenceReport(input: {
       })),
     })
     : undefined;
+  const items = integrations.map((integration) => buildSlackEvidenceIntegrationItem({
+    workspaceId: input.workspaceId,
+    integration,
+    required,
+    requireFreshEvidence: Boolean(input.strict),
+    liveAppMentionMessageRefs: liveSmokeEvidence?.summary?.appMentionMessageRefsByIntegration?.[integration.id] ?? [],
+    dependencies,
+  }));
   const liveSatisfiedIntegrationIds = liveSmokeEvidence?.summary?.satisfiedIntegrationIds;
   const strictSatisfied = items.some((item) =>
     item.requiredSatisfied &&
@@ -269,7 +275,7 @@ export function verifySlackLiveSmokeEvidence(input: {
       return false;
     }
     return isSlackLiveSmokeRunOk(run, artifact, liveResult, "app_mention") &&
-      hasSlackLiveSmokeResultReferences(liveResult, ["channelReference", "messageReference", "botUserReference"]) &&
+      hasSlackLiveSmokeResultReferences(liveResult, ["channelReference", "messageReference", "messageRef", "botUserReference"]) &&
       liveResult.appMentionText === true &&
       slackLiveSmokeContextMatches(run, artifact, expectedContext);
   });
@@ -292,6 +298,22 @@ export function verifySlackLiveSmokeEvidence(input: {
     expectedContext,
     requireFileUploadEvidence: Boolean(input.requireFileUploadEvidence),
   });
+  const appMentionMessageRefsByIntegration = Object.fromEntries(
+    expectedContext.integrations.map((integration) => [
+      integration.integrationId,
+      collectSlackLiveSmokeResultRefs({
+        artifact,
+        runs,
+        expectedContext: {
+          workspaceId: expectedContext.workspaceId,
+          integrations: [integration],
+        },
+        mode: "app_mention",
+        refKey: "messageRef",
+      }),
+    ]),
+  );
+  const appMentionMessageRefs = Array.from(new Set(Object.values(appMentionMessageRefsByIntegration).flat()));
   const unsafeRawValueCount = countUnsafeSlackLiveSmokeEvidenceValues(artifact);
   const issues = [
     ...(generatedAt ? [] : ["slack_live_smoke_generated_at_missing"]),
@@ -320,6 +342,8 @@ export function verifySlackLiveSmokeEvidence(input: {
       fileUploadLiveOk,
       contextMatched,
       satisfiedIntegrationIds,
+      appMentionMessageRefs,
+      appMentionMessageRefsByIntegration,
       unsafeRawValueCount,
     },
   };
@@ -364,6 +388,7 @@ function buildSlackEvidenceIntegrationItem(input: {
   integration: ExternalIntegrationRecord;
   required: SlackEvidenceRequirement;
   requireFreshEvidence: boolean;
+  liveAppMentionMessageRefs: string[];
   dependencies: SlackEvidenceDependencies;
 }): SlackEvidenceIntegrationItem {
   const { integration } = input;
@@ -397,11 +422,11 @@ function buildSlackEvidenceIntegrationItem(input: {
   const freshEvents = input.requireFreshEvidence ? events.filter(isFreshSlackEvidenceEvent) : events;
   const freshMappings = input.requireFreshEvidence ? mappings.filter(isFreshSlackEvidenceMapping) : mappings;
   const freshOutbox = input.requireFreshEvidence ? outbox.filter(isFreshSlackEvidenceOutbox) : outbox;
-  const rawMessage = buildMessageEvidence(events, mappings, outbox, channelBindings, userBindings, integration);
+  const rawMessage = buildMessageEvidence(events, mappings, outbox, channelBindings, userBindings, integration, input.liveAppMentionMessageRefs);
   const rawNativeExperience = buildNativeEvidence(events, mappings, outbox);
   const rawApprovals = buildApprovalEvidence(events, outbox);
   const rawFiles = buildFileEvidence(events, mappings, outbox);
-  const message = buildMessageEvidence(freshEvents, freshMappings, freshOutbox, channelBindings, userBindings, integration);
+  const message = buildMessageEvidence(freshEvents, freshMappings, freshOutbox, channelBindings, userBindings, integration, input.liveAppMentionMessageRefs);
   const nativeExperience = buildNativeEvidence(freshEvents, freshMappings, freshOutbox);
   const approvals = buildApprovalEvidence(freshEvents, freshOutbox);
   const files = buildFileEvidence(freshEvents, freshMappings, freshOutbox);
@@ -502,7 +527,10 @@ function buildMessageEvidence(
   channelBindings: ExternalChannelBindingRecord[],
   userBindings: ExternalUserBindingRecord[],
   integration: ExternalIntegrationRecord,
+  liveAppMentionMessageRefs: string[],
 ): SlackEvidenceIntegrationItem["message"] {
+  const liveAppMentionMessageRefSet = new Set(liveAppMentionMessageRefs.filter((ref) => ref.trim().length > 0));
+  const liveAppMentionCorrelationRequired = liveAppMentionMessageRefSet.size > 0;
   const processedInboundEvents = events.filter((event) =>
     event.status === "processed" &&
     (event.eventType === "event_callback.app_mention" || event.eventType === "event_callback.message")
@@ -513,6 +541,29 @@ function buildMessageEvidence(
   ).length;
   const outboundMappings = mappings.filter((mapping) => mapping.direction === "outbound" && !isSlackAppHomeWelcomeMapping(mapping)).length;
   const sentOutbox = outbox.filter((item) => item.status === "sent").length;
+  const liveAppMentionInboundMappings = liveAppMentionCorrelationRequired
+    ? mappings.filter((mapping) =>
+      mapping.direction === "inbound" &&
+      liveAppMentionMessageRefSet.has(buildSlackReference(mapping.externalMessageId)) &&
+      hasSlackAgentTaskQueueEvidence(mapping, integration)
+    ).length
+    : 0;
+  const liveAppMentionOutboundMappings = liveAppMentionCorrelationRequired
+    ? mappings.filter((mapping) =>
+      mapping.direction === "outbound" &&
+      !isSlackAppHomeWelcomeMapping(mapping) &&
+      mapping.externalThreadId &&
+      liveAppMentionMessageRefSet.has(buildSlackReference(mapping.externalThreadId))
+    ).length
+    : 0;
+  const liveAppMentionOutboxReplies = liveAppMentionCorrelationRequired
+    ? outbox.filter((item) =>
+      item.status === "sent" &&
+      item.targetExternalThreadId &&
+      liveAppMentionMessageRefSet.has(buildSlackReference(item.targetExternalThreadId))
+    ).length
+    : 0;
+  const liveAppMentionOutboundReplies = liveAppMentionOutboundMappings + liveAppMentionOutboxReplies;
   const failedOutbox = outbox.filter((item) => item.status === "failed").length;
   const satisfied = integration.status === "active" &&
     channelBindings.length > 0 &&
@@ -521,6 +572,7 @@ function buildMessageEvidence(
     inboundMappings > 0 &&
     agentTaskQueueEvidence > 0 &&
     (outboundMappings > 0 || sentOutbox > 0) &&
+    (!liveAppMentionCorrelationRequired || (liveAppMentionInboundMappings > 0 && liveAppMentionOutboundReplies > 0)) &&
     failedOutbox === 0;
   return {
     satisfied,
@@ -529,6 +581,9 @@ function buildMessageEvidence(
     agentTaskQueueEvidence,
     outboundMappings,
     sentOutbox,
+    liveAppMentionCorrelationRequired,
+    liveAppMentionInboundMappings,
+    liveAppMentionOutboundReplies,
   };
 }
 
@@ -632,6 +687,12 @@ function buildSlackMessageEvidenceBlockers(
   }
   if (message.outboundMappings === 0 && message.sentOutbox === 0) {
     blockers.push("outbound_reply_evidence_missing");
+  }
+  if (message.liveAppMentionCorrelationRequired && message.liveAppMentionInboundMappings === 0) {
+    blockers.push("slack_live_app_mention_inbound_mapping_missing");
+  }
+  if (message.liveAppMentionCorrelationRequired && message.liveAppMentionOutboundReplies === 0) {
+    blockers.push("slack_live_app_mention_outbound_reply_missing");
   }
   if (failures.failedOutbox > 0) {
     blockers.push("failed_outbox_unresolved");
@@ -910,7 +971,7 @@ function buildSlackLiveSmokeSatisfiedIntegrationIds(input: {
       return Boolean(liveResult) &&
         runMatchesIntegration(run) &&
         isSlackLiveSmokeRunOk(run, input.artifact, liveResult, "app_mention") &&
-        hasSlackLiveSmokeResultReferences(liveResult, ["channelReference", "messageReference", "botUserReference"]) &&
+        hasSlackLiveSmokeResultReferences(liveResult, ["channelReference", "messageReference", "messageRef", "botUserReference"]) &&
         liveResult?.appMentionText === true;
     });
     const fileUploadLiveOk = input.runs.some((run) => {
@@ -927,6 +988,48 @@ function buildSlackLiveSmokeSatisfiedIntegrationIds(input: {
       (!input.requireFileUploadEvidence || fileUploadLiveOk);
   });
   return satisfied.map((integration) => integration.integrationId);
+}
+
+function collectSlackLiveSmokeResultRefs(input: {
+  artifact: Record<string, unknown>;
+  runs: Record<string, unknown>[];
+  expectedContext: {
+    workspaceId?: string;
+    integrations: SlackLiveSmokeExpectedIntegrationContext[];
+  };
+  mode: "post_message" | "app_mention" | "file_upload";
+  refKey: string;
+}): string[] {
+  const refs = input.runs.flatMap((run): string[] => {
+    const liveResult = parseJsonRecord(run.liveResult);
+    if (
+      !liveResult ||
+      !isSlackLiveSmokeRunOk(run, input.artifact, liveResult, input.mode) ||
+      !isSlackLiveSmokeResultProofComplete(liveResult, input.mode) ||
+      !slackLiveSmokeContextMatches(run, input.artifact, input.expectedContext)
+    ) {
+      return [];
+    }
+    const ref = readJsonStringFieldFromRecord(liveResult, input.refKey);
+    return ref ? [ref] : [];
+  });
+  return Array.from(new Set(refs));
+}
+
+function isSlackLiveSmokeResultProofComplete(
+  liveResult: Record<string, unknown>,
+  mode: "post_message" | "app_mention" | "file_upload",
+): boolean {
+  if (mode === "post_message") {
+    return hasSlackLiveSmokeResultReferences(liveResult, ["channelReference", "messageReference"]);
+  }
+  if (mode === "app_mention") {
+    return hasSlackLiveSmokeResultReferences(liveResult, ["channelReference", "messageReference", "messageRef", "botUserReference"]) &&
+      liveResult.appMentionText === true;
+  }
+  return hasSlackLiveSmokeResultReferences(liveResult, ["channelReference", "fileReference"]) &&
+    liveResult.fileUpload === true &&
+    liveResult.uploadCompleted === true;
 }
 
 function slackLiveSmokeContextMatches(

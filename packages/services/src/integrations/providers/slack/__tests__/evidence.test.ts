@@ -9,7 +9,11 @@ import type {
   ExternalUserBindingRecord,
 } from "@agent-space/db";
 import { SLACK_PROVIDER_ID } from "../constants.ts";
+import { buildSlackReference } from "../events.ts";
 import { buildSlackEvidenceReport, verifySlackLiveSmokeEvidence } from "../evidence.ts";
+
+const SLACK_SMOKE_POST_MESSAGE_ID = "1783400000.000100";
+const SLACK_SMOKE_APP_MENTION_MESSAGE_ID = "1783400001.000200";
 
 test("builds strict Slack evidence reports without raw external ids", () => {
   const integration = makeIntegration();
@@ -561,6 +565,15 @@ test("Slack evidence can gate strict all on redacted live smoke evidence", () =>
   assert.equal(report.liveSmokeEvidence?.summary?.freshRunCount, 3);
   assert.equal(report.liveSmokeEvidence?.summary?.staleRunCount, 0);
   assert.equal(report.liveSmokeEvidence?.summary?.contextMatched, true);
+  assert.deepEqual(report.liveSmokeEvidence?.summary?.appMentionMessageRefs, [
+    buildSlackReference(SLACK_SMOKE_APP_MENTION_MESSAGE_ID),
+  ]);
+  assert.deepEqual(report.liveSmokeEvidence?.summary?.appMentionMessageRefsByIntegration?.["slack-1"], [
+    buildSlackReference(SLACK_SMOKE_APP_MENTION_MESSAGE_ID),
+  ]);
+  assert.equal(report.integrations[0]?.message.liveAppMentionCorrelationRequired, true);
+  assert.equal(report.integrations[0]?.message.liveAppMentionInboundMappings, 1);
+  assert.equal(report.integrations[0]?.message.liveAppMentionOutboundReplies, 2);
   assert.equal(report.liveSmokeEvidence?.summary?.unsafeRawValueCount, 0);
   assert.doesNotMatch(JSON.stringify(report), /xoxb|xoxp|C123LIVE|UBOTLIVE|FSMOKEFILE123|1783400001\.000200/);
 
@@ -622,6 +635,37 @@ test("Slack evidence can gate strict all on redacted live smoke evidence", () =>
   assert.ok(wrongAppTeam.liveSmokeEvidence?.issues.includes("slack_live_smoke_context_mismatch"));
 });
 
+test("Slack evidence strict all correlates live app mentions with local inbound and reply proof", () => {
+  const wrongLiveMention = makeLiveSmokeEvidence();
+  const appMentionLiveResult = (
+    (wrongLiveMention.runs as Array<Record<string, unknown>>)[1]?.liveResult ?? {}
+  ) as Record<string, unknown>;
+  appMentionLiveResult.messageReference = "message 1783...9999";
+  appMentionLiveResult.messageRef = buildSlackReference("1783499999.000200");
+
+  const report = buildSlackEvidenceReport({
+    workspaceId: "workspace-1",
+    strict: true,
+    required: "all",
+    requireLiveSmokeEvidence: true,
+    liveSmokeEvidence: wrongLiveMention,
+    dependencies: makeCompleteSlackEvidenceDependencies(),
+  });
+
+  assert.equal(report.liveSmokeEvidence?.valid, true);
+  assert.equal(report.liveSmokeEvidence?.summary?.appMentionLiveOk, true);
+  assert.deepEqual(report.liveSmokeEvidence?.summary?.appMentionMessageRefs, [
+    buildSlackReference("1783499999.000200"),
+  ]);
+  assert.equal(report.strictSatisfied, false);
+  assert.equal(report.integrations[0]?.message.liveAppMentionCorrelationRequired, true);
+  assert.equal(report.integrations[0]?.message.liveAppMentionInboundMappings, 0);
+  assert.equal(report.integrations[0]?.message.liveAppMentionOutboundReplies, 0);
+  assert.ok(report.integrations[0]?.blockers.includes("slack_live_app_mention_inbound_mapping_missing"));
+  assert.ok(report.integrations[0]?.blockers.includes("slack_live_app_mention_outbound_reply_missing"));
+  assert.doesNotMatch(JSON.stringify(report), /1783499999|1783400001/);
+});
+
 test("Slack live smoke evidence requires per-run context for accumulated artifacts", () => {
   const accumulatedWithoutRunContext = makeLiveSmokeEvidence();
   const runs = accumulatedWithoutRunContext.runs as Array<Record<string, unknown>>;
@@ -663,7 +707,9 @@ test("Slack live smoke evidence requires per-run context for accumulated artifac
       ok: true,
       mode: "post_message",
       channelReference: "channel C123...LIVE",
+      channelRef: buildSlackReference("C123LIVE"),
       messageReference: "message 1783...0100",
+      messageRef: buildSlackReference(SLACK_SMOKE_POST_MESSAGE_ID),
     },
   };
   const legacyVerification = verifySlackLiveSmokeEvidence({
@@ -718,6 +764,25 @@ test("Slack live smoke evidence requires safe result references", () => {
   assert.equal(missingAppMentionMessageReport.liveSmokeEvidence?.summary?.appMentionLiveOk, false);
   assert.ok(missingAppMentionMessageReport.liveSmokeEvidence?.issues.includes("slack_live_app_mention_evidence_missing"));
   assert.deepEqual(missingAppMentionMessageReport.liveSmokeEvidence?.summary?.satisfiedIntegrationIds, []);
+
+  const missingAppMentionHashReference = makeLiveSmokeEvidence();
+  const appMentionWithoutHashReference = (
+    (missingAppMentionHashReference.runs as Array<Record<string, unknown>>)[1]?.liveResult ?? {}
+  ) as Record<string, unknown>;
+  delete appMentionWithoutHashReference.messageRef;
+  const missingAppMentionHashReport = buildSlackEvidenceReport({
+    workspaceId: "workspace-1",
+    strict: true,
+    required: "all",
+    requireLiveSmokeEvidence: true,
+    liveSmokeEvidence: missingAppMentionHashReference,
+    dependencies: makeCompleteSlackEvidenceDependencies(),
+  });
+
+  assert.equal(missingAppMentionHashReport.strictSatisfied, false);
+  assert.equal(missingAppMentionHashReport.liveSmokeEvidence?.summary?.appMentionLiveOk, false);
+  assert.ok(missingAppMentionHashReport.liveSmokeEvidence?.issues.includes("slack_live_app_mention_evidence_missing"));
+  assert.deepEqual(missingAppMentionHashReport.liveSmokeEvidence?.summary?.appMentionMessageRefs, []);
 
   const missingAppMentionReference = makeLiveSmokeEvidence();
   const appMentionLiveResult = (
@@ -1087,6 +1152,7 @@ function makeCompleteSlackEvidenceDependencies(input: {
     ],
     listMessageMappings: () => [
       makeMapping({
+        externalMessageId: SLACK_SMOKE_APP_MENTION_MESSAGE_ID,
         createdAt: timestamp,
         direction: "inbound",
         metadataJson: {
@@ -1105,6 +1171,7 @@ function makeCompleteSlackEvidenceDependencies(input: {
       makeMapping({
         createdAt: timestamp,
         direction: "outbound",
+        externalThreadId: SLACK_SMOKE_APP_MENTION_MESSAGE_ID,
         metadataJson: {
           provider: "slack",
           externalChatReference: "ref_safechat",
@@ -1126,6 +1193,7 @@ function makeCompleteSlackEvidenceDependencies(input: {
         updatedAt: timestamp,
         sentAt: timestamp,
         status: "sent",
+        targetExternalThreadId: SLACK_SMOKE_APP_MENTION_MESSAGE_ID,
         metadataJson: {
           provider: "slack",
           outboxSource: "agent_reply",
@@ -1210,7 +1278,9 @@ function makeLiveSmokeEvidence(input: {
           ok: true,
           mode: "post_message",
           channelReference: "channel C123...LIVE",
+          channelRef: buildSlackReference("C123LIVE"),
           messageReference: "message 1783...0100",
+          messageRef: buildSlackReference(SLACK_SMOKE_POST_MESSAGE_ID),
         },
       },
       ...(includeAppMention ? [{
@@ -1224,8 +1294,11 @@ function makeLiveSmokeEvidence(input: {
           ok: true,
           mode: "app_mention",
           channelReference: "channel CAPP...TION",
+          channelRef: buildSlackReference("CAPPMENTION"),
           botUserReference: "user UB...VE",
+          botUserRef: buildSlackReference("UBOTLIVE"),
           messageReference: "message 1783...0200",
+          messageRef: buildSlackReference(SLACK_SMOKE_APP_MENTION_MESSAGE_ID),
           appMentionText: true,
         },
       }] : []),
@@ -1240,7 +1313,9 @@ function makeLiveSmokeEvidence(input: {
           ok: true,
           mode: "file_upload",
           channelReference: "channel CFILE...LIVE",
+          channelRef: buildSlackReference("CFILELIVE"),
           fileReference: "file FSMO...E123",
+          fileRef: buildSlackReference("FSMOKEFILE123"),
           fileUpload: true,
           uploadCompleted: true,
         },
