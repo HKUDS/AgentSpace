@@ -269,7 +269,7 @@ export function verifySlackLiveSmokeEvidence(input: {
       return false;
     }
     return isSlackLiveSmokeRunOk(run, artifact, liveResult, "app_mention") &&
-      hasSlackLiveSmokeResultReferences(liveResult, ["channelReference", "botUserReference"]) &&
+      hasSlackLiveSmokeResultReferences(liveResult, ["channelReference", "messageReference", "botUserReference"]) &&
       liveResult.appMentionText === true &&
       slackLiveSmokeContextMatches(run, artifact, expectedContext);
   });
@@ -910,7 +910,7 @@ function buildSlackLiveSmokeSatisfiedIntegrationIds(input: {
       return Boolean(liveResult) &&
         runMatchesIntegration(run) &&
         isSlackLiveSmokeRunOk(run, input.artifact, liveResult, "app_mention") &&
-        hasSlackLiveSmokeResultReferences(liveResult, ["channelReference", "botUserReference"]) &&
+        hasSlackLiveSmokeResultReferences(liveResult, ["channelReference", "messageReference", "botUserReference"]) &&
         liveResult?.appMentionText === true;
     });
     const fileUploadLiveOk = input.runs.some((run) => {

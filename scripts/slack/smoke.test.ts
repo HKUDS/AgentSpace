@@ -946,6 +946,25 @@ test("Slack smoke evidence verifier rejects incomplete or unsafe artifacts", asy
           channelReference: "CUNSAFE123",
           messageReference: "1783400001.000100",
         },
+      }, {
+        generatedAt: new Date().toISOString(),
+        mode: "live",
+        live: true,
+        ready: true,
+        context: {
+          workspaceId: "default",
+          integrationId: "slack-1",
+          appReference: "ref_appsafe",
+          teamReference: "ref_teamsafe",
+        },
+        liveResult: {
+          attempted: true,
+          ok: true,
+          mode: "app_mention",
+          channelReference: "channel SAFE...CHAN",
+          botUserReference: "user UB...OT",
+          appMentionText: true,
+        },
       }],
     }, null, 2));
 
@@ -965,6 +984,7 @@ test("Slack smoke evidence verifier rejects incomplete or unsafe artifacts", asy
     assert.equal(output.valid, false);
     assert.ok(output.summary?.missingModes?.includes("app_mention"));
     assert.ok(output.summary?.missingModes?.includes("file_upload"));
+    assert.ok(output.issues?.includes("live_mode_app_mention_message_reference_missing"));
     assert.ok(output.issues?.includes("raw_slack_identifier_in_evidence"));
     assert.ok(output.issues?.includes("raw_slack_message_ts_in_evidence"));
   } finally {

@@ -700,6 +700,25 @@ test("Slack live smoke evidence requires safe result references", () => {
   assert.ok(missingPostMessageReport.liveSmokeEvidence?.issues.includes("slack_live_post_message_evidence_missing"));
   assert.deepEqual(missingPostMessageReport.liveSmokeEvidence?.summary?.satisfiedIntegrationIds, []);
 
+  const missingAppMentionMessageReference = makeLiveSmokeEvidence();
+  const appMentionWithoutMessageReference = (
+    (missingAppMentionMessageReference.runs as Array<Record<string, unknown>>)[1]?.liveResult ?? {}
+  ) as Record<string, unknown>;
+  delete appMentionWithoutMessageReference.messageReference;
+  const missingAppMentionMessageReport = buildSlackEvidenceReport({
+    workspaceId: "workspace-1",
+    strict: true,
+    required: "all",
+    requireLiveSmokeEvidence: true,
+    liveSmokeEvidence: missingAppMentionMessageReference,
+    dependencies: makeCompleteSlackEvidenceDependencies(),
+  });
+
+  assert.equal(missingAppMentionMessageReport.strictSatisfied, false);
+  assert.equal(missingAppMentionMessageReport.liveSmokeEvidence?.summary?.appMentionLiveOk, false);
+  assert.ok(missingAppMentionMessageReport.liveSmokeEvidence?.issues.includes("slack_live_app_mention_evidence_missing"));
+  assert.deepEqual(missingAppMentionMessageReport.liveSmokeEvidence?.summary?.satisfiedIntegrationIds, []);
+
   const missingAppMentionReference = makeLiveSmokeEvidence();
   const appMentionLiveResult = (
     (missingAppMentionReference.runs as Array<Record<string, unknown>>)[1]?.liveResult ?? {}

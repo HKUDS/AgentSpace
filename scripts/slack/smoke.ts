@@ -1229,6 +1229,10 @@ function slackSmokeEvidenceRunSatisfiesMode(
     return Boolean(readString(liveResult.messageReference));
   }
   if (requiredMode === "app_mention") {
+    if (!readString(liveResult.messageReference)) {
+      issues.push("live_mode_app_mention_message_reference_missing");
+      return false;
+    }
     return liveResult.appMentionText === true && Boolean(readString(liveResult.botUserReference));
   }
   return liveResult.fileUpload === true &&
