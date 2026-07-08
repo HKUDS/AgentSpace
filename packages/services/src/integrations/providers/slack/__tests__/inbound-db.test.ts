@@ -253,6 +253,99 @@ test("agent-scoped Slack bots in the same Slack channel route to their own Agent
   assert.equal(JSON.stringify(promptsMetadata).includes("UMINA"), false);
 });
 
+test("bound Slack channel app mentions create AgentSpace agent tasks", databaseTestOptions, () => {
+  seedSlackAgentBotWorkspace();
+  const user = createUserSync({
+    displayName: "Mina",
+    primaryEmail: "mina-slack-workspace@example.com",
+  });
+  createWorkspaceMembershipSync({
+    workspaceId: DEFAULT_WORKSPACE_ID,
+    userId: user.id,
+    role: "member",
+  });
+
+  const integration = createSlackWorkspaceIntegration({
+    displayName: "Slack Workspace App",
+    appId: "A_WORKSPACE",
+    botUserId: "UWORKSPACE",
+  });
+  const channelBinding = upsertExternalChannelBindingSync({
+    workspaceId: DEFAULT_WORKSPACE_ID,
+    integrationId: integration.id,
+    channelName: "general",
+    externalChatId: "C_SHARED",
+    externalChatType: "channel",
+    externalChatName: "shared-agent-channel",
+  });
+  upsertExternalUserBindingSync({
+    workspaceId: DEFAULT_WORKSPACE_ID,
+    integrationId: integration.id,
+    userId: user.id,
+    externalUserId: "UMINA",
+    displayName: "Mina",
+  });
+
+  const result = processSlackInboundEventSync({
+    context: {
+      workspaceId: DEFAULT_WORKSPACE_ID,
+      integrationId: integration.id,
+      provider: SLACK_PROVIDER_ID,
+    },
+    integration,
+    payload: buildSlackMentionPayload({
+      eventId: "EvWorkspaceAtlas",
+      appId: "A_WORKSPACE",
+      botUserId: "UWORKSPACE",
+      messageTs: "1783400001.000100",
+      text: "<@UWORKSPACE> @Atlas handle launch blockers",
+    }),
+  });
+
+  assert.equal(result.dispatchStatus, "sent");
+  assert.equal(result.mappedChannelName, "general");
+
+  const tasks = listQueuedTasksSync({ workspaceId: DEFAULT_WORKSPACE_ID });
+  assert.equal(tasks.length, 1);
+  const task = tasks[0];
+  assert.equal(task?.agentId, "Atlas");
+  const taskInput = JSON.parse(task?.inputJson ?? "{}") as Record<string, unknown>;
+  assert.equal(taskInput.channelName, "general");
+
+  const messages = readWorkspaceStateSync(DEFAULT_WORKSPACE_ID).messages;
+  const agentSpaceMessage = messages.find((message) => message.data?.external_message_id === "1783400001.000100");
+  assert.equal(agentSpaceMessage?.summary, "@Atlas handle launch blockers");
+  assert.equal(agentSpaceMessage?.mentions?.[0]?.agentId, "Atlas");
+  assert.equal(taskInput.sourceMessageId, agentSpaceMessage?.id);
+  assert.equal(result.agentSpaceMessageId, agentSpaceMessage?.id);
+
+  const threadBindings = listExternalThreadBindingsSync({
+    workspaceId: DEFAULT_WORKSPACE_ID,
+    provider: SLACK_PROVIDER_ID,
+    externalChatId: "C_SHARED",
+  });
+  assert.equal(threadBindings.length, 1);
+  const threadBinding = threadBindings[0];
+  assert.equal(threadBinding?.integrationId, integration.id);
+  assert.equal(threadBinding?.channelBindingId, channelBinding.id);
+  assert.equal(threadBinding?.agentId, "Atlas");
+  assert.equal(threadBinding?.taskQueueId, task?.id);
+  assert.equal(threadBinding?.agentSpaceMessageId, agentSpaceMessage?.id);
+  assert.equal(threadBinding?.externalThreadId, "1783400001.000100");
+
+  const metadata = JSON.parse(result.mapping?.metadataJson ?? "{}") as Record<string, unknown>;
+  assert.equal(metadata.provider, SLACK_PROVIDER_ID);
+  assert.equal(metadata.channelName, "general");
+  assert.equal(metadata.agentId, undefined);
+  assert.equal(metadata.botBindingId, undefined);
+  assert.equal(metadata.taskAgentId, "Atlas");
+  assert.equal(metadata.taskQueueId, task?.id);
+  assert.equal(metadata.routerSessionId, task?.routerSessionId);
+  assert.equal(metadata.threadBindingId, threadBinding?.id);
+  assert.equal(JSON.stringify(metadata).includes("C_SHARED"), false);
+  assert.equal(JSON.stringify(metadata).includes("UMINA"), false);
+});
+
 test("Slack inbound ignores channel permission denial with a thread notice", databaseTestOptions, () => {
   seedSlackAgentBotWorkspace();
   const user = createUserSync({
@@ -386,6 +479,26 @@ function createSlackAgentBotIntegration(input: {
     appId: input.appId,
     tenantKey: "T_SHARED",
     agentId: input.agentId,
+    configJson: {
+      bot: {
+        botUserId: input.botUserId,
+      },
+    },
+  });
+}
+
+function createSlackWorkspaceIntegration(input: {
+  displayName: string;
+  appId: string;
+  botUserId: string;
+}) {
+  return createExternalIntegrationSync({
+    workspaceId: DEFAULT_WORKSPACE_ID,
+    provider: SLACK_PROVIDER_ID,
+    displayName: input.displayName,
+    transportMode: "http_webhook",
+    appId: input.appId,
+    tenantKey: "T_SHARED",
     configJson: {
       bot: {
         botUserId: input.botUserId,

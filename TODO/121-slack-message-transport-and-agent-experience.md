@@ -860,6 +860,7 @@ rawPayload = summarized payload or original safe subset
 证据：
 
 - `packages/services/src/integrations/providers/slack/__tests__/inbound.test.ts` 覆盖普通 Slack app mention 中的 `@Atlas` 会回查 task、记录 thread binding，并在 inbound mapping metadata 中写入 `taskAgentId` / `taskQueueId` / `routerSessionId` / `threadBindingId`；agent-scoped Slack bot mention 同样会注入 `@Atlas` 并写入独立 task evidence，且不落 raw Slack channel/user id。
+- `packages/services/src/integrations/providers/slack/__tests__/inbound-db.test.ts` 增加 gated DB 验收 `bound Slack channel app mentions create AgentSpace agent tasks`，在真实 DB-backed workspace 中验证已绑定 Slack channel/user 的普通 app mention `@Atlas` 会创建 task、写 thread binding，并把 task evidence 写入 mapping metadata。
 - `packages/services/src/integrations/providers/slack/evidence.ts` 的 message gate 现在要求 inbound mapping 具备 task queue 证据；缺 `taskQueueId` 或 task agent 不匹配会产生 `agent_task_queue_evidence_missing` blocker，避免最终 `--strict --require all` 在未证明 task 创建时误通过。
 - `packages/services/src/integrations/providers/slack/__tests__/evidence.test.ts` 覆盖上述正反行为。真实 DB-backed task 创建仍由 `AGENT_SPACE_SLACK_INBOUND_DB_TESTS=1` gated 测试和 live smoke 验收证明。
 - `packages/services/src/integrations/core/inbound-dispatch.ts` 抽出 provider-neutral `resolveExternalDispatchedTaskSync(...)` / `resolveExternalDispatchedTaskFromRecords(...)`，Slack 和 Feishu inbound 成功 dispatch 后都复用同一套 task queue evidence 回查逻辑。
