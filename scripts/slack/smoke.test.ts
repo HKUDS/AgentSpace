@@ -79,9 +79,13 @@ test("Slack smoke dry-run accepts filled non-secret env", () => {
       summary: {
         failed: number;
       };
+      nextCommands: string[];
     };
     assert.equal(output.ready, true);
     assert.equal(output.summary.failed, 0);
+    assert.ok(output.nextCommands.includes(
+      "agent-space integrations slack evidence --workspace-id $AGENT_SPACE_WORKSPACE_ID --integration $AGENT_SPACE_SLACK_INTEGRATION_ID --live-smoke-evidence runtime-output/slack-smoke/live.json --strict --require all --json",
+    ));
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }

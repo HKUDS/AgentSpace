@@ -167,6 +167,9 @@ test("builds strict Slack evidence reports without raw external ids", () => {
   assert.equal(report.integrations[0]?.healthCheck.fresh, true);
   assert.equal(report.integrations[0]?.message.agentTaskQueueEvidence, 1);
   assert.deepEqual(report.integrations[0]?.blockers, []);
+  assert.ok(report.nextCommands.includes(
+    "agent-space integrations slack smoke-plan --workspace-id workspace-1 --strict --require all --json",
+  ));
   assert.doesNotMatch(JSON.stringify(report), /A_SECRET|T_SECRET|C_SECRET|D_SECRET|U_SECRET|F_SECRET|url_private|files\.slack\.com|EvMessage|EvApproval|1783400000/);
 });
 

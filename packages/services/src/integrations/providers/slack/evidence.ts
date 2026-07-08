@@ -991,9 +991,10 @@ function buildSlackEvidenceNextCommands(
 ): string[] {
   const integrationFlag = integrationId ? ` --integration ${integrationId}` : "";
   const evidencePath = "runtime-output/slack-smoke/live.json";
+  const readinessRequirement = required === "all" ? "all" : "message";
   return [
     `agent-space integrations slack readiness --workspace-id ${workspaceId}${integrationFlag} --strict --json`,
-    `agent-space integrations slack smoke-plan --workspace-id ${workspaceId}${integrationFlag} --strict --require message --json`,
+    `agent-space integrations slack smoke-plan --workspace-id ${workspaceId}${integrationFlag} --strict --require ${readinessRequirement} --json`,
     `npm run smoke:slack -- --env-file scripts/slack/.env --live --evidence ${evidencePath} --json`,
     `SLACK_SMOKE_LIVE_MODE=app_mention npm run smoke:slack -- --env-file scripts/slack/.env --live --evidence ${evidencePath} --json`,
     `SLACK_SMOKE_LIVE_MODE=file_upload npm run smoke:slack -- --env-file scripts/slack/.env --live --evidence ${evidencePath} --json`,
