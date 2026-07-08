@@ -215,10 +215,10 @@ test("builds Slack smoke plan and env template without raw external ids", () => 
   assert.match(plan.commands.livePostMessage, /--live --evidence runtime-output\/slack-smoke\/live\.json/);
   assert.match(plan.commands.liveAppMention, /SLACK_SMOKE_LIVE_MODE=app_mention/);
   assert.match(plan.commands.liveFileUpload, /SLACK_SMOKE_LIVE_MODE=file_upload/);
-  assert.equal(plan.commands.verifyLiveEvidence, "npm run smoke:slack:verify -- --json");
+  assert.equal(plan.commands.verifyLiveEvidence, "npm run smoke:slack:verify -- --env-file scripts/slack/.env --json");
   assert.match(plan.commands.finalEvidence, /--live-smoke-evidence runtime-output\/slack-smoke\/live\.json --strict --require all --json/);
   assert.equal(plan.checklist.find((item) => item.id === "live_file_upload")?.status, "manual");
-  assert.equal(plan.checklist.find((item) => item.id === "verify_live_evidence")?.detail, "npm run smoke:slack:verify -- --json");
+  assert.equal(plan.checklist.find((item) => item.id === "verify_live_evidence")?.detail, "npm run smoke:slack:verify -- --env-file scripts/slack/.env --json");
   assert.equal(plan.checklist.find((item) => item.id === "final_evidence")?.status, "manual");
   assert.equal(env.ready, true);
   assert.match(env.template, /SLACK_SMOKE_CHANNEL_ID=CHANGE_ME_SLACK_CHANNEL_ID/);
@@ -234,7 +234,7 @@ test("builds Slack smoke plan and env template without raw external ids", () => 
   assert.match(env.nextCommands.join("\n"), /--replay-webhook/);
   assert.match(env.nextCommands.join("\n"), /--live --evidence runtime-output\/slack-smoke\/live\.json/);
   assert.match(env.nextCommands.join("\n"), /SLACK_SMOKE_LIVE_MODE=file_upload/);
-  assert.match(env.nextCommands.join("\n"), /npm run smoke:slack:verify -- --json/);
+  assert.ok(env.nextCommands.includes("npm run smoke:slack:verify -- --env-file scripts/slack/.env --json"));
   assert.match(env.nextCommands.join("\n"), /--live-smoke-evidence runtime-output\/slack-smoke\/live\.json --strict --require all/);
   assert.doesNotMatch(JSON.stringify({ plan, env }), /A111|T111|xoxb|xapp/);
 });

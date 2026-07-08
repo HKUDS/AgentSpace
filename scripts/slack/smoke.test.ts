@@ -781,6 +781,8 @@ test("Slack smoke live evidence artifact accumulates redacted post, app mention,
     const verification = await runSmokeScript([
       "--verify-evidence",
       evidencePath,
+      "--env-file",
+      envPath,
       "--json",
     ]);
     assert.equal(verification.status, 0, verification.stderr);
@@ -789,13 +791,41 @@ test("Slack smoke live evidence artifact accumulates redacted post, app mention,
       summary?: {
         satisfiedModes?: string[];
         missingModes?: string[];
+        contextMatched?: boolean;
       };
       issues?: string[];
     };
     assert.equal(verificationOutput.valid, true);
     assert.deepEqual(verificationOutput.summary?.satisfiedModes, ["post_message", "app_mention", "file_upload"]);
     assert.deepEqual(verificationOutput.summary?.missingModes, []);
+    assert.equal(verificationOutput.summary?.contextMatched, true);
     assert.deepEqual(verificationOutput.issues, []);
+
+    const wrongEnvPath = join(directory, ".wrong.env");
+    writeFileSync(wrongEnvPath, [
+      "AGENT_SPACE_WORKSPACE_ID=default",
+      "AGENT_SPACE_SLACK_INTEGRATION_ID=slack-other",
+      "SLACK_SMOKE_APP_ID=AEVIDENCE123",
+      "SLACK_SMOKE_TEAM_ID=TEVIDENCE123",
+    ].join("\n"));
+    const wrongContextVerification = await runSmokeScript([
+      "--verify-evidence",
+      evidencePath,
+      "--env-file",
+      wrongEnvPath,
+      "--json",
+    ]);
+    assert.equal(wrongContextVerification.status, 1);
+    const wrongContextOutput = JSON.parse(wrongContextVerification.stdout) as {
+      valid?: boolean;
+      summary?: {
+        contextMatched?: boolean;
+      };
+      issues?: string[];
+    };
+    assert.equal(wrongContextOutput.valid, false);
+    assert.equal(wrongContextOutput.summary?.contextMatched, false);
+    assert.ok(wrongContextOutput.issues?.includes("expected_context_mismatch"));
   } finally {
     rmSync(directory, { recursive: true, force: true });
     await new Promise<void>((resolve) => {

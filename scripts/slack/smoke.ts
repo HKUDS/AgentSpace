@@ -93,7 +93,9 @@ interface SlackSmokeEvidenceVerificationOutput {
     requiredModes: SlackSmokeLiveMode[];
     satisfiedModes: SlackSmokeLiveMode[];
     missingModes: SlackSmokeLiveMode[];
+    contextMatched: boolean;
   };
+  expectedContext?: SlackSmokeContext;
   issues: string[];
 }
 
@@ -117,7 +119,12 @@ async function main(): Promise<void> {
   const parsed = parseArgs(process.argv.slice(2));
   const verifyEvidencePath = getStringFlag(parsed.flags, "verify-evidence");
   if (verifyEvidencePath) {
-    const output = verifySlackSmokeEvidenceFile(verifyEvidencePath);
+    const envFile = getStringFlag(parsed.flags, "env-file");
+    const expectedContext = envFile ? buildSlackSmokeContext(readEnv(envFile)) : undefined;
+    const output = verifySlackSmokeEvidenceFile(verifyEvidencePath, {
+      expectedContext,
+      requireExpectedContext: Boolean(envFile),
+    });
     if (parsed.flags.json === true) {
       console.log(JSON.stringify(output, null, 2));
     } else {
@@ -177,7 +184,7 @@ export function buildSlackSmokeDryRunOutput(env: Record<string, string | undefin
       "npm run smoke:slack -- --env-file scripts/slack/.env --live --evidence runtime-output/slack-smoke/live.json --json",
       "SLACK_SMOKE_LIVE_MODE=app_mention npm run smoke:slack -- --env-file scripts/slack/.env --live --evidence runtime-output/slack-smoke/live.json --json",
       "SLACK_SMOKE_LIVE_MODE=file_upload npm run smoke:slack -- --env-file scripts/slack/.env --live --evidence runtime-output/slack-smoke/live.json --json",
-      "npm run smoke:slack:verify -- --json",
+      "npm run smoke:slack:verify -- --env-file scripts/slack/.env --json",
       "agent-space integrations slack evidence --workspace-id $AGENT_SPACE_WORKSPACE_ID --integration $AGENT_SPACE_SLACK_INTEGRATION_ID --strict --require message --json",
       "agent-space integrations slack evidence --workspace-id $AGENT_SPACE_WORKSPACE_ID --integration $AGENT_SPACE_SLACK_INTEGRATION_ID --live-smoke-evidence runtime-output/slack-smoke/live.json --strict --require all --json",
       "agent-space integrations slack outbox drain --workspace-id $AGENT_SPACE_WORKSPACE_ID --integration $AGENT_SPACE_SLACK_INTEGRATION_ID --json",
@@ -1034,7 +1041,10 @@ function readSlackSmokeEvidenceArtifact(path: string): Record<string, unknown>[]
   );
 }
 
-function verifySlackSmokeEvidenceFile(path: string): SlackSmokeEvidenceVerificationOutput {
+function verifySlackSmokeEvidenceFile(path: string, input: {
+  expectedContext?: SlackSmokeContext;
+  requireExpectedContext?: boolean;
+} = {}): SlackSmokeEvidenceVerificationOutput {
   const checkedAt = new Date();
   const issues: string[] = [];
   let artifactText = "";
@@ -1078,6 +1088,16 @@ function verifySlackSmokeEvidenceFile(path: string): SlackSmokeEvidenceVerificat
   if (artifact && !slackSmokeEvidenceContextComplete(context)) {
     issues.push("artifact_context_incomplete");
   }
+  const expectedContextComplete = slackSmokeEvidenceContextComplete(input.expectedContext);
+  const contextMatched = expectedContextComplete
+    ? slackSmokeEvidenceContextsMatch(context, input.expectedContext)
+    : slackSmokeEvidenceContextComplete(context);
+  if (input.requireExpectedContext && !expectedContextComplete) {
+    issues.push("expected_context_incomplete");
+  }
+  if (expectedContextComplete && !contextMatched) {
+    issues.push("expected_context_mismatch");
+  }
 
   const freshRuns = runs.filter((run) => {
     const runGeneratedAt = readString(run.generatedAt);
@@ -1107,12 +1127,14 @@ function verifySlackSmokeEvidenceFile(path: string): SlackSmokeEvidenceVerificat
     valid: uniqueIssues.length === 0,
     generatedAt,
     ...(context ? { context } : {}),
+    ...(input.expectedContext ? { expectedContext: input.expectedContext } : {}),
     summary: {
       runCount: runs.length,
       freshRunCount: freshRuns.length,
       requiredModes: SLACK_SMOKE_REQUIRED_LIVE_MODES,
       satisfiedModes,
       missingModes,
+      contextMatched,
     },
     issues: uniqueIssues,
   };

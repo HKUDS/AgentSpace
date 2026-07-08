@@ -1141,7 +1141,7 @@ rawPayload = summarized payload or original safe subset
 - [ ] live `chat.postMessage` disposable channel。
 - [ ] live app mention -> AgentSpace message -> outbox reply。
 - [ ] `agent-space integrations slack evidence --strict --require all --json`
-- [x] `npm run smoke:slack:verify -- --json` 可离线校验 live artifact 覆盖三种 Slack live run、context freshness 和脱敏红线。
+- [x] `npm run smoke:slack:verify -- --env-file scripts/slack/.env --json` 可离线校验 live artifact 覆盖三种 Slack live run、env context matching 和脱敏红线。
 
 证据：
 
@@ -1152,8 +1152,8 @@ rawPayload = summarized payload or original safe subset
 - live smoke 的 `post_message` / `app_mention` / `file_upload` 三种模式现在都会在发请求前要求 `SLACK_SMOKE_APP_ID` 和 `SLACK_SMOKE_TEAM_ID`，避免生成缺少 app/team context、后续 strict evidence 无法接受的 artifact。
 - `--evidence` 只写入 ready 的 live/replay runs；JSON 输出 `evidenceArtifact.written`，dry-run 误带 `--evidence`、env 不完整、Slack API 失败或 webhook replay 失败时都会退出非 0 且不会污染最终 artifact。
 - smoke 脚本复用同一 evidence path 时会按当前 workspace/integration/app/team context 过滤历史 runs，避免切换 Slack app 或 integration 后把其他验收上下文混进最终 artifact。
-- `--verify-evidence` / `npm run smoke:slack:verify -- --json` 会在最终 AgentSpace evidence 前离线验证 artifact：必须 24 小时内覆盖 `post_message`、`app_mention`、`file_upload` 三种 live run，每条 run 都带 workspace/integration/app/team context，且不能包含 token-like 值、raw Slack id、raw message ts 或 private file URL。
-- `smoke-plan`、`smoke-env` 和 final evidence remediation 的 next commands 都包含 `npm run smoke:slack:verify -- --json`，避免操作者跳过 live artifact 离线校验。
+- `--verify-evidence` / `npm run smoke:slack:verify -- --env-file scripts/slack/.env --json` 会在最终 AgentSpace evidence 前离线验证 artifact：必须 24 小时内覆盖 `post_message`、`app_mention`、`file_upload` 三种 live run，匹配 env-file 的 workspace/integration/app/team context，每条 run 都带 context，且不能包含 token-like 值、raw Slack id、raw message ts 或 private file URL。
+- `smoke-plan`、`smoke-env` 和 final evidence remediation 的 next commands 都包含 `npm run smoke:slack:verify -- --env-file scripts/slack/.env --json`，避免操作者跳过 live artifact 离线校验。
 - final evidence gate 也要求 live run 具备对应的安全引用：`post_message` 需要 channel/message reference，`app_mention` 需要 channel/bot user reference，`file_upload` 需要 channel/file reference，避免仅凭 `ok=true` 的不完整 artifact 通过。
 - strict final evidence 要求累积 artifact 的每条 live run 都自带 workspace/integration/app/team context，且逐条满足 24 小时 freshness；只有旧版单 run artifact 才允许回退使用顶层 context，避免历史 contextless 或 stale runs 在追加新 run 后被误复用。
 - strict Slack evidence 会忽略超过 24 小时的本地 event / mapping / outbox 证据；如果旧记录本可满足门禁但 fresh 证据不足，最终报告会以 `local_evidence_stale` 阻断，避免用历史 smoke 误通过验收。
