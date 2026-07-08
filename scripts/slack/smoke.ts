@@ -2,6 +2,7 @@ import { createHmac } from "node:crypto";
 import { readFileSync } from "node:fs";
 
 type SmokeStatus = "pass" | "fail";
+type SlackSmokeLiveMode = "post_message" | "app_mention";
 
 interface SlackSmokeEnvItem {
   key: string;
@@ -30,8 +31,11 @@ interface SlackSmokeOutput {
 interface SlackSmokeLiveResult {
   attempted: boolean;
   ok: boolean;
+  mode: SlackSmokeLiveMode;
   channelReference?: string;
   messageReference?: string;
+  botUserReference?: string;
+  appMentionText?: boolean;
   retryAfterSeconds?: number;
   errorCode?: string;
   errorMessage?: string;
@@ -126,22 +130,49 @@ export function buildSlackSmokeDryRunOutput(env: Record<string, string | undefin
 
 export async function buildSlackSmokeLiveOutput(env: Record<string, string | undefined>): Promise<SlackSmokeOutput> {
   const dryRunOutput = buildSlackSmokeDryRunOutput(env);
+  const liveMode = readSlackSmokeLiveMode(env.SLACK_SMOKE_LIVE_MODE);
   const botToken = env.SLACK_BOT_TOKEN?.trim();
+  const postToken = env.SLACK_SMOKE_POST_TOKEN?.trim();
   const channelId = env.SLACK_SMOKE_CHANNEL_ID?.trim();
   const messageText = env.SLACK_SMOKE_MESSAGE_TEXT?.trim() || "AgentSpace Slack smoke";
   const threadTs = env.SLACK_SMOKE_THREAD_TS?.trim();
+  const botUserId = env.SLACK_SMOKE_BOT_USER_ID?.trim();
   const missingLive = [
-    ...(botToken && !isPlaceholderValue(botToken) ? [] : ["SLACK_BOT_TOKEN"]),
+    ...(liveMode === "post_message" && botToken && !isPlaceholderValue(botToken) ? [] : liveMode === "post_message" ? ["SLACK_BOT_TOKEN"] : []),
+    ...(liveMode === "app_mention" && postToken && !isPlaceholderValue(postToken) ? [] : liveMode === "app_mention" ? ["SLACK_SMOKE_POST_TOKEN"] : []),
+    ...(liveMode === "app_mention" && botUserId && !isPlaceholderValue(botUserId) ? [] : liveMode === "app_mention" ? ["SLACK_SMOKE_BOT_USER_ID"] : []),
     ...(channelId && !isPlaceholderValue(channelId) ? [] : ["SLACK_SMOKE_CHANNEL_ID"]),
   ];
   const items = [
     ...dryRunOutput.items,
     {
-      key: "SLACK_BOT_TOKEN",
+      key: "SLACK_SMOKE_LIVE_MODE",
       required: true,
-      status: missingLive.includes("SLACK_BOT_TOKEN") ? "fail" : "pass",
-      note: missingLive.includes("SLACK_BOT_TOKEN") ? "missing_or_placeholder" : "configured",
+      status: "pass",
+      note: liveMode,
     } satisfies SlackSmokeEnvItem,
+    {
+      key: "SLACK_BOT_TOKEN",
+      required: liveMode === "post_message",
+      status: missingLive.includes("SLACK_BOT_TOKEN") ? "fail" : "pass",
+      note: liveMode === "post_message"
+        ? missingLive.includes("SLACK_BOT_TOKEN") ? "missing_or_placeholder" : "configured"
+        : "not_required_for_app_mention_mode",
+    } satisfies SlackSmokeEnvItem,
+    ...(liveMode === "app_mention" ? [
+      {
+        key: "SLACK_SMOKE_POST_TOKEN",
+        required: true,
+        status: missingLive.includes("SLACK_SMOKE_POST_TOKEN") ? "fail" : "pass",
+        note: missingLive.includes("SLACK_SMOKE_POST_TOKEN") ? "missing_or_placeholder" : "configured",
+      } satisfies SlackSmokeEnvItem,
+      {
+        key: "SLACK_SMOKE_BOT_USER_ID",
+        required: true,
+        status: missingLive.includes("SLACK_SMOKE_BOT_USER_ID") ? "fail" : "pass",
+        note: missingLive.includes("SLACK_SMOKE_BOT_USER_ID") ? "missing_or_placeholder" : "configured",
+      } satisfies SlackSmokeEnvItem,
+    ] : []),
   ];
   if (dryRunOutput.missingRequired.length > 0 || missingLive.length > 0) {
     const missingRequired = [...new Set([...dryRunOutput.missingRequired, ...missingLive])];
@@ -153,8 +184,11 @@ export async function buildSlackSmokeLiveOutput(env: Record<string, string | und
       liveResult: {
         attempted: false,
         ok: false,
+        mode: liveMode,
         errorCode: "slack.smoke.live_env_incomplete",
-        errorMessage: "Slack live smoke requires a complete env and SLACK_BOT_TOKEN.",
+        errorMessage: liveMode === "app_mention"
+          ? "Slack app mention live smoke requires a complete env, SLACK_SMOKE_POST_TOKEN, and SLACK_SMOKE_BOT_USER_ID."
+          : "Slack live smoke requires a complete env and SLACK_BOT_TOKEN.",
       },
       summary: {
         required: items.length,
@@ -167,11 +201,14 @@ export async function buildSlackSmokeLiveOutput(env: Record<string, string | und
   }
 
   const liveResult = await sendSlackSmokeMessage({
-    botToken: botToken ?? "",
+    token: liveMode === "app_mention" ? postToken ?? "" : botToken ?? "",
     channelId: channelId ?? "",
-    text: messageText,
+    text: liveMode === "app_mention" ? `<@${botUserId}> ${messageText}` : messageText,
     threadTs,
     baseUrl: env.SLACK_API_BASE_URL?.trim(),
+    mode: liveMode,
+    botUserId,
+    sensitiveValues: [botToken, postToken, channelId, threadTs, botUserId],
   });
   return {
     ...dryRunOutput,
@@ -407,17 +444,20 @@ function createSlackSignature(input: {
 }
 
 async function sendSlackSmokeMessage(input: {
-  botToken: string;
+  token: string;
   channelId: string;
   text: string;
   threadTs?: string;
   baseUrl?: string;
+  mode: SlackSmokeLiveMode;
+  botUserId?: string;
+  sensitiveValues?: Array<string | undefined>;
 }): Promise<SlackSmokeLiveResult> {
   try {
     const response = await fetch(`${input.baseUrl || "https://slack.com/api"}/chat.postMessage`, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${input.botToken}`,
+        Authorization: `Bearer ${input.token}`,
         "content-type": "application/json; charset=utf-8",
       },
       body: JSON.stringify({
@@ -432,21 +472,39 @@ async function sendSlackSmokeMessage(input: {
     return {
       attempted: true,
       ok,
+      mode: input.mode,
       channelReference: buildSafeReference("channel", typeof data.channel === "string" ? data.channel : input.channelId),
       messageReference: typeof data.ts === "string" ? buildSafeReference("message", data.ts) : undefined,
+      botUserReference: input.mode === "app_mention" ? buildSafeReference("user", input.botUserId) : undefined,
+      appMentionText: input.mode === "app_mention" ? true : undefined,
       retryAfterSeconds: Number.isFinite(retryAfter) ? retryAfter : undefined,
       errorCode: ok ? undefined : normalizeSlackSmokeErrorCode(data.error, response.status),
       errorMessage: ok
         ? undefined
-        : sanitizeSlackSmokeMessage(typeof data.error === "string" ? data.error : `Slack chat.postMessage failed with HTTP ${response.status}.`, [input.botToken, input.channelId, input.threadTs]),
+        : sanitizeSlackSmokeMessage(typeof data.error === "string" ? data.error : `Slack chat.postMessage failed with HTTP ${response.status}.`, [
+          input.token,
+          input.channelId,
+          input.threadTs,
+          input.botUserId,
+          ...(input.sensitiveValues ?? []),
+        ]),
     };
   } catch (error) {
     return {
       attempted: true,
       ok: false,
+      mode: input.mode,
       channelReference: buildSafeReference("channel", input.channelId),
+      botUserReference: input.mode === "app_mention" ? buildSafeReference("user", input.botUserId) : undefined,
+      appMentionText: input.mode === "app_mention" ? true : undefined,
       errorCode: "slack.smoke.network_failed",
-      errorMessage: sanitizeSlackSmokeMessage(error instanceof Error ? error.message : String(error), [input.botToken, input.channelId, input.threadTs]),
+      errorMessage: sanitizeSlackSmokeMessage(error instanceof Error ? error.message : String(error), [
+        input.token,
+        input.channelId,
+        input.threadTs,
+        input.botUserId,
+        ...(input.sensitiveValues ?? []),
+      ]),
     };
   }
 }
@@ -460,9 +518,12 @@ function formatSlackSmokeDryRunOutput(output: SlackSmokeOutput): string {
     lines.push(`- ${item.key}: ${item.status} (${item.note})`);
   }
   if (output.liveResult) {
-    lines.push(`Live send: ${output.liveResult.ok ? "sent" : "failed"}`);
+    lines.push(`Live send (${output.liveResult.mode}): ${output.liveResult.ok ? "sent" : "failed"}`);
     if (output.liveResult.channelReference) {
       lines.push(`- channel: ${output.liveResult.channelReference}`);
+    }
+    if (output.liveResult.botUserReference) {
+      lines.push(`- bot user: ${output.liveResult.botUserReference}`);
     }
     if (output.liveResult.messageReference) {
       lines.push(`- message: ${output.liveResult.messageReference}`);
@@ -622,6 +683,11 @@ function parseJsonRecord(value: string): Record<string, unknown> | undefined {
 
 function readString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function readSlackSmokeLiveMode(value: string | undefined): SlackSmokeLiveMode {
+  const normalized = value?.trim();
+  return normalized === "app_mention" ? "app_mention" : "post_message";
 }
 
 function isPlaceholderValue(value: string | undefined): boolean {

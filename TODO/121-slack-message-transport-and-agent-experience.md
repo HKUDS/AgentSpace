@@ -1142,6 +1142,11 @@ rawPayload = summarized payload or original safe subset
 - [ ] live app mention -> AgentSpace message -> outbox reply。
 - [ ] `agent-space integrations slack evidence --strict --require all --json`
 
+证据：
+
+- `scripts/slack/smoke.ts` 的 `--live` 现在支持 `SLACK_SMOKE_LIVE_MODE=post_message|app_mention`。默认 `post_message` 继续用 `SLACK_BOT_TOKEN` 发 disposable `chat.postMessage`；`app_mention` 模式使用 `SLACK_SMOKE_POST_TOKEN` 发送 `<@SLACK_SMOKE_BOT_USER_ID> ...`，用于真实触发 Slack Events API 后再跑 AgentSpace evidence。
+- `scripts/slack/smoke.test.ts` 覆盖 live `app_mention` 模式会使用 post token、发送 bot mention 文本，并且 JSON 输出不泄露 post token、bot token、channel/user/bot 原始 ID。
+
 ## 验收标准
 
 MVP 完成标准：
