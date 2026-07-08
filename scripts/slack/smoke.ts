@@ -99,6 +99,17 @@ interface SlackSmokeEvidenceVerificationOutput {
   issues: string[];
 }
 
+interface SlackSmokeFatalOutput {
+  generatedAt: string;
+  mode: SlackSmokeOutput["mode"] | "verify-evidence";
+  ready: false;
+  errorCode: "slack.smoke.env_file_read_failed" | "slack.smoke.unexpected_error";
+  errorMessage: string;
+  envFileReference?: string;
+  issues: string[];
+  nextCommands: string[];
+}
+
 interface ParsedArgs {
   flags: Record<string, string | boolean>;
 }
@@ -946,6 +957,46 @@ function formatSlackSmokeEvidenceVerificationOutput(output: SlackSmokeEvidenceVe
   return lines.join("\n");
 }
 
+function formatSlackSmokeFatalOutput(output: SlackSmokeFatalOutput): string {
+  const lines = [
+    `Slack smoke: failed`,
+    `Mode: ${output.mode}`,
+    `Error: ${output.errorCode}`,
+    output.errorMessage,
+  ];
+  if (output.envFileReference) {
+    lines.push(`Env file: ${output.envFileReference}`);
+  }
+  lines.push("Next commands:");
+  for (const command of output.nextCommands) {
+    lines.push(`- ${command}`);
+  }
+  return lines.join("\n");
+}
+
+function buildSlackSmokeFatalOutput(error: unknown, parsed: ParsedArgs): SlackSmokeFatalOutput {
+  const envFile = getStringFlag(parsed.flags, "env-file");
+  const envFileReadFailed = Boolean(envFile) && isFileReadError(error);
+  const errorCode = envFileReadFailed
+    ? "slack.smoke.env_file_read_failed"
+    : "slack.smoke.unexpected_error";
+  return {
+    generatedAt: new Date().toISOString(),
+    mode: resolveSlackSmokeFatalMode(parsed.flags),
+    ready: false,
+    errorCode,
+    errorMessage: errorCode === "slack.smoke.env_file_read_failed"
+      ? "Slack smoke env file could not be read. Generate scripts/slack/.env from the Slack smoke-env command before running live or evidence verification checks."
+      : "Slack smoke failed before producing a normal report.",
+    ...(envFile ? { envFileReference: buildSafePathReference(envFile) } : {}),
+    issues: [errorCode],
+    nextCommands: [
+      "agent-space integrations slack smoke-env --workspace-id default --integration CHANGE_ME_SLACK_INTEGRATION_ID --app-url https://agentspace.example.com > scripts/slack/.env",
+      "npm run smoke:slack -- --env-file scripts/slack/.env --check-env --json",
+    ],
+  };
+}
+
 function readEnv(envFile: string | undefined): Record<string, string | undefined> {
   return {
     ...(envFile ? parseEnvFile(readFileSync(envFile, "utf8")) : {}),
@@ -1266,6 +1317,9 @@ function parseArgs(args: string[]): ParsedArgs {
   const flags: Record<string, string | boolean> = {};
   for (let index = 0; index < args.length; index += 1) {
     const token = args[index];
+    if (token === "--") {
+      continue;
+    }
     if (!token.startsWith("--")) {
       continue;
     }
@@ -1284,6 +1338,19 @@ function parseArgs(args: string[]): ParsedArgs {
 function getStringFlag(flags: Record<string, string | boolean>, key: string): string | undefined {
   const value = flags[key];
   return typeof value === "string" ? value : undefined;
+}
+
+function resolveSlackSmokeFatalMode(flags: Record<string, string | boolean>): SlackSmokeFatalOutput["mode"] {
+  if (getStringFlag(flags, "verify-evidence")) {
+    return "verify-evidence";
+  }
+  if (flags["replay-webhook"] === true) {
+    return "webhook-replay";
+  }
+  if (flags.live === true) {
+    return "live";
+  }
+  return "dry-run";
 }
 
 function describeSlackSmokeEnvItem(key: string, value: string | undefined, ready: boolean): string {
@@ -1434,6 +1501,18 @@ function buildSafeUrlReference(value: string | undefined): string | undefined {
   }
 }
 
+function buildSafePathReference(value: string): string {
+  return value
+    .replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+/g, "[email]")
+    .replace(/\b(?:xox[a-z]?|xapp)-[A-Za-z0-9-]+/gi, "[redacted]")
+    .slice(0, 240);
+}
+
+function isFileReadError(error: unknown): boolean {
+  const code = readRecord(error)?.code;
+  return code === "ENOENT" || code === "EACCES" || code === "EISDIR" || code === "ENOTDIR";
+}
+
 function sanitizeSlackSmokeMessage(
   message: string | undefined,
   sensitiveValues: Array<string | undefined>,
@@ -1453,4 +1532,13 @@ function sanitizeSlackSmokeMessage(
   return sanitized.slice(0, 1000);
 }
 
-void main();
+void main().catch((error: unknown) => {
+  const parsed = parseArgs(process.argv.slice(2));
+  const output = buildSlackSmokeFatalOutput(error, parsed);
+  if (parsed.flags.json === true) {
+    console.log(JSON.stringify(output, null, 2));
+  } else {
+    console.error(formatSlackSmokeFatalOutput(output));
+  }
+  process.exitCode = 1;
+});

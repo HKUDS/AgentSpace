@@ -7,6 +7,83 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
+test("Slack smoke reports missing env file as structured JSON", () => {
+  const directory = mkdtempSync(join(tmpdir(), "agentspace-slack-smoke-"));
+  try {
+    const missingEnvPath = join(directory, "missing.env");
+    const result = spawnSync(process.execPath, [
+      "--experimental-strip-types",
+      "scripts/slack/smoke.ts",
+      "--",
+      "--env-file",
+      missingEnvPath,
+      "--check-env",
+      "--json",
+    ], {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      env: {},
+    });
+
+    assert.equal(result.status, 1);
+    assert.doesNotMatch(result.stderr, /xoxb|xapp|C123|T123|U123/);
+    const output = JSON.parse(result.stdout) as {
+      ready?: boolean;
+      mode?: string;
+      errorCode?: string;
+      issues?: string[];
+      nextCommands?: string[];
+    };
+    assert.equal(output.ready, false);
+    assert.equal(output.mode, "dry-run");
+    assert.equal(output.errorCode, "slack.smoke.env_file_read_failed");
+    assert.ok(output.issues?.includes("slack.smoke.env_file_read_failed"));
+    assert.ok(output.nextCommands?.includes("npm run smoke:slack -- --env-file scripts/slack/.env --check-env --json"));
+    assert.doesNotMatch(result.stdout, /xoxb|xapp|C123|T123|U123/);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("Slack smoke evidence verifier reports missing env file as structured JSON", () => {
+  const directory = mkdtempSync(join(tmpdir(), "agentspace-slack-smoke-"));
+  try {
+    const evidencePath = join(directory, "live.json");
+    const missingEnvPath = join(directory, "missing.env");
+    writeFileSync(evidencePath, JSON.stringify({ schemaVersion: 1, provider: "slack", runs: [] }));
+    const result = spawnSync(process.execPath, [
+      "--experimental-strip-types",
+      "scripts/slack/smoke.ts",
+      "--",
+      "--verify-evidence",
+      evidencePath,
+      "--env-file",
+      missingEnvPath,
+      "--json",
+    ], {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      env: {},
+    });
+
+    assert.equal(result.status, 1);
+    assert.doesNotMatch(result.stderr, /xoxb|xapp|C123|T123|U123/);
+    const output = JSON.parse(result.stdout) as {
+      ready?: boolean;
+      mode?: string;
+      errorCode?: string;
+      issues?: string[];
+    };
+    assert.equal(output.ready, false);
+    assert.equal(output.mode, "verify-evidence");
+    assert.equal(output.errorCode, "slack.smoke.env_file_read_failed");
+    assert.ok(output.issues?.includes("slack.smoke.env_file_read_failed"));
+    assert.doesNotMatch(result.stdout, /xoxb|xapp|C123|T123|U123/);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test("Slack smoke dry-run rejects placeholder env without leaking ids", () => {
   const directory = mkdtempSync(join(tmpdir(), "agentspace-slack-smoke-"));
   try {
@@ -23,6 +100,7 @@ test("Slack smoke dry-run rejects placeholder env without leaking ids", () => {
     const result = spawnSync(process.execPath, [
       "--experimental-strip-types",
       "scripts/slack/smoke.ts",
+      "--",
       "--env-file",
       envPath,
       "--check-env",
@@ -63,6 +141,7 @@ test("Slack smoke dry-run accepts filled non-secret env", () => {
     const result = spawnSync(process.execPath, [
       "--experimental-strip-types",
       "scripts/slack/smoke.ts",
+      "--",
       "--env-file",
       envPath,
       "--check-env",
@@ -108,6 +187,7 @@ test("Slack smoke dry-run refuses evidence artifact writes", () => {
     const result = spawnSync(process.execPath, [
       "--experimental-strip-types",
       "scripts/slack/smoke.ts",
+      "--",
       "--env-file",
       envPath,
       "--check-env",
@@ -1060,6 +1140,7 @@ async function runSmokeScript(args: string[], env: Record<string, string> = {}):
   const child = spawn(process.execPath, [
     "--experimental-strip-types",
     "scripts/slack/smoke.ts",
+    "--",
     ...args,
   ], {
     cwd: process.cwd(),

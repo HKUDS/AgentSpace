@@ -14,6 +14,8 @@ Check the env without Slack network calls:
 npm run smoke:slack -- --env-file scripts/slack/.env --check-env --json
 ```
 
+Use the `npm run smoke:slack` and `npm run smoke:slack:verify` entrypoints instead of calling `node scripts/slack/smoke.ts` directly; the npm scripts insert a `--` separator so Node does not consume the smoke harness `--env-file` flag.
+
 The dry-run validates callback URL shape, workspace/integration ids, and disposable Slack channel/user placeholders. It does not read or print Slack bot tokens, app-level tokens, signing secrets, channel contents, or message text. Use the AgentSpace CLI health/readiness commands for saved credential checks:
 
 ```bash
