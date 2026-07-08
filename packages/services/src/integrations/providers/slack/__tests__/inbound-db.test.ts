@@ -226,6 +226,88 @@ test("agent-scoped Slack bots in the same Slack channel route to their own Agent
   assert.equal(JSON.stringify(promptsMetadata).includes("UMINA"), false);
 });
 
+test("Slack inbound ignores channel permission denial with a thread notice", databaseTestOptions, () => {
+  seedSlackAgentBotWorkspace();
+  const user = createUserSync({
+    displayName: "Ravi",
+    primaryEmail: "ravi-slack-denied@example.com",
+  });
+  createWorkspaceMembershipSync({
+    workspaceId: DEFAULT_WORKSPACE_ID,
+    userId: user.id,
+    role: "member",
+  });
+  const integration = createSlackAgentBotIntegration({
+    displayName: "Slack Atlas Bot",
+    appId: "A_ATLAS",
+    agentId: "Atlas",
+    botUserId: "UATLAS",
+  });
+  const channelBinding = upsertExternalChannelBindingSync({
+    workspaceId: DEFAULT_WORKSPACE_ID,
+    integrationId: integration.id,
+    channelName: "general",
+    externalChatId: "C_SHARED",
+    externalChatType: "channel",
+    externalChatName: "shared-agent-channel",
+  });
+  upsertExternalUserBindingSync({
+    workspaceId: DEFAULT_WORKSPACE_ID,
+    integrationId: integration.id,
+    userId: user.id,
+    externalUserId: "URAVI",
+    displayName: "Ravi",
+  });
+
+  const result = processSlackInboundEventSync({
+    context: {
+      workspaceId: DEFAULT_WORKSPACE_ID,
+      integrationId: integration.id,
+      provider: SLACK_PROVIDER_ID,
+    },
+    integration,
+    payload: buildSlackMentionPayload({
+      eventId: "EvDenied",
+      appId: "A_ATLAS",
+      botUserId: "UATLAS",
+      userId: "URAVI",
+      messageTs: "1783400003.000100",
+      text: "<@UATLAS> draft a launch update",
+    }),
+  });
+
+  assert.equal(result.dispatchStatus, "ignored");
+  assert.equal(result.reasonCode, "slack.channel_access_denied");
+  assert.equal(result.mappedChannelName, "general");
+  assert.equal(result.noticeOutbox?.channelBindingId, channelBinding.id);
+  assert.equal(listQueuedTasksSync().length, 0);
+
+  const metadata = JSON.parse(result.mapping?.metadataJson ?? "{}") as Record<string, unknown>;
+  assert.equal(metadata.dispatchStatus, "ignored");
+  assert.equal(metadata.reasonCode, "slack.channel_access_denied");
+  assert.equal(metadata.userId, user.id);
+  assert.equal(JSON.stringify(metadata).includes("URAVI"), false);
+  assert.equal(JSON.stringify(metadata).includes("C_SHARED"), false);
+
+  const outbox = listExternalMessageOutboxSync({
+    workspaceId: DEFAULT_WORKSPACE_ID,
+    integrationId: integration.id,
+  });
+  assert.equal(outbox.length, 1);
+  assert.equal(outbox[0]?.id, result.noticeOutbox?.id);
+  assert.equal(outbox[0]?.targetExternalChatId, "C_SHARED");
+  assert.equal(outbox[0]?.targetExternalThreadId, "1783400003.000100");
+  const payload = JSON.parse(outbox[0]?.payloadJson ?? "{}") as Record<string, unknown>;
+  assert.equal(payload.channel, "C_SHARED");
+  assert.equal(payload.thread_ts, "1783400003.000100");
+  assert.match(String(payload.text), /cannot access this channel/);
+  const outboxMetadata = JSON.parse(outbox[0]?.metadataJson ?? "{}") as Record<string, unknown>;
+  assert.equal(outboxMetadata.outboxSource, "inbound_permission_notice");
+  assert.equal(outboxMetadata.noticeType, "permission_denied");
+  assert.equal(JSON.stringify(outboxMetadata).includes("C_SHARED"), false);
+  assert.equal(JSON.stringify(outboxMetadata).includes("URAVI"), false);
+});
+
 function seedSlackAgentBotWorkspace(): void {
   resetWorkspaceStateSync(DEFAULT_WORKSPACE_ID);
   initializeOrganizationSync({
@@ -288,6 +370,7 @@ function buildSlackMentionPayload(input: {
   eventId: string;
   appId: string;
   botUserId: string;
+  userId?: string;
   messageTs: string;
   text: string;
   appContext?: Record<string, unknown>;
@@ -302,7 +385,7 @@ function buildSlackMentionPayload(input: {
       type: "app_mention",
       channel: "C_SHARED",
       channel_type: "channel",
-      user: "UMINA",
+      user: input.userId ?? "UMINA",
       text: input.text,
       ts: input.messageTs,
       event_ts: input.messageTs,

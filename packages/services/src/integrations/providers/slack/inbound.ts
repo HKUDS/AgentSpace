@@ -1,18 +1,29 @@
 import {
+  createExternalMessageOutboxSync,
   createExternalMessageMappingSync,
+  readEmployeeRuntimeBindingSync,
   readExternalChannelBindingByExternalChatSync,
   readExternalMessageMappingByExternalMessageSync,
   readExternalUserBindingByExternalUserSync,
   readUserSync,
+  readWorkspaceMembershipSync,
   recordExternalIntegrationEventSync,
   updateExternalIntegrationEventStatusSync,
   type ExternalIntegrationEventRecord,
   type ExternalIntegrationRecord,
   type ExternalMessageMappingRecord,
+  type ExternalMessageOutboxRecord,
 } from "@agent-space/db";
 import type { AgentSpaceState, MessageAttachment, WorkspaceMessage } from "@agent-space/domain/workspace";
 import type { ExternalMessageEnvelope, IntegrationRuntimeContext } from "../../core/index.ts";
+import { canWriteChannelForActorSync } from "../../../channel-access/channel-access.ts";
 import { sendChannelHumanMessageSync } from "../../../messages/messages.ts";
+import {
+  canUseEmployeeInChannelForActorSync,
+  canUseEmployeeRuntimeInChannelForActorSync,
+} from "../../../runtime-access/runtime-access.ts";
+import { sameValue } from "../../../shared/helpers.ts";
+import { readWorkspaceStateSync } from "../../../shared/state-io.ts";
 import type { SlackInboundAttachmentDownloader } from "./attachments.ts";
 import { SLACK_PROVIDER_ID } from "./constants.ts";
 import {
@@ -28,7 +39,10 @@ import {
   ensureSlackAgentMentionText,
   normalizeSlackInboundMessage,
 } from "./normalize-message.ts";
-import { queueSlackAppHomeOpenedWelcomeOutboxSync } from "./outbound.ts";
+import {
+  buildSlackTextOutboundMessage,
+  queueSlackAppHomeOpenedWelcomeOutboxSync,
+} from "./outbound.ts";
 
 export interface SlackInboundProcessResult {
   event: ExternalIntegrationEventRecord;
@@ -38,6 +52,7 @@ export interface SlackInboundProcessResult {
   mappedChannelName?: string;
   mapping?: ExternalMessageMappingRecord;
   agentSpaceMessageId?: string;
+  noticeOutbox?: ExternalMessageOutboxRecord;
 }
 
 export interface ProcessSlackInboundEventInput {
@@ -252,12 +267,93 @@ function prepareSlackInboundDispatchSync(input: ProcessSlackInboundEventInput): 
   }
 
   const user = readUserSync(userBinding.userId);
+  const membership = readWorkspaceMembershipSync(input.context.workspaceId, userBinding.userId);
   const displayName = user?.displayName ?? userBinding.displayName ?? `Slack ${message.externalSenderId}`;
   const text = ensureSlackAgentMentionText({
     text: message.text ?? "",
     agentId: input.integration?.agentId,
   });
   const agentContext = summarizeSlackAgentContextPayload(input.payload);
+  if (!membership || !canWriteChannelForActorSync({
+    workspaceId: input.context.workspaceId,
+    channelName: channelBinding.channelName,
+    actor: {
+      userId: userBinding.userId,
+      displayName,
+      role: membership.role,
+    },
+  })) {
+    const mapping = createSlackInboundMapping({
+      context: input.context,
+      integration: input.integration,
+      message,
+      channelBinding,
+      userBinding,
+      agentContext,
+      reasonCode: "slack.channel_access_denied",
+      dispatchStatus: "ignored",
+    });
+    const noticeOutbox = queueSlackInboundNoticeSync({
+      context: input.context,
+      message,
+      channelBindingId: channelBinding.id,
+      text: "Your Slack identity is linked, but your AgentSpace account cannot access this channel. Ask an AgentSpace admin to add you to the channel before retrying.",
+    });
+    return {
+      ready: false,
+      result: finishIgnored({
+        context: input.context,
+        event,
+        message,
+        mappedChannelName: channelBinding.channelName,
+        reasonCode: "slack.channel_access_denied",
+        mapping,
+        noticeOutbox,
+      }),
+    };
+  }
+
+  const routeGuard = evaluateSlackAgentRouteGuardSync({
+    workspaceId: input.context.workspaceId,
+    channelName: channelBinding.channelName,
+    integration: input.integration,
+    actor: {
+      userId: userBinding.userId,
+      displayName,
+      role: membership.role,
+    },
+  });
+  if (!routeGuard.allowed) {
+    const mapping = createSlackInboundMapping({
+      context: input.context,
+      integration: input.integration,
+      message,
+      channelBinding,
+      userBinding,
+      agentContext,
+      reasonCode: routeGuard.reasonCode,
+      dispatchStatus: "ignored",
+    });
+    const noticeOutbox = queueSlackInboundNoticeSync({
+      context: input.context,
+      message,
+      channelBindingId: channelBinding.id,
+      text: "Your AgentSpace account cannot use this Slack agent in the mapped channel. Ask an AgentSpace admin to review agent and runtime access.",
+    });
+    return {
+      ready: false,
+      result: finishIgnored({
+        context: input.context,
+        event,
+        message,
+        mappedChannelName: channelBinding.channelName,
+        reasonCode: routeGuard.reasonCode,
+        mapping,
+        noticeOutbox,
+      }),
+    };
+  }
+
   return {
     ready: true,
     dispatch: {
@@ -372,6 +468,9 @@ function finishIgnored(input: {
   event: ExternalIntegrationEventRecord;
   message: ExternalMessageEnvelope | null;
   reasonCode: string;
+  mappedChannelName?: string;
+  mapping?: ExternalMessageMappingRecord;
+  noticeOutbox?: ExternalMessageOutboxRecord;
 }): SlackInboundProcessResult {
   const ignored = updateExternalIntegrationEventStatusSync({
     workspaceId: input.context.workspaceId,
@@ -385,7 +484,126 @@ function finishIgnored(input: {
     message: input.message,
     dispatchStatus: "ignored",
     reasonCode: input.reasonCode,
+    mappedChannelName: input.mappedChannelName,
+    mapping: input.mapping,
+    noticeOutbox: input.noticeOutbox,
   };
+}
+
+function createSlackInboundMapping(input: {
+  context: IntegrationRuntimeContext;
+  integration?: ExternalIntegrationRecord;
+  message: ExternalMessageEnvelope;
+  channelBinding: NonNullable<ReturnType<typeof readExternalChannelBindingByExternalChatSync>>;
+  userBinding?: NonNullable<ReturnType<typeof readExternalUserBindingByExternalUserSync>>;
+  agentContext: ReturnType<typeof summarizeSlackAgentContextPayload>;
+  dispatchStatus: SlackInboundProcessResult["dispatchStatus"] | "dispatching";
+  reasonCode?: string;
+}): ExternalMessageMappingRecord {
+  return createExternalMessageMappingSync({
+    workspaceId: input.context.workspaceId,
+    integrationId: input.context.integrationId,
+    channelBindingId: input.channelBinding.id,
+    direction: "inbound",
+    externalMessageId: input.message.externalMessageId,
+    externalThreadId: input.message.externalThreadId,
+    externalSenderId: input.message.externalSenderId,
+    externalEventId: input.message.externalEventId,
+    metadataJson: {
+      provider: SLACK_PROVIDER_ID,
+      channelName: input.channelBinding.channelName,
+      slackChannelType: input.channelBinding.externalChatType,
+      agentContext: input.agentContext,
+      actorType: input.userBinding ? "user" : undefined,
+      userId: input.userBinding?.userId,
+      agentId: input.integration?.agentId,
+      botBindingId: input.integration?.agentId ? input.integration.id : undefined,
+      dispatchStatus: input.dispatchStatus,
+      reasonCode: input.reasonCode,
+    },
+  });
+}
+
+function queueSlackInboundNoticeSync(input: {
+  context: IntegrationRuntimeContext;
+  message: ExternalMessageEnvelope;
+  channelBindingId?: string;
+  text: string;
+}): ExternalMessageOutboxRecord {
+  const outbound = buildSlackTextOutboundMessage({
+    targetExternalChatId: input.message.externalChatId,
+    targetExternalThreadId: input.message.externalThreadId,
+    text: input.text,
+  });
+  return createExternalMessageOutboxSync({
+    workspaceId: input.context.workspaceId,
+    integrationId: input.context.integrationId,
+    channelBindingId: input.channelBindingId,
+    targetExternalChatId: outbound.targetExternalChatId,
+    targetExternalThreadId: outbound.targetExternalThreadId,
+    payloadJson: outbound.payload,
+    metadataJson: {
+      provider: SLACK_PROVIDER_ID,
+      outboxSource: "inbound_permission_notice",
+      noticeType: "permission_denied",
+      externalChatReference: `slack:${input.message.externalChatId.slice(0, 3)}...${input.message.externalChatId.slice(-3)}`,
+      externalThreadReference: input.message.externalThreadId
+        ? `slack:${input.message.externalThreadId.slice(0, 4)}...${input.message.externalThreadId.slice(-4)}`
+        : undefined,
+    },
+  });
+}
+
+function evaluateSlackAgentRouteGuardSync(input: {
+  workspaceId: string;
+  channelName: string;
+  integration?: ExternalIntegrationRecord;
+  actor: {
+    userId: string;
+    displayName?: string;
+    role?: Parameters<typeof canUseEmployeeInChannelForActorSync>[0]["actorRole"];
+  };
+}): { allowed: true } | { allowed: false; reasonCode: string } {
+  const agentId = input.integration?.agentId?.trim();
+  if (!agentId) {
+    return { allowed: true };
+  }
+
+  const state = readWorkspaceStateSync(input.workspaceId);
+  const channel = state.channels.find((item) => sameValue(item.name, input.channelName));
+  if (!channel) {
+    return { allowed: false, reasonCode: "slack.agent_channel_missing" };
+  }
+  const agent = state.activeEmployees.find((item) => sameValue(item.name, agentId));
+  if (!agent) {
+    return { allowed: false, reasonCode: "slack.agent_not_found" };
+  }
+  if (!agent.channels.some((channelName) => sameValue(channelName, channel.name))) {
+    return { allowed: false, reasonCode: "slack.agent_not_enabled_in_channel" };
+  }
+  if ((agent.channelMemberAccess ?? "enabled") !== "enabled") {
+    return { allowed: false, reasonCode: "slack.agent_channel_member_access_disabled" };
+  }
+  if (!readEmployeeRuntimeBindingSync(agent.name, input.workspaceId)) {
+    return { allowed: false, reasonCode: "slack.agent_runtime_unavailable" };
+  }
+
+  const common = {
+    workspaceId: input.workspaceId,
+    employeeName: agent.name,
+    channelName: channel.name,
+    actorUserId: input.actor.userId,
+    actorDisplayName: input.actor.displayName,
+    actorRole: input.actor.role,
+  };
+  if (!canUseEmployeeInChannelForActorSync(common)) {
+    return { allowed: false, reasonCode: "slack.agent_unavailable_to_actor" };
+  }
+  if (!canUseEmployeeRuntimeInChannelForActorSync(common)) {
+    return { allowed: false, reasonCode: "slack.agent_runtime_unavailable_to_actor" };
+  }
+
+  return { allowed: true };
 }
 
 function finishFailedDispatch(input: SlackInboundPreparedDispatch & {
