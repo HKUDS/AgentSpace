@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { createHmac } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -105,6 +105,7 @@ test("Slack smoke live requires app and team context before network calls", asyn
   assert.ok(address && typeof address === "object");
   const directory = mkdtempSync(join(tmpdir(), "agentspace-slack-smoke-"));
   try {
+    const evidencePath = join(directory, "live.json");
     const envPath = join(directory, ".env");
     writeFileSync(envPath, [
       "AGENT_SPACE_WORKSPACE_ID=default",
@@ -121,11 +122,14 @@ test("Slack smoke live requires app and team context before network calls", asyn
       "--env-file",
       envPath,
       "--live",
+      "--evidence",
+      evidencePath,
       "--json",
     ]);
 
     assert.equal(result.status, 1, result.stderr);
     assert.equal(requests.length, 0);
+    assert.equal(existsSync(evidencePath), false);
     const output = JSON.parse(result.stdout) as {
       ready: boolean;
       liveResult?: {
@@ -592,6 +596,7 @@ test("Slack smoke live evidence artifact accumulates redacted post, app mention,
 test("Slack webhook replay requires signing and app context env", async () => {
   const directory = mkdtempSync(join(tmpdir(), "agentspace-slack-smoke-"));
   try {
+    const evidencePath = join(directory, "live.json");
     const envPath = join(directory, ".env");
     writeFileSync(envPath, [
       "AGENT_SPACE_WORKSPACE_ID=default",
@@ -606,10 +611,13 @@ test("Slack webhook replay requires signing and app context env", async () => {
       "--env-file",
       envPath,
       "--replay-webhook",
+      "--evidence",
+      evidencePath,
       "--json",
     ]);
 
     assert.equal(result.status, 1, result.stderr);
+    assert.equal(existsSync(evidencePath), false);
     const output = JSON.parse(result.stdout) as {
       ready: boolean;
       webhookReplay?: {

@@ -96,7 +96,7 @@ async function main(): Promise<void> {
     ? await buildSlackSmokeLiveOutput(env)
     : buildSlackSmokeDryRunOutput(env);
   const evidencePath = getStringFlag(parsed.flags, "evidence");
-  if (evidencePath && (output.mode === "live" || output.mode === "webhook-replay")) {
+  if (evidencePath && output.ready && (output.mode === "live" || output.mode === "webhook-replay")) {
     writeSlackSmokeEvidenceArtifact(evidencePath, output);
   }
   if (parsed.flags.json === true) {
