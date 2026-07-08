@@ -162,6 +162,9 @@ test("builds strict Slack evidence reports without raw external ids", () => {
   assert.equal(report.summary.approvalSatisfiedCount, 1);
   assert.equal(report.summary.filesSatisfiedCount, 1);
   assert.equal(report.summary.staleEvidenceRowCount, 0);
+  assert.equal(report.summary.unhealthyIntegrationCount, 0);
+  assert.equal(report.integrations[0]?.healthCheck.healthy, true);
+  assert.equal(report.integrations[0]?.healthCheck.fresh, true);
   assert.equal(report.integrations[0]?.message.agentTaskQueueEvidence, 1);
   assert.deepEqual(report.integrations[0]?.blockers, []);
   assert.doesNotMatch(JSON.stringify(report), /A_SECRET|T_SECRET|C_SECRET|D_SECRET|U_SECRET|F_SECRET|url_private|files\.slack\.com|EvMessage|EvApproval|1783400000/);
@@ -496,6 +499,45 @@ test("Slack evidence strict all rejects stale local evidence rows", () => {
   assert.ok(report.integrations[0]?.warnings.includes("stale_local_evidence_ignored"));
 });
 
+test("Slack evidence strict all requires fresh healthy integration health", () => {
+  const degraded = buildSlackEvidenceReport({
+    workspaceId: "workspace-1",
+    strict: true,
+    required: "all",
+    requireLiveSmokeEvidence: true,
+    liveSmokeEvidence: makeLiveSmokeEvidence(),
+    dependencies: makeCompleteSlackEvidenceDependencies({
+      integration: makeIntegration({
+        lastHealthStatus: "degraded",
+        lastHealthCheckedAt: freshTimestamp(),
+      }),
+    }),
+  });
+
+  assert.equal(degraded.strictSatisfied, false);
+  assert.equal(degraded.summary.unhealthyIntegrationCount, 1);
+  assert.ok(degraded.integrations[0]?.blockers.includes("health_check_required_or_unhealthy"));
+  assert.ok(degraded.integrations[0]?.warnings.includes("health_check_not_ready"));
+
+  const staleHealth = buildSlackEvidenceReport({
+    workspaceId: "workspace-1",
+    strict: true,
+    required: "all",
+    requireLiveSmokeEvidence: true,
+    liveSmokeEvidence: makeLiveSmokeEvidence(),
+    dependencies: makeCompleteSlackEvidenceDependencies({
+      integration: makeIntegration({
+        lastHealthStatus: "healthy",
+        lastHealthCheckedAt: staleTimestamp(),
+      }),
+    }),
+  });
+
+  assert.equal(staleHealth.strictSatisfied, false);
+  assert.equal(staleHealth.summary.unhealthyIntegrationCount, 1);
+  assert.ok(staleHealth.integrations[0]?.blockers.includes("health_check_stale_or_missing"));
+});
+
 function makeIntegration(overrides: Partial<ExternalIntegrationRecord> = {}): ExternalIntegrationRecord {
   const timestamp = freshTimestamp();
   return {
@@ -513,6 +555,7 @@ function makeIntegration(overrides: Partial<ExternalIntegrationRecord> = {}): Ex
     capabilitiesJson: "{}",
     scopesJson: "[]",
     lastHealthStatus: "healthy",
+    lastHealthCheckedAt: timestamp,
     createdAt: timestamp,
     updatedAt: timestamp,
     ...overrides,
@@ -521,10 +564,11 @@ function makeIntegration(overrides: Partial<ExternalIntegrationRecord> = {}): Ex
 
 function makeCompleteSlackEvidenceDependencies(input: {
   timestamp?: string;
+  integration?: ExternalIntegrationRecord;
 } = {}): Parameters<typeof buildSlackEvidenceReport>[0]["dependencies"] {
   const timestamp = input.timestamp ?? freshTimestamp();
   return {
-    listIntegrations: () => [makeIntegration()],
+    listIntegrations: () => [input.integration ?? makeIntegration()],
     listChannelBindings: () => [makeChannelBinding()],
     listUserBindings: () => [makeUserBinding()],
     listEvents: () => [

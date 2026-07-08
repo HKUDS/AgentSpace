@@ -33,6 +33,7 @@ export interface SlackEvidenceReport {
     filesSatisfiedCount: number;
     unresolvedFailureCount: number;
     staleEvidenceRowCount: number;
+    unhealthyIntegrationCount: number;
   };
   liveSmokeEvidence?: SlackLiveSmokeEvidenceVerification;
   integrations: SlackEvidenceIntegrationItem[];
@@ -64,6 +65,13 @@ export interface SlackEvidenceIntegrationItem {
   healthStatus?: ExternalIntegrationRecord["lastHealthStatus"];
   appRef?: string;
   teamRef?: string;
+  healthCheck: {
+    required: boolean;
+    healthy: boolean;
+    fresh: boolean;
+    checkedAt?: string;
+    maxAgeHours: number;
+  };
   bindings: {
     activeChannels: number;
     activeUsers: number;
@@ -176,6 +184,7 @@ export function buildSlackEvidenceReport(input: {
       filesSatisfiedCount: items.filter((item) => item.files.satisfied).length,
       unresolvedFailureCount: items.reduce((count, item) => count + item.failures.failedEvents + item.failures.failedOutbox, 0),
       staleEvidenceRowCount: items.reduce((count, item) => count + item.freshness.staleEvidenceRows, 0),
+      unhealthyIntegrationCount: items.filter((item) => item.healthCheck.required && (!item.healthCheck.healthy || !item.healthCheck.fresh)).length,
     },
     ...(liveSmokeEvidence ? { liveSmokeEvidence } : {}),
     integrations: items,
@@ -329,7 +338,16 @@ function buildSlackEvidenceIntegrationItem(input: {
     rawRequiredSatisfied &&
     !locallySatisfied &&
     freshness.staleEvidenceRows > 0;
+  const healthCheck = {
+    required: input.requireFreshEvidence,
+    healthy: integration.lastHealthStatus === "healthy",
+    fresh: isFreshIsoTimestamp(integration.lastHealthCheckedAt ?? "", SLACK_LOCAL_EVIDENCE_FRESHNESS_WINDOW_MS),
+    checkedAt: integration.lastHealthCheckedAt,
+    maxAgeHours: SLACK_LOCAL_EVIDENCE_FRESHNESS_WINDOW_MS / (60 * 60 * 1000),
+  };
   const blockers = [
+    ...(healthCheck.required && !healthCheck.healthy ? ["health_check_required_or_unhealthy"] : []),
+    ...(healthCheck.required && !healthCheck.fresh ? ["health_check_stale_or_missing"] : []),
     ...(message.satisfied ? [] : buildSlackMessageEvidenceBlockers(message, integration, channelBindings, userBindings, failures)),
     ...(input.required === "native" || input.required === "all"
       ? nativeExperience.satisfied ? [] : buildSlackNativeEvidenceBlockers(nativeExperience)
@@ -343,12 +361,15 @@ function buildSlackEvidenceIntegrationItem(input: {
     ...(staleEvidenceBlocksRequired ? ["local_evidence_stale"] : []),
   ];
   const warnings = [
+    ...(healthCheck.required && (!healthCheck.healthy || !healthCheck.fresh) ? ["health_check_not_ready"] : []),
     ...(freshness.staleEvidenceRows > 0 ? ["stale_local_evidence_ignored"] : []),
     ...(failures.pendingOutbox > 0 ? ["pending_outbox_messages"] : []),
     ...(failures.failedEvents > 0 ? ["failed_events_visible"] : []),
     ...(failures.failedOutbox > 0 ? ["failed_outbox_visible"] : []),
   ];
-  const requiredSatisfied = locallySatisfied && failures.failedOutbox === 0;
+  const requiredSatisfied = locallySatisfied &&
+    failures.failedOutbox === 0 &&
+    (!healthCheck.required || (healthCheck.healthy && healthCheck.fresh));
   return {
     integrationId: integration.id,
     displayName: integration.displayName,
@@ -358,6 +379,7 @@ function buildSlackEvidenceIntegrationItem(input: {
     healthStatus: integration.lastHealthStatus,
     appRef: integration.appId ? buildSlackReference(integration.appId) : undefined,
     teamRef: integration.tenantKey ? buildSlackReference(integration.tenantKey) : undefined,
+    healthCheck,
     bindings: {
       activeChannels: channelBindings.length,
       activeUsers: userBindings.length,

@@ -1148,6 +1148,7 @@ rawPayload = summarized payload or original safe subset
 - `scripts/slack/smoke.test.ts` 覆盖 live `app_mention` 模式会使用 post token、发送 bot mention 文本，并且 JSON 输出不泄露 post token、bot token、channel/user/bot 原始 ID。
 - `scripts/slack/smoke.ts --live --evidence runtime-output/slack-smoke/live.json` 会累积脱敏 live runs；`agent-space integrations slack evidence --strict --require all --json` 默认读取该路径并校验 fresh artifact、`post_message` live proof、`app_mention` live proof、`file_upload` live proof 和无 raw Slack ID/token/private file URL。
 - strict Slack evidence 会忽略超过 24 小时的本地 event / mapping / outbox 证据；如果旧记录本可满足门禁但 fresh 证据不足，最终报告会以 `local_evidence_stale` 阻断，避免用历史 smoke 误通过验收。
+- strict Slack evidence 还要求最近 24 小时内的 healthy health-check；如果 credential/scope/socket 状态已退化或 health-check 过期，最终报告会以 `health_check_required_or_unhealthy` / `health_check_stale_or_missing` 阻断。
 - `packages/services/src/integrations/providers/slack/__tests__/evidence.test.ts` 覆盖 strict all 需要 redacted live smoke evidence；`scripts/slack/smoke.test.ts` 覆盖同一 artifact 累积 `post_message` + `app_mention` + `file_upload` 三次 live runs。
 
 ## 验收标准
