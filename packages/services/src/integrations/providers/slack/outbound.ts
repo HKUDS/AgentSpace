@@ -989,12 +989,12 @@ export async function sendSlackChatPostMessage(input: {
       ts: typeof data.ts === "string" ? data.ts : undefined,
     };
   }
-  const errorCode = typeof data.error === "string" ? data.error : `http_${response.status}`;
+  const error = normalizeSlackOutboundProviderError("chat.postMessage", data.error, response.status);
   return {
     ok: false,
     status: response.status,
-    errorCode,
-    errorMessage: `Slack chat.postMessage failed: ${errorCode}`,
+    errorCode: error.errorCode,
+    errorMessage: error.errorMessage,
   };
 }
 
@@ -1050,12 +1050,12 @@ export async function sendSlackAssistantSuggestedPrompts(input: {
       status: response.status,
     };
   }
-  const errorCode = typeof data.error === "string" ? data.error : `http_${response.status}`;
+  const error = normalizeSlackOutboundProviderError("assistant.threads.setSuggestedPrompts", data.error, response.status);
   return {
     ok: false,
     status: response.status,
-    errorCode,
-    errorMessage: `Slack assistant.threads.setSuggestedPrompts failed: ${errorCode}`,
+    errorCode: error.errorCode,
+    errorMessage: error.errorMessage,
   };
 }
 
@@ -1155,12 +1155,12 @@ async function requestSlackFileUploadUrl(input: {
       fileId: data.file_id,
     };
   }
-  const errorCode = typeof data.error === "string" ? data.error : `http_${response.status}`;
+  const error = normalizeSlackOutboundProviderError("files.getUploadURLExternal", data.error, response.status);
   return {
     ok: false,
     status: response.status,
-    errorCode,
-    errorMessage: `Slack files.getUploadURLExternal failed: ${errorCode}`,
+    errorCode: error.errorCode,
+    errorMessage: error.errorMessage,
     uploadUrl: "",
     fileId: "",
   };
@@ -1238,12 +1238,12 @@ async function completeSlackFileUploadExternal(input: {
       status: response.status,
     };
   }
-  const errorCode = typeof data.error === "string" ? data.error : `http_${response.status}`;
+  const error = normalizeSlackOutboundProviderError("files.completeUploadExternal", data.error, response.status);
   return {
     ok: false,
     status: response.status,
-    errorCode,
-    errorMessage: `Slack files.completeUploadExternal failed: ${errorCode}`,
+    errorCode: error.errorCode,
+    errorMessage: error.errorMessage,
   };
 }
 
@@ -1295,6 +1295,21 @@ function readSlackRateLimitedResponse(response: Response, method: string): Slack
     errorCode: "slack.rate_limited",
     errorMessage: `Slack rate limited ${method}.`,
     retryAfterSeconds: Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : undefined,
+  };
+}
+
+function normalizeSlackOutboundProviderError(
+  method: string,
+  providerError: unknown,
+  status: number,
+): Pick<SlackApiMethodResult, "errorCode" | "errorMessage"> {
+  const rawCode = typeof providerError === "string" && providerError.trim()
+    ? providerError.trim()
+    : `http_${status}`;
+  const stableCode = rawCode.replace(/[^a-zA-Z0-9_.-]+/g, "_").toLowerCase();
+  return {
+    errorCode: `slack.outbound.${stableCode}`,
+    errorMessage: `Slack ${method} failed: slack.outbound.${stableCode}`,
   };
 }
 
@@ -1781,6 +1796,9 @@ function isSlackOutboundErrorRetryable(response: SlackApiMethodResult): boolean 
     return true;
   }
   return response.errorCode === "ratelimited" ||
+    response.errorCode === "slack.outbound.ratelimited" ||
     response.errorCode === "fatal_error" ||
-    response.errorCode === "internal_error";
+    response.errorCode === "slack.outbound.fatal_error" ||
+    response.errorCode === "internal_error" ||
+    response.errorCode === "slack.outbound.internal_error";
 }

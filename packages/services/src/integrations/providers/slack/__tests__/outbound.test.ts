@@ -68,6 +68,27 @@ test("sends Slack chat.postMessage payloads", async () => {
   assert.equal((calls[0]?.init?.headers as Record<string, string>).Authorization, "Bearer xoxb-test");
 });
 
+test("normalizes terminal Slack chat.postMessage provider errors", async () => {
+  for (const providerError of ["channel_not_found", "not_in_channel", "missing_scope", "invalid_auth"]) {
+    const result = await sendSlackChatPostMessage({
+      botToken: "xoxb-secret-token",
+      payload: {
+        channel: "C123",
+        text: "Agent reply",
+      },
+      fetchImpl: async () => new Response(JSON.stringify({ ok: false, error: providerError }), {
+        status: 200,
+      }),
+    });
+
+    assert.equal(result.ok, false);
+    assert.equal(result.status, 200);
+    assert.equal(result.errorCode, `slack.outbound.${providerError}`);
+    assert.equal(result.errorMessage, `Slack chat.postMessage failed: slack.outbound.${providerError}`);
+    assert.doesNotMatch(JSON.stringify(result), /xoxb-secret-token|C123/);
+  }
+});
+
 test("builds Slack external file upload payloads without deprecated files.upload", () => {
   const outbound = buildSlackFileUploadOutboundMessage({
     targetExternalChatId: "C123",
@@ -492,6 +513,82 @@ test("keeps Slack outbox messages pending for retry after rate limits", async ()
   assert.equal(result.terminal, false);
   assert.equal(result.nextAttemptAt, failedInput?.nextAttemptAt);
   assert.ok(result.nextAttemptAt);
+});
+
+test("marks Slack outbox provider auth failures terminal with safe diagnostics", async () => {
+  const outbox = buildExternalMessageOutbox({
+    payloadJson: JSON.stringify({
+      channel: "CSECRET123",
+      text: "Agent reply",
+      thread_ts: "1783400000.000100",
+    }),
+  });
+  const locked = buildExternalMessageOutbox({
+    ...outbox,
+    status: "locked",
+    attempts: 1,
+    lockedBy: "slack-worker-test",
+    lockedAt: "2026-07-07T04:53:20.000Z",
+  });
+  let failedInput: {
+    workspaceId?: string;
+    outboxId: string;
+    lastError: string;
+    nextAttemptAt?: string;
+    terminal?: boolean;
+  } | undefined;
+
+  const result = await processSlackOutboxMessage({
+    workspaceId: "workspace-1",
+    outbox,
+    integration: buildExternalIntegration(),
+    lockedBy: "slack-worker-test",
+    dependencies: {
+      markOutboxLocked: () => locked,
+      readCredentials: () => ({ botToken: "xoxb-secret-token" }),
+      sendChatPostMessage: async (input) => {
+        assert.equal(input.botToken, "xoxb-secret-token");
+        assert.equal(input.payload.channel, "CSECRET123");
+        return {
+          ok: false,
+          status: 200,
+          errorCode: "slack.outbound.invalid_auth",
+          errorMessage: "Slack chat.postMessage failed: slack.outbound.invalid_auth",
+        };
+      },
+      failOutbox: (input) => {
+        failedInput = input;
+        assert.equal(input.workspaceId, "workspace-1");
+        assert.equal(input.outboxId, "outbox-1");
+        assert.equal(input.lastError, "Slack chat.postMessage failed: slack.outbound.invalid_auth");
+        assert.equal(input.terminal, true);
+        assert.equal(input.nextAttemptAt, undefined);
+        assert.doesNotMatch(JSON.stringify(input), /xoxb-secret-token|CSECRET123/);
+        return {
+          ...locked,
+          status: "failed",
+          lastError: input.lastError,
+          lockedAt: undefined,
+          lockedBy: undefined,
+        };
+      },
+      completeOutbox: () => {
+        assert.fail("terminal auth failure must not be marked sent");
+      },
+      createMessageMapping: () => {
+        assert.fail("terminal auth failure must not create outbound mapping");
+      },
+    },
+  });
+
+  assert.equal(result.status, "failed");
+  assert.equal(result.errorCode, "slack.outbound.invalid_auth");
+  assert.equal(result.errorMessage, "Slack chat.postMessage failed: slack.outbound.invalid_auth");
+  assert.equal(result.retryable, false);
+  assert.equal(result.terminal, true);
+  assert.equal(result.nextAttemptAt, undefined);
+  assert.equal(result.errorMessage, failedInput?.lastError);
+  assert.doesNotMatch(JSON.stringify(result), /xoxb-secret-token|CSECRET123/);
 });
 
 function buildExternalIntegration(
