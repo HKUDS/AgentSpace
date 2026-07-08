@@ -28,6 +28,8 @@ npm run cli -- integrations slack evidence --workspace-id default --integration 
 
 `evidence` reads local AgentSpace integration events, message mappings, bindings, and outbox state. Use `--require message` for the core message transport gate, `--require native` for app-home/agent-context/suggested-prompt evidence, `--require approval` for Block Kit approval evidence, `--require files` for the Slack files data-plane gate, or `--require all` before final sign-off. Strict evidence ignores local proof older than 24 hours and requires a fresh healthy health-check so final sign-off must be backed by current Slack activity and credentials.
 
+When final evidence is not satisfied, `nextCommands` starts with `smoke-env`, `health-check`, readiness, `smoke-plan`, and `--check-env` before the live smoke commands, so the remediation chain also covers the strict health and env prerequisites.
+
 Replay signed Slack webhook calls against the configured AgentSpace callback:
 
 ```bash

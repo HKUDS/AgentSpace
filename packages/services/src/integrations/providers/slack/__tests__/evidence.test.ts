@@ -172,11 +172,21 @@ test("builds strict Slack evidence reports without raw external ids", () => {
   assert.equal(report.integrations[0]?.healthCheck.fresh, true);
   assert.equal(report.integrations[0]?.message.agentTaskQueueEvidence, 1);
   assert.deepEqual(report.integrations[0]?.blockers, []);
-  assert.ok(report.nextCommands.includes(
-    "agent-space integrations slack smoke-plan --workspace-id workspace-1 --strict --require all --json",
-  ));
-  assert.ok(report.nextCommands.includes("agent-space integrations slack outbox drain --workspace-id workspace-1 --json"));
-  assert.ok(report.nextCommands.includes("npm run smoke:slack:verify -- --env-file scripts/slack/.env --json"));
+  const commandIndexes = [
+    "agent-space integrations slack smoke-env --workspace-id workspace-1 --integration slack-1 --app-url https://agentspace.example.com > scripts/slack/.env",
+    "agent-space integrations slack health-check --workspace-id workspace-1 --integration slack-1 --json",
+    "agent-space integrations slack readiness --workspace-id workspace-1 --integration slack-1 --strict --json",
+    "agent-space integrations slack smoke-plan --workspace-id workspace-1 --integration slack-1 --strict --require all --json",
+    "npm run smoke:slack -- --env-file scripts/slack/.env --check-env --json",
+    "npm run smoke:slack -- --env-file scripts/slack/.env --live --evidence runtime-output/slack-smoke/live.json --json",
+    "SLACK_SMOKE_LIVE_MODE=app_mention npm run smoke:slack -- --env-file scripts/slack/.env --live --evidence runtime-output/slack-smoke/live.json --json",
+    "agent-space integrations slack outbox drain --workspace-id workspace-1 --integration slack-1 --json",
+    "SLACK_SMOKE_LIVE_MODE=file_upload npm run smoke:slack -- --env-file scripts/slack/.env --live --evidence runtime-output/slack-smoke/live.json --json",
+    "npm run smoke:slack:verify -- --env-file scripts/slack/.env --json",
+    "agent-space integrations slack evidence --workspace-id workspace-1 --integration slack-1 --live-smoke-evidence runtime-output/slack-smoke/live.json --strict --require all --json",
+  ].map((command) => report.nextCommands.indexOf(command));
+  assert.deepEqual(commandIndexes.every((index) => index >= 0), true);
+  assert.deepEqual(commandIndexes, [...commandIndexes].sort((left, right) => left - right));
   assert.doesNotMatch(JSON.stringify(report), /A_SECRET|T_SECRET|C_SECRET|D_SECRET|U_SECRET|F_SECRET|url_private|files\.slack\.com|EvMessage|EvApproval|1783400000/);
 });
 
@@ -225,6 +235,12 @@ test("Slack evidence exposes top-level blockers for final evidence automation", 
   assert.ok(report.blockers.includes("active_slack_integration_missing"));
   assert.ok(report.blockers.includes("slack_live_smoke_evidence_missing"));
   assert.equal(report.liveSmokeEvidence?.present, false);
+  assert.ok(report.nextCommands.includes(
+    "agent-space integrations slack smoke-env --workspace-id workspace-1 --integration CHANGE_ME_SLACK_INTEGRATION_ID --app-url https://agentspace.example.com > scripts/slack/.env",
+  ));
+  assert.ok(report.nextCommands.includes(
+    "agent-space integrations slack health-check --workspace-id workspace-1 --integration CHANGE_ME_SLACK_INTEGRATION_ID --json",
+  ));
 });
 
 test("Slack evidence omits top-level blockers when any workspace integration satisfies strict gate", () => {
