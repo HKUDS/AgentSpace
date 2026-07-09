@@ -15,7 +15,14 @@ export function parseArgs(args: string[]): ParsedArgs {
       continue;
     }
 
-    const key = token.slice(2);
+    const flag = token.slice(2);
+    const equalsIndex = flag.indexOf("=");
+    if (equalsIndex > 0) {
+      flags[flag.slice(0, equalsIndex)] = flag.slice(equalsIndex + 1);
+      continue;
+    }
+
+    const key = flag;
     const nextValue = args[index + 1];
 
     if (!nextValue || nextValue.startsWith("--")) {
@@ -48,4 +55,3 @@ export function getNumberFlag(
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
 }
-

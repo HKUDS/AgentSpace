@@ -139,6 +139,30 @@ test("Slack smoke evidence verifier lets later evidence path override package de
   }
 });
 
+test("Slack smoke evidence verifier accepts equals-style path flags", async () => {
+  const evidencePath = "--custom live.json";
+  const result = await runSmokeScript([
+    `--verify-evidence=${evidencePath}`,
+    "--json",
+  ]);
+
+  assert.equal(result.status, 1, result.stderr);
+  const output = JSON.parse(result.stdout) as {
+    evidencePath?: string;
+    nextCommands?: string[];
+  };
+  assert.equal(output.evidencePath, evidencePath);
+  assert.ok(output.nextCommands?.includes(
+    "npm run smoke:slack -- --env-file scripts/slack/.env --live --evidence='--custom live.json' --json",
+  ));
+  assert.ok(output.nextCommands?.includes(
+    "npm run smoke:slack:verify -- --verify-evidence='--custom live.json' --env-file scripts/slack/.env --json",
+  ));
+  assert.ok(output.nextCommands?.includes(
+    "agent-space integrations slack evidence --workspace-id $AGENT_SPACE_WORKSPACE_ID --integration $AGENT_SPACE_SLACK_INTEGRATION_ID --live-smoke-evidence='--custom live.json' --strict --require all --json",
+  ));
+});
+
 test("Slack smoke dry-run rejects placeholder env without leaking ids", () => {
   const directory = mkdtempSync(join(tmpdir(), "agentspace-slack-smoke-"));
   try {

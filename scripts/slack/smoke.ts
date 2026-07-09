@@ -1286,11 +1286,12 @@ function buildSlackSmokeEvidenceVerificationNextCommands(input: {
 }): string[] {
   const commands: string[] = [];
   const envFilePath = input.envFilePath ?? "scripts/slack/.env";
-  const envFilePathArg = formatSlackSmokeShellToken(envFilePath);
-  const evidencePathArg = formatSlackSmokeShellToken(input.evidencePath);
+  const envFileFlag = formatSlackSmokeFlagArgument("env-file", envFilePath);
+  const verifyEvidenceFlag = formatSlackSmokeFlagArgument("verify-evidence", input.evidencePath);
+  const liveSmokeEvidenceFlag = formatSlackSmokeFlagArgument("live-smoke-evidence", input.evidencePath);
   const cliTargetFlags = buildSlackSmokeCliTargetFlags(input.expectedContext);
   if (!slackSmokeEvidenceContextComplete(input.expectedContext)) {
-    commands.push(`npm run smoke:slack -- --env-file ${envFilePathArg} --check-env --json`);
+    commands.push(`npm run smoke:slack -- ${envFileFlag} --check-env --json`);
   }
   const modesToRun = input.valid
     ? []
@@ -1306,10 +1307,10 @@ function buildSlackSmokeEvidenceVerificationNextCommands(input: {
     }
   }
   if (!input.valid) {
-    commands.push(`npm run smoke:slack:verify -- --verify-evidence ${evidencePathArg} --env-file ${envFilePathArg} --json`);
+    commands.push(`npm run smoke:slack:verify -- ${verifyEvidenceFlag} ${envFileFlag} --json`);
   }
   commands.push(`agent-space integrations slack outbox drain ${cliTargetFlags} --json`);
-  commands.push(`agent-space integrations slack evidence ${cliTargetFlags} --live-smoke-evidence ${evidencePathArg} --strict --require all --json`);
+  commands.push(`agent-space integrations slack evidence ${cliTargetFlags} ${liveSmokeEvidenceFlag} --strict --require all --json`);
   return Array.from(new Set(commands));
 }
 
@@ -1329,10 +1330,15 @@ function formatSlackSmokeShellToken(value: string): string {
     : `'${value.replace(/'/g, "'\\''")}'`;
 }
 
+function formatSlackSmokeFlagArgument(flagName: string, value: string): string {
+  const separator = value.startsWith("-") ? "=" : " ";
+  return `--${flagName}${separator}${formatSlackSmokeShellToken(value)}`;
+}
+
 function buildSlackSmokeLiveCommand(mode: SlackSmokeLiveMode, evidencePath: string, envFilePath: string): string {
-  const envFilePathArg = formatSlackSmokeShellToken(envFilePath);
-  const evidencePathArg = formatSlackSmokeShellToken(evidencePath);
-  const command = `npm run smoke:slack -- --env-file ${envFilePathArg} --live --evidence ${evidencePathArg} --json`;
+  const envFileFlag = formatSlackSmokeFlagArgument("env-file", envFilePath);
+  const evidenceFlag = formatSlackSmokeFlagArgument("evidence", evidencePath);
+  const command = `npm run smoke:slack -- ${envFileFlag} --live ${evidenceFlag} --json`;
   return mode === "post_message"
     ? command
     : `SLACK_SMOKE_LIVE_MODE=${mode} ${command}`;
@@ -1570,7 +1576,13 @@ function parseArgs(args: string[]): ParsedArgs {
     if (!token.startsWith("--")) {
       continue;
     }
-    const key = token.slice(2);
+    const flag = token.slice(2);
+    const equalsIndex = flag.indexOf("=");
+    if (equalsIndex > 0) {
+      flags[flag.slice(0, equalsIndex)] = flag.slice(equalsIndex + 1);
+      continue;
+    }
+    const key = flag;
     const next = args[index + 1];
     if (!next || next.startsWith("--")) {
       flags[key] = true;

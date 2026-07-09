@@ -734,6 +734,41 @@ test("Slack evidence CLI reports malformed live smoke artifact distinctly", asyn
   }
 });
 
+test("Slack evidence CLI accepts equals-style live smoke evidence path flags", async () => {
+  const evidencePath = "--custom live.json";
+  const calls: Record<string, unknown>[] = [];
+  await captureConsoleLog(async () => {
+    const exitCode = await runSlackIntegrationCommand(
+      [
+        "evidence",
+        "--workspace-id=workspace-1",
+        "--integration=slack-1",
+        `--live-smoke-evidence=${evidencePath}`,
+        "--strict",
+        "--require=all",
+      ],
+      "json",
+      {
+        buildEvidenceReport: (input: Record<string, unknown>) => {
+          calls.push(input);
+          return {
+            provider: "slack",
+            strict: input.strict === true,
+            strictSatisfied: false,
+            blockers: ["slack_live_smoke_evidence_missing"],
+          } as never;
+        },
+      },
+    );
+    assert.equal(exitCode, 1);
+  });
+
+  assert.equal(calls[0]?.workspaceId, "workspace-1");
+  assert.equal(calls[0]?.integrationId, "slack-1");
+  assert.equal(calls[0]?.required, "all");
+  assert.equal(calls[0]?.liveSmokeEvidencePath, evidencePath);
+});
+
 test("Slack outbox drain CLI exposes terminal failures without secrets", async () => {
   const logs = await captureConsoleLog(async () => {
     const exitCode = await runSlackIntegrationCommand(

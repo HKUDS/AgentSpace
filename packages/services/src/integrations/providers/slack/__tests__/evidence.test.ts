@@ -266,6 +266,36 @@ test("Slack evidence remediation shell-quotes custom live smoke evidence paths",
   assert.deepEqual(report.integrations[0]?.nextCommands, report.nextCommands);
 });
 
+test("Slack evidence remediation preserves dash-prefixed live smoke evidence paths", () => {
+  const liveSmokeEvidencePath = "--custom live.json";
+  const liveSmokeEvidencePathArg = "'--custom live.json'";
+  const report = buildSlackEvidenceReport({
+    workspaceId: "workspace-1",
+    integrationId: "slack-1",
+    strict: true,
+    required: "all",
+    liveSmokeEvidencePath,
+    dependencies: {
+      listIntegrations: () => [makeIntegration()],
+      listChannelBindings: () => [],
+      listUserBindings: () => [],
+      listEvents: () => [],
+      listMessageMappings: () => [],
+      listOutbox: () => [],
+    },
+  });
+
+  assert.ok(report.nextCommands.includes(
+    `npm run smoke:slack -- --env-file scripts/slack/.env --live --evidence=${liveSmokeEvidencePathArg} --json`,
+  ));
+  assert.ok(report.nextCommands.includes(
+    `npm run smoke:slack:verify -- --verify-evidence=${liveSmokeEvidencePathArg} --env-file scripts/slack/.env --json`,
+  ));
+  assert.ok(report.nextCommands.includes(
+    `agent-space integrations slack evidence --workspace-id workspace-1 --integration slack-1 --live-smoke-evidence=${liveSmokeEvidencePathArg} --strict --require all --json`,
+  ));
+});
+
 test("Slack evidence reports actionable blockers when message smoke evidence is missing", () => {
   const report = buildSlackEvidenceReport({
     workspaceId: "workspace-1",

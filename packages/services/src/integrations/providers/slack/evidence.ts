@@ -1719,10 +1719,12 @@ function buildSlackEvidenceNextCommands(
   const integrationFlag = integrationId ? ` --integration ${formatSlackEvidenceShellToken(integrationId)}` : "";
   const requiredIntegrationFlag = integrationId ? integrationFlag : " --integration CHANGE_ME_SLACK_INTEGRATION_ID";
   const evidencePath = liveSmokeEvidencePath ?? SLACK_DEFAULT_LIVE_SMOKE_EVIDENCE_PATH;
-  const evidencePathArg = formatSlackEvidenceShellToken(evidencePath);
+  const liveSmokeEvidenceFlag = formatSlackEvidenceFlagArgument("live-smoke-evidence", evidencePath);
+  const verifyEvidenceFlag = formatSlackEvidenceFlagArgument("verify-evidence", evidencePath);
+  const smokeEvidenceFlag = formatSlackEvidenceFlagArgument("evidence", evidencePath);
   const verifyEvidenceCommand = evidencePath === SLACK_DEFAULT_LIVE_SMOKE_EVIDENCE_PATH
     ? "npm run smoke:slack:verify -- --env-file scripts/slack/.env --json"
-    : `npm run smoke:slack:verify -- --verify-evidence ${evidencePathArg} --env-file scripts/slack/.env --json`;
+    : `npm run smoke:slack:verify -- ${verifyEvidenceFlag} --env-file scripts/slack/.env --json`;
   const readinessRequirement = required === "all" ? "all" : "message";
   return [
     `agent-space integrations slack smoke-env --workspace-id ${workspaceIdArg}${requiredIntegrationFlag} --app-url https://agentspace.example.com > scripts/slack/.env`,
@@ -1730,12 +1732,12 @@ function buildSlackEvidenceNextCommands(
     `agent-space integrations slack readiness --workspace-id ${workspaceIdArg}${requiredIntegrationFlag} --strict --json`,
     `agent-space integrations slack smoke-plan --workspace-id ${workspaceIdArg}${requiredIntegrationFlag} --strict --require ${readinessRequirement} --json`,
     "npm run smoke:slack -- --env-file scripts/slack/.env --check-env --json",
-    `npm run smoke:slack -- --env-file scripts/slack/.env --live --evidence ${evidencePathArg} --json`,
-    `SLACK_SMOKE_LIVE_MODE=app_mention npm run smoke:slack -- --env-file scripts/slack/.env --live --evidence ${evidencePathArg} --json`,
+    `npm run smoke:slack -- --env-file scripts/slack/.env --live ${smokeEvidenceFlag} --json`,
+    `SLACK_SMOKE_LIVE_MODE=app_mention npm run smoke:slack -- --env-file scripts/slack/.env --live ${smokeEvidenceFlag} --json`,
     `agent-space integrations slack outbox drain --workspace-id ${workspaceIdArg}${requiredIntegrationFlag} --json`,
-    `SLACK_SMOKE_LIVE_MODE=file_upload npm run smoke:slack -- --env-file scripts/slack/.env --live --evidence ${evidencePathArg} --json`,
+    `SLACK_SMOKE_LIVE_MODE=file_upload npm run smoke:slack -- --env-file scripts/slack/.env --live ${smokeEvidenceFlag} --json`,
     verifyEvidenceCommand,
-    `agent-space integrations slack evidence --workspace-id ${workspaceIdArg}${requiredIntegrationFlag} --live-smoke-evidence ${evidencePathArg} --strict --require ${required} --json`,
+    `agent-space integrations slack evidence --workspace-id ${workspaceIdArg}${requiredIntegrationFlag} ${liveSmokeEvidenceFlag} --strict --require ${required} --json`,
   ];
 }
 
@@ -1743,6 +1745,11 @@ function formatSlackEvidenceShellToken(value: string): string {
   return /^[A-Za-z0-9_./:-]+$/.test(value)
     ? value
     : `'${value.replace(/'/g, "'\\''")}'`;
+}
+
+function formatSlackEvidenceFlagArgument(flagName: string, value: string): string {
+  const separator = value.startsWith("-") ? "=" : " ";
+  return `--${flagName}${separator}${formatSlackEvidenceShellToken(value)}`;
 }
 
 function buildSlackEvidenceIntegrationNextCommands(
