@@ -402,6 +402,7 @@ describe("ChannelsPageClient", () => {
 
     const composer = screen.getByPlaceholderText("发送到 tour visit");
     fireEvent.change(composer, { target: { value: "草稿", selectionStart: 2 } });
+    composer.focus();
     expect(eventSources[0]?.url).toBe("/api/workspaces/workspace-1/channels/tour%20visit/events");
 
     const activeSource = eventSources.at(-1);

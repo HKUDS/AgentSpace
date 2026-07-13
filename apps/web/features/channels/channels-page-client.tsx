@@ -822,11 +822,11 @@ export function ChannelsPageClient({
 
   const selectedChannel = selectedChannelId ? visibleChannelById.get(selectedChannelId) ?? null : null;
   const selectedConversationChannelName = resolveSelectedChannelName(selectedChannel);
-  const refreshChannelData = useCallback(() => {
+  const refreshChannelData = useCallback((options?: { allowWhileInputActive?: boolean }) => {
     if (typeof document !== "undefined" && document.visibilityState === "hidden") {
       return;
     }
-    if (isDocumentInputActive()) {
+    if (!options?.allowWhileInputActive && isDocumentInputActive()) {
       return;
     }
     if (refreshInFlightRef.current || transitionPendingRef.current) {
@@ -943,7 +943,7 @@ export function ChannelsPageClient({
       Boolean(selectedConversationChannelName) &&
       !selectedChannelRequiresAccess,
     onInvalidation,
-    refresh: refreshChannelData,
+    refresh: () => refreshChannelData({ allowWhileInputActive: true }),
   });
 
   useEffect(() => {
