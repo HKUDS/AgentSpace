@@ -16,6 +16,7 @@ const nextConfig = {
   transpilePackages: [
     "@agent-space/db",
     "@agent-space/domain",
+    "@agent-space/sandbox",
     "@agent-space/services",
     "agent-space-daemon",
   ],
@@ -63,6 +64,7 @@ const nextConfig = {
       "@agent-space/db": "../../packages/db/src/index.ts",
       "@agent-space/domain": "../../packages/domain/src/index.ts",
       "@agent-space/domain/workspace": "../../packages/domain/src/workspace.ts",
+      "@agent-space/sandbox": "../../packages/sandbox/src/index.ts",
       "@agent-space/services": "../../packages/services/src/index.ts",
       "agent-space-daemon": "../../packages/daemon/src/index.ts",
       "agent-space-daemon/agent-router": "../../packages/daemon/src/agent-router/index.ts",

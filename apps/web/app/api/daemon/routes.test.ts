@@ -419,6 +419,11 @@ describe("daemon API routes", () => {
               version: "0.1.0",
             },
             {
+              provider: "antigravity",
+              name: "Antigravity Runtime",
+              version: "0.9.0",
+            },
+            {
               provider: "openclaw",
               name: "OpenClaw Runtime",
               version: "0.2.0",
@@ -440,12 +445,12 @@ describe("daemon API routes", () => {
     const payload = await response.json();
 
     expect(response.status).toBe(200);
-    expect(payload.runtimes).toHaveLength(4);
+    expect(payload.runtimes).toHaveLength(5);
     expect(
       payload.runtimes
         .map((runtime: { provider: string }) => runtime.provider)
         .sort(),
-    ).toEqual(["hermes", "nanobot", "opencode", "openclaw"].sort());
+    ).toEqual(["antigravity", "hermes", "nanobot", "opencode", "openclaw"].sort());
   });
 
   it("claims a queued task and builds an input bundle with prompt and attachment files", async () => {

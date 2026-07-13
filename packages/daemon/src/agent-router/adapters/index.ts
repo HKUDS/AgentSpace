@@ -1,4 +1,5 @@
 import type { AgentRouterHarness, HarnessAdapter } from "../types.ts";
+import { antigravityAdapter } from "./antigravity.ts";
 import { claudeAdapter } from "./claude.ts";
 import { codexAdapter } from "./codex.ts";
 import { hermesAdapter } from "./hermes.ts";
@@ -8,6 +9,7 @@ import { openClawAdapter } from "./openclaw.ts";
 export const HARNESS_ADAPTERS: Record<AgentRouterHarness, HarnessAdapter> = {
   claude: claudeAdapter,
   codex: codexAdapter,
+  antigravity: antigravityAdapter,
   opencode: opencodeAdapter,
   openclaw: openClawAdapter,
   hermes: hermesAdapter,

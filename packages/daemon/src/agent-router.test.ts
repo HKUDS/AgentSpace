@@ -15,6 +15,7 @@ test("listAgentRouterHarnesses exposes the MVP native harnesses", () => {
   assert.deepEqual(listAgentRouterHarnesses(), [
     { id: "claude", label: "Claude Code" },
     { id: "codex", label: "Codex CLI" },
+    { id: "antigravity", label: "Antigravity CLI" },
     { id: "opencode", label: "OpenCode" },
     { id: "openclaw", label: "OpenClaw" },
     { id: "hermes", label: "Hermes Agent" },
@@ -28,6 +29,7 @@ test("detectAgentRouterHarnesses reports available and missing CLIs", async () =
   try {
     writeExecutable(join(binDir, "claude"), "#!/bin/sh\necho claude 1.2.3\n");
     writeExecutable(join(binDir, "codex"), "#!/bin/sh\necho codex 4.5.6\n");
+    writeExecutable(join(binDir, "agy"), "#!/bin/sh\necho agy 0.9.0\n");
     writeExecutable(join(binDir, "opencode"), "#!/bin/sh\necho opencode 0.3.0\n");
     writeExecutable(
       join(binDir, "hermes-agent"),
@@ -41,6 +43,7 @@ test("detectAgentRouterHarnesses reports available and missing CLIs", async () =
       [
         { id: "claude", status: "available", version: "claude 1.2.3" },
         { id: "codex", status: "available", version: "codex 4.5.6" },
+        { id: "antigravity", status: "available", version: "agy 0.9.0" },
         { id: "opencode", status: "available", version: "opencode 0.3.0" },
         { id: "openclaw", status: "missing", version: undefined },
         { id: "hermes", status: "available", version: "hermes 0.2.0" },
@@ -106,6 +109,78 @@ test("runAgentRouter launches Hermes in headless text mode with model and runtim
     assert.equal(result.status, "completed");
     assert.equal(result.outputText, "hermes text output");
     assert.deepEqual(args, ["-z", "hello hermes", "--yolo", "--model", "nous-hermes"]);
+    assert.equal(seenPath.includes(toolBinDir), true);
+  } finally {
+    process.env.PATH = originalPath;
+    rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
+test("runAgentRouter launches Antigravity in prompt mode with cwd, model, conversation, and runtime tool PATH", async () => {
+  const workDir = mkdtempSync(join(tmpdir(), "agent-router-antigravity-"));
+  const providerBinDir = join(workDir, "provider-bin");
+  const toolBinDir = join(workDir, "tool-bin");
+  const agyPath = join(providerBinDir, "agy");
+  const fakeCliPath = join(toolBinDir, "fake-cli");
+  const argsPath = join(workDir, "antigravity-args.txt");
+  const seenPathFile = join(workDir, "seen-path.txt");
+  const originalPath = process.env.PATH;
+
+  try {
+    writeExecutable(
+      agyPath,
+      [
+        "#!/bin/sh",
+        "printf '%s\\n' \"$@\" > \"$ANTIGRAVITY_ARGS_PATH\"",
+        "printf '%s' \"$PATH\" > \"$SEEN_PATH_FILE\"",
+        "if command -v fake-cli >/dev/null 2>&1; then",
+        "  printf '%s\\n' 'antigravity text output'",
+        "else",
+        "  printf '%s\\n' 'tool missing'",
+        "fi",
+      ].join("\n"),
+    );
+    writeExecutable(fakeCliPath, "#!/bin/sh\necho fake-cli-ok\n");
+    process.env.PATH = providerBinDir;
+
+    const result = await runAgentRouter({
+      version: 1,
+      harness: "antigravity",
+      prompt: "hello antigravity",
+      cwd: workDir,
+      executablePath: agyPath,
+      model: "Gemini 3.5 Flash",
+      sessionId: "conversation-123",
+      env: {
+        ANTIGRAVITY_ARGS_PATH: argsPath,
+        SEEN_PATH_FILE: seenPathFile,
+      },
+      runtimeToolCapabilities: [{
+        id: "fake-cli",
+        command: "fake-cli",
+        displayName: "Fake CLI",
+        binDir: toolBinDir,
+        allowedShellPatterns: ["fake-cli *"],
+        source: "runtime",
+      }],
+      timeoutMs: 1_000,
+    });
+    const args = readFileSync(argsPath, "utf8").trim().split(/\r?\n/);
+    const seenPath = readFileSync(seenPathFile, "utf8").split(delimiter);
+
+    assert.equal(result.status, "completed");
+    assert.equal(result.outputText, "antigravity text output");
+    assert.equal(result.sessionId, "conversation-123");
+    assert.deepEqual(args, [
+      "--conversation",
+      "conversation-123",
+      "-p",
+      "hello antigravity",
+      "--cwd",
+      workDir,
+      "--model",
+      "Gemini 3.5 Flash",
+    ]);
     assert.equal(seenPath.includes(toolBinDir), true);
   } finally {
     process.env.PATH = originalPath;

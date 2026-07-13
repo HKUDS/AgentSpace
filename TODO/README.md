@@ -137,6 +137,7 @@ packages/
 | 114 | 数字员工展板与 Agent 权限申请 | 在员工管理和执行引擎管理之间新增 workspace 数字员工目录，支持查看公开简介并向权限管理人申请复制或调用权限 |
 | 119 | Feishu Message + Data Plane Adapter | 将飞书作为受治理的外部 IM 壳和 Docs/Sheets/Base 数据面接入 AgentSpace，复用现有 channel/message/task/document/permission 主链路并保留共享、审批、审计控制平面 |
 | 120 | Feishu Agent Bot Native Experience | 将飞书体验升级为“每个 AgentSpace agent 对应一个 Feishu bot”，支持 bot 进群自动创建/绑定 channel、未绑定用户 external guest 低权限交互，并保留 AgentSpace 权限/审批/审计治理 |
+| 121 | Slack Message Transport + Agent Experience | 将 Slack 作为第二个受治理外部 IM provider 接入 AgentSpace，先落地 Events API/Socket Mode、channel/user/thread mapping、outbox 回写和 agent 调度，再演进到 Slack-native agent experience |
 
 ## 已放弃
 

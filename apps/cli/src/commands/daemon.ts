@@ -241,7 +241,7 @@ async function runLocalDaemonForeground(config: DaemonConfig): Promise<number> {
   if (detected.length === 0) {
     rmSync(pidPath, { force: true });
     console.error(
-      "No supported provider CLI found. Install `codex`, `claude`, `gemini`, `opencode`, `openclaw`, `nanobot`, or `hermes` and ensure it is on PATH.",
+      "No supported provider CLI found. Install `codex`, `claude`, `agy`, `gemini`, `opencode`, `openclaw`, `nanobot`, or `hermes` and ensure it is on PATH.",
     );
     return 1;
   }

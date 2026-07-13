@@ -1,6 +1,7 @@
 export const DAEMON_PROVIDER_IDS = [
   "claude",
   "codex",
+  "antigravity",
   "gemini",
   "opencode",
   "openclaw",
@@ -14,6 +15,7 @@ const DAEMON_PROVIDER_LABELS: Record<DaemonProvider, string> = {
   claude: "Claude Code",
   codex: "Codex",
   gemini: "Gemini CLI",
+  antigravity: "Antigravity CLI",
   opencode: "OpenCode",
   openclaw: "OpenClaw",
   nanobot: "NanoBot",
