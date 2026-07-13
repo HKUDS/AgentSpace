@@ -30,10 +30,12 @@
 - 已安装至少一个 provider CLI：
   - `codex`
   - `claude`
+  - `agy`（Antigravity）
   - `gemini`
   - `opencode`
   - `openclaw`
   - `nanobot`
+  - `hermes`
 - provider CLI 已经登录
 
 可先在 `Server B` 检查：
@@ -41,10 +43,12 @@
 ```bash
 which codex || true
 which claude || true
+which agy || true
 which gemini || true
 which opencode || true
 which openclaw || true
 which nanobot || true
+which hermes || true
 ```
 
 OpenClaw 额外 smoke：
@@ -110,7 +114,7 @@ bash <(curl -fsSL https://<server-a-domain>/api/daemon/install-script) \
 注意：
 
 - 用计划承载 provider runtime 的用户执行；如果使用 root，需确认 `/root` 下已登录对应 provider，且任务命令会以 root 权限执行
-- 当前执行用户必须已经登录了对应的 `codex` / `claude` / `gemini` / `opencode` / `openclaw` / `nanobot`
+- 当前执行用户必须已经登录了对应的 `codex` / `claude` / `agy` / `gemini` / `opencode` / `openclaw` / `nanobot` / `hermes`
 
 执行完成后，建议立刻看状态：
 
@@ -171,7 +175,7 @@ https://<server-a-domain>/agents?mode=container
 推荐做法：
 
 1. 先选 `codex` 跑一轮
-2. 如果还想验证 `claude` / `gemini` / `opencode` / `openclaw` / `nanobot`，再切过去重跑
+2. 如果还想验证 `claude` / `agy` / `gemini` / `opencode` / `openclaw` / `nanobot` / `hermes`，再切过去重跑
 
 ## 7. 创建并绑定测试 Agent
 

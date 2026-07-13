@@ -90,6 +90,11 @@ describe("remote daemon client integration", () => {
             version: "0.1.0",
           },
           {
+            provider: "antigravity",
+            name: "Antigravity Runtime",
+            version: "0.9.0",
+          },
+          {
             provider: "openclaw",
             name: "OpenClaw Runtime",
             version: "0.2.0",
@@ -109,7 +114,7 @@ describe("remote daemon client integration", () => {
 
       assert.deepEqual(
         registered.runtimes.map((runtime) => runtime.provider).sort(),
-        ["opencode", "openclaw", "nanobot", "hermes"].sort(),
+        ["opencode", "antigravity", "openclaw", "nanobot", "hermes"].sort(),
       );
     } finally {
       restoreFetch();

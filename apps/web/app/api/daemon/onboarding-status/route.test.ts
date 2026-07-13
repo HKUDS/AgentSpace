@@ -91,6 +91,12 @@ describe("daemon onboarding-status route", () => {
         },
         runtimes: [
           {
+            id: "runtime-antigravity",
+            provider: "antigravity",
+            name: "Antigravity Runtime",
+            status: "online",
+          },
+          {
             id: "runtime-openclaw",
             provider: "openclaw",
             name: "OpenClaw Runtime",
@@ -119,8 +125,14 @@ describe("daemon onboarding-status route", () => {
     expect(payload).toMatchObject({
       status: "online",
       daemonKey: "box-2",
-      runtimeCount: 3,
+      runtimeCount: 4,
       runtimes: [
+        {
+          id: "runtime-antigravity",
+          provider: "antigravity",
+          name: "Antigravity Runtime",
+          status: "online",
+        },
         {
           id: "runtime-openclaw",
           provider: "openclaw",

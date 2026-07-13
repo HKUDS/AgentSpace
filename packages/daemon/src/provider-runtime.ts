@@ -122,6 +122,12 @@ const PROVIDER_CATALOG: Array<{
     defaultModelId: "claude-haiku-4-5-20251001",
   },
   {
+    provider: "antigravity",
+    label: formatDaemonProviderLabel("antigravity"),
+    commands: ["agy", "antigravity"],
+    versionArgs: [["--version"], ["version"]],
+  },
+  {
     provider: "gemini",
     label: formatDaemonProviderLabel("gemini"),
     command: "gemini",
@@ -189,6 +195,9 @@ export async function runProviderTask(
   }
   if (runtime.provider === "gemini") {
     return runGeminiProviderTask(runtime, prompt, workDir, taskTimeoutMs, options);
+  }
+  if (runtime.provider === "antigravity") {
+    return runAgentRouterProviderTask(runtime, prompt, workDir, taskTimeoutMs, options);
   }
   if (runtime.provider === "opencode") {
     return runAgentRouterProviderTask(runtime, prompt, workDir, taskTimeoutMs, options);
@@ -831,6 +840,7 @@ export function resolveModelId(runtime: ProviderRuntimeRecord): string | undefin
   if (runtime.provider === "codex") return process.env.CODEX_MODEL?.trim() || undefined;
   if (runtime.provider === "claude") return process.env.CLAUDE_MODEL || providerDefinition?.defaultModelId || "claude-haiku-4-5-20251001";
   if (runtime.provider === "gemini") return process.env.GEMINI_MODEL || providerDefinition?.defaultModelId || "gemini-2.0-flash-lite";
+  if (runtime.provider === "antigravity") return process.env.ANTIGRAVITY_MODEL?.trim() || undefined;
   if (runtime.provider === "opencode") return process.env.OPENCODE_MODEL || providerDefinition?.defaultModelId || "opencode-default";
   if (runtime.provider === "openclaw") return readRuntimeMetadataString(runtime, "openClawModel", "openclawModel") || process.env.OPENCLAW_MODEL?.trim() || undefined;
   if (runtime.provider === "nanobot") return process.env.NANOBOT_MODEL || providerDefinition?.defaultModelId || "nanobot-default";

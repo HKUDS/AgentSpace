@@ -80,6 +80,8 @@ Both modes run the same product — digital employees, AgentRouter scheduling, w
 
 ## News
 
+- **2026-07-13** — AgentRouter now supports Google Antigravity CLI through `agy`, with Gemini CLI kept as a legacy fallback for users who can still access it.
+
 - **2026-07-09** — The Slack plugin implementation has been pushed to the remote `slack` testing branch for integration testing and final validation.
 
 - **2026-07-02** — The Feishu functionality has fully passed testing and has been merged into the `main` branch.
@@ -235,7 +237,7 @@ The goal isn't a smarter chatbot. It's a governed operating surface where humans
 - Node.js 24 recommended. The remote daemon package requires Node.js `>=20.20.0`.
 - npm 11.x.
 - PostgreSQL 16 recommended. A local Docker Compose setup is included.
-- Optional provider CLIs: `codex`, `claude`, `gemini`, `opencode`, `openclaw`, `nanobot`, `hermes`.
+- Optional provider CLIs: `codex`, `claude`, `agy` (Antigravity), `gemini` (legacy), `opencode`, `openclaw`, `nanobot`, `hermes`.
 - Optional Google OAuth / Google Workspace configuration.
 
 ### Path A: Run the Workspace
@@ -317,10 +319,11 @@ AgentRouter is the provider harness normalization layer. It does not replace the
 | --- | --- | --- |
 | Claude Code | AgentRouter | stream-json events, session fallback, tool approval bridge |
 | Codex CLI | AgentRouter | JSON events, session fallback, runtime tool capability diagnostics |
+| Antigravity CLI | AgentRouter | prompt-mode CLI via `agy -p`, optional conversation reuse, timeout/nonzero/empty diagnostics |
 | OpenCode | AgentRouter | JSON events, session propagation, timeout/nonzero/empty diagnostics |
 | OpenClaw | AgentRouter | health/preflight, auth/profile/model/tool/protocol diagnostics, missing session fallback |
 | Hermes Agent | AgentRouter | text output, executable compatibility checks, timeout and empty-response diagnostics |
-| Gemini CLI | legacy provider-runtime | one-shot CLI |
+| Gemini CLI | legacy provider-runtime | legacy one-shot CLI fallback |
 | NanoBot | legacy provider-runtime | one-shot CLI |
 
 Smoke test AgentRouter directly:
@@ -330,6 +333,7 @@ agent-router harnesses
 agent-router detect
 agent-router run --harness claude --cwd /workspace/project "summarize this repo"
 agent-router run --harness codex --cwd /workspace/project --model gpt-5.1 "fix tests"
+agent-router run --harness antigravity --cwd /workspace/project --model "Gemini 3.5 Flash" "summarize this repo"
 agent-router run --harness opencode --cwd /workspace/project --model openrouter/openai/gpt-4.1 "summarize this repo"
 agent-router run --harness openclaw --cwd /workspace/project --mode medium "review this diff"
 agent-router run --harness hermes --cwd /workspace/project "summarize this repo"
@@ -354,6 +358,7 @@ flowchart TD
   Runtime --> Legacy["legacy provider runtime"]
   Router --> Claude["Claude Code"]
   Router --> Codex["Codex CLI"]
+  Router --> Antigravity["Antigravity CLI"]
   Router --> OpenCode["OpenCode"]
   Router --> OpenClaw["OpenClaw"]
   Router --> Hermes["Hermes Agent"]

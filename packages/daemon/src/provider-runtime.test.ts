@@ -13,7 +13,7 @@ import {
 } from "./provider-runtime.ts";
 import { inspectOpenClawDaemonAuthHealth, normalizeOpenClawProviderError } from "./openclaw-health.ts";
 
-test("detectProviders includes opencode, openclaw, nanobot, and hermes when their CLIs are on PATH", () => {
+test("detectProviders includes antigravity, opencode, openclaw, nanobot, and hermes when their CLIs are on PATH", () => {
   const binDir = mkdtempSync(join(tmpdir(), "agent-space-provider-bin-"));
   const originalPath = process.env.PATH;
 
@@ -23,6 +23,9 @@ test("detectProviders includes opencode, openclaw, nanobot, and hermes when thei
       writeFileSync(filePath, "#!/bin/sh\necho 0.1.0\n", "utf8");
       chmodSync(filePath, 0o755);
     }
+    const antigravityPath = join(binDir, "agy");
+    writeFileSync(antigravityPath, "#!/bin/sh\necho agy 0.9.0\n", "utf8");
+    chmodSync(antigravityPath, 0o755);
     const hermesPath = join(binDir, "hermes-agent");
     writeFileSync(
       hermesPath,
@@ -34,6 +37,9 @@ test("detectProviders includes opencode, openclaw, nanobot, and hermes when thei
     process.env.PATH = `${binDir}${delimiter}${originalPath ?? ""}`;
 
     const detected = detectProviders();
+    const antigravity = detected.find((provider) => provider.provider === "antigravity");
+    assert.equal(Boolean(antigravity), true);
+    assert.equal(antigravity?.version, "agy 0.9.0");
     assert.equal(detected.some((provider) => provider.provider === "opencode"), true);
     assert.equal(detected.some((provider) => provider.provider === "openclaw"), true);
     assert.equal(detected.some((provider) => provider.provider === "nanobot"), true);
@@ -89,6 +95,7 @@ test("resolveModelId returns provider-specific defaults and overrides for expand
 
   const originalOpenCodeModel = process.env.OPENCODE_MODEL;
   const originalOpenClawModel = process.env.OPENCLAW_MODEL;
+  const originalAntigravityModel = process.env.ANTIGRAVITY_MODEL;
   const originalNanoBotModel = process.env.NANOBOT_MODEL;
   const originalCodexModel = process.env.CODEX_MODEL;
   const originalHermesModel = process.env.HERMES_MODEL;
@@ -98,6 +105,7 @@ test("resolveModelId returns provider-specific defaults and overrides for expand
     delete process.env.CODEX_MODEL;
     delete process.env.OPENCODE_MODEL;
     delete process.env.OPENCLAW_MODEL;
+    delete process.env.ANTIGRAVITY_MODEL;
     delete process.env.NANOBOT_MODEL;
     delete process.env.HERMES_MODEL;
     delete process.env.HERMES_INFERENCE_MODEL;
@@ -105,18 +113,21 @@ test("resolveModelId returns provider-specific defaults and overrides for expand
     assert.equal(resolveModelId({ ...baseRuntime, provider: "codex" }), undefined);
     assert.equal(resolveModelId({ ...baseRuntime, provider: "opencode" }), "opencode-default");
     assert.equal(resolveModelId({ ...baseRuntime, provider: "openclaw" }), undefined);
+    assert.equal(resolveModelId({ ...baseRuntime, provider: "antigravity" }), undefined);
     assert.equal(resolveModelId({ ...baseRuntime, provider: "nanobot" }), "nanobot-default");
     assert.equal(resolveModelId({ ...baseRuntime, provider: "hermes" }), undefined);
 
     process.env.CODEX_MODEL = "gpt-5.5";
     process.env.OPENCODE_MODEL = "openrouter/openai/gpt-4.1";
     process.env.OPENCLAW_MODEL = "openrouter/anthropic/claude-sonnet";
+    process.env.ANTIGRAVITY_MODEL = "Gemini 3.5 Flash";
     process.env.NANOBOT_MODEL = "gpt-4.1-mini";
     process.env.HERMES_INFERENCE_MODEL = "nous-hermes-config";
 
     assert.equal(resolveModelId({ ...baseRuntime, provider: "codex" }), "gpt-5.5");
     assert.equal(resolveModelId({ ...baseRuntime, provider: "opencode" }), "openrouter/openai/gpt-4.1");
     assert.equal(resolveModelId({ ...baseRuntime, provider: "openclaw" }), "openrouter/anthropic/claude-sonnet");
+    assert.equal(resolveModelId({ ...baseRuntime, provider: "antigravity" }), "Gemini 3.5 Flash");
     assert.equal(resolveModelId({
       ...baseRuntime,
       provider: "openclaw",
@@ -146,6 +157,11 @@ test("resolveModelId returns provider-specific defaults and overrides for expand
     } else {
       process.env.OPENCLAW_MODEL = originalOpenClawModel;
     }
+    if (originalAntigravityModel === undefined) {
+      delete process.env.ANTIGRAVITY_MODEL;
+    } else {
+      process.env.ANTIGRAVITY_MODEL = originalAntigravityModel;
+    }
     if (originalNanoBotModel === undefined) {
       delete process.env.NANOBOT_MODEL;
     } else {
@@ -165,6 +181,7 @@ test("resolveModelId returns provider-specific defaults and overrides for expand
 });
 
 test("formatDaemonProviderLabel returns friendly labels for expanded providers", () => {
+  assert.equal(formatDaemonProviderLabel("antigravity"), "Antigravity CLI");
   assert.equal(formatDaemonProviderLabel("opencode"), "OpenCode");
   assert.equal(formatDaemonProviderLabel("openclaw"), "OpenClaw");
   assert.equal(formatDaemonProviderLabel("nanobot"), "NanoBot");
@@ -925,6 +942,108 @@ test("runProviderTask routes Hermes through AgentRouter with model, PATH capabil
       delete process.env.HERMES_MODEL;
     } else {
       process.env.HERMES_MODEL = originalHermesModel;
+    }
+    if (originalDaemonBin === undefined) {
+      delete process.env.AGENT_SPACE_DAEMON_BIN;
+    } else {
+      process.env.AGENT_SPACE_DAEMON_BIN = originalDaemonBin;
+    }
+    rmSync(workDir, { recursive: true, force: true });
+  }
+});
+
+test("runProviderTask routes Antigravity through AgentRouter with prompt mode, model, session, and PATH capabilities", async () => {
+  const workDir = mkdtempSync(join(tmpdir(), "agent-space-antigravity-provider-"));
+  const providerBinDir = join(workDir, "provider-bin");
+  const daemonBinDir = join(workDir, "daemon-bin");
+  const toolBinDir = join(workDir, "tool-bin");
+  const binPath = join(providerBinDir, "agy");
+  const daemonBinPath = join(daemonBinDir, "agent-space-daemon");
+  const agentSpacePath = join(daemonBinDir, "agent-space");
+  const fakeCliPath = join(toolBinDir, "fake-cli");
+  const argsPath = join(workDir, "antigravity-args.txt");
+  const seenPathFile = join(workDir, "seen-path.txt");
+  const originalAntigravityModel = process.env.ANTIGRAVITY_MODEL;
+  const originalDaemonBin = process.env.AGENT_SPACE_DAEMON_BIN;
+  mkdirSync(providerBinDir, { recursive: true });
+  mkdirSync(daemonBinDir, { recursive: true });
+  mkdirSync(toolBinDir, { recursive: true });
+  writeFileSync(
+    binPath,
+    [
+      "#!/bin/sh",
+      "printf '%s\\n' \"$@\" > \"$ANTIGRAVITY_ARGS_PATH\"",
+      "printf '%s' \"$PATH\" > \"$SEEN_PATH_FILE\"",
+      "if command -v fake-cli >/dev/null 2>&1 && command -v agent-space >/dev/null 2>&1; then",
+      "  printf '%s\\n' 'antigravity provider output'",
+      "else",
+      "  printf '%s\\n' 'missing runtime path'",
+      "fi",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+  writeFileSync(daemonBinPath, "#!/bin/sh\nexit 0\n", "utf8");
+  writeFileSync(agentSpacePath, "#!/bin/sh\necho agent-space\n", "utf8");
+  writeFileSync(fakeCliPath, "#!/bin/sh\necho fake-cli-ok\n", "utf8");
+  chmodSync(binPath, 0o755);
+  chmodSync(daemonBinPath, 0o755);
+  chmodSync(agentSpacePath, 0o755);
+  chmodSync(fakeCliPath, 0o755);
+
+  const runtime: ProviderRuntimeRecord = {
+    id: "runtime-antigravity-test",
+    workspaceId: "default",
+    provider: "antigravity",
+    name: "Antigravity",
+    status: "online",
+    metadata: {
+      executablePath: binPath,
+      mode: "remote",
+    },
+  };
+
+  try {
+    process.env.AGENT_SPACE_DAEMON_BIN = daemonBinPath;
+    process.env.ANTIGRAVITY_MODEL = "Gemini 3.5 Flash";
+    const result = await runProviderTask(runtime, "write a short reply", workDir, {
+      sessionId: "conversation-prev",
+      contextEnv: {
+        ANTIGRAVITY_ARGS_PATH: argsPath,
+        SEEN_PATH_FILE: seenPathFile,
+      },
+      runtimeToolCapabilities: [{
+        id: "fake-cli",
+        command: "fake-cli",
+        displayName: "Fake CLI",
+        binDir: toolBinDir,
+        allowedShellPatterns: ["fake-cli *"],
+        source: "runtime",
+      }],
+      taskTimeoutMs: 1_000,
+    });
+    const args = readFileSync(argsPath, "utf8").trim().split(/\r?\n/);
+    const seenPath = readFileSync(seenPathFile, "utf8").split(delimiter);
+
+    assert.equal(result.output, "antigravity provider output");
+    assert.equal(result.sessionId, "conversation-prev");
+    assert.deepEqual(args, [
+      "--conversation",
+      "conversation-prev",
+      "-p",
+      "write a short reply",
+      "--cwd",
+      workDir,
+      "--model",
+      "Gemini 3.5 Flash",
+    ]);
+    assert.equal(seenPath.includes(daemonBinDir), true);
+    assert.equal(seenPath.includes(toolBinDir), true);
+  } finally {
+    if (originalAntigravityModel === undefined) {
+      delete process.env.ANTIGRAVITY_MODEL;
+    } else {
+      process.env.ANTIGRAVITY_MODEL = originalAntigravityModel;
     }
     if (originalDaemonBin === undefined) {
       delete process.env.AGENT_SPACE_DAEMON_BIN;

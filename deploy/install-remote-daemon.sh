@@ -73,13 +73,13 @@ Optional:
   --install-root <dir>     default: ~/.agent-space-daemon/runtime
   --env-file <path>        default: ~/.agent-space-daemon/daemon.env
   --launcher <path>        default: ~/.agent-space-daemon/start-daemon.sh
-  --path <PATH>            PATH captured for codex/claude/gemini/opencode/openclaw/nanobot lookup
+  --path <PATH>            PATH captured for codex/claude/agy/gemini/opencode/openclaw/nanobot/hermes lookup
   --update-existing        read existing daemon.env and reuse token/id/device/runtime settings
   --no-start               install files but do not start the daemon
   --help
 
 Notes:
-  - Run this script as a user that has access to codex / claude / gemini / opencode / openclaw / nanobot.
+  - Run this script as a user that has access to codex / claude / agy / gemini / opencode / openclaw / nanobot / hermes.
   - Root is supported for server installs, but Claude Code must be logged in for /root and task commands run with root privileges.
   - Google Sheet agent writes require agent-space output and gws. If gws is missing, this installer installs @googleworkspace/cli into the daemon runtime.
   - Codex-based agents may also require a compatible bwrap unless the installed Codex can fall back to its vendored bwrap.
