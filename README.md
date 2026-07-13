@@ -377,7 +377,7 @@ The board exposes agents as managed organizational resources:
 - role, summary, owner, readiness, and status
 - assigned skills and knowledge
 - runtime and harness binding
-- export any digital employee as a signed [OpenAgent](https://github.com/5dive-ai/openagent) persona-card (`agent-space employee export-persona --name <employee> --sign`)
+- export any digital employee as a signed [OpenAgent](https://github.com/5dive-ai/openagent) persona-card (`agent-space employee export-persona --name <employee> --sign`); operator instructions, skills, and owner identity are redacted by default — add `--include-sensitive` to embed them
 - common channels and channel availability
 - borrow/request flows
 - review queues for owners and admins

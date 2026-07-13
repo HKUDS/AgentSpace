@@ -1,12 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { generateKeyPairSync } from "node:crypto";
-import {
-  didKeyFromPublicKey,
-  employeeToPersona,
-  slugifyPersonaId,
-  verifyPersonaSignature,
-} from "./openagent-persona.ts";
+import { employeeToPersona, slugifyPersonaId } from "./openagent-persona.ts";
 import type { ActiveEmployee } from "./workspace.ts";
 
 const employee: ActiveEmployee = {
@@ -27,14 +21,13 @@ const employee: ActiveEmployee = {
 const skills = ["literature-review", "citation-check"];
 
 test("employeeToPersona maps required OpenAgent v0.2 fields", () => {
-  const { persona } = employeeToPersona(employee, skills);
+  const persona = employeeToPersona(employee, skills);
 
   assert.equal(persona.openagent, "0.2");
   assert.equal(persona.id, "atlas");
   assert.match(persona.id, /^[a-z0-9-]+$/);
   assert.equal(persona.name, "Atlas");
   assert.equal(persona.role, "Research Lead (阿特拉斯)");
-  assert.equal(persona.org?.name, "AgentSpace (user-42)");
 
   // Required v0.2 fields must all be present and non-empty.
   assert.ok(persona.behavior.length > 0);
@@ -43,44 +36,53 @@ test("employeeToPersona maps required OpenAgent v0.2 fields", () => {
   assert.ok((persona.voice.written?.rules.length ?? 0) >= 1);
   assert.ok((persona.voice.written?.sample.length ?? 0) > 0);
 
+  // The pure mapper never attaches provenance — signing is a separate node layer.
+  assert.equal(persona.provenance, undefined);
+});
+
+test("employeeToPersona redacts sensitive fields by default", () => {
+  const persona = employeeToPersona(employee, skills);
+
+  // Owner identity is dropped from org.name.
+  assert.equal(persona.org?.name, "AgentSpace");
+  // Operator instructions do not leak into behavior…
+  assert.equal(persona.behavior, "Digs through papers and surfaces the load-bearing claims.");
+  assert.ok(!persona.behavior.includes("Cite sources"));
+  // …nor into the voice rules, and skills are not disclosed there either.
+  const rules = persona.voice.written?.rules ?? [];
+  assert.ok(rules.every((rule) => !rule.includes("Cite sources")));
+  assert.ok(rules.every((rule) => !rule.includes("Draws on skills")));
+  // posts_about carries only personality traits, never the resolved skills.
+  assert.deepEqual(persona.posts_about, ["rigorous", "curious"]);
+});
+
+test("employeeToPersona --include-sensitive opts private fields back in", () => {
+  const persona = employeeToPersona(employee, skills, { includeSensitive: true });
+
+  // Owner identity is restored to org.name.
+  assert.equal(persona.org?.name, "AgentSpace (user-42)");
+  // Instructions flow back into behavior and the voice rules.
+  assert.equal(
+    persona.behavior,
+    "Digs through papers and surfaces the load-bearing claims. Cite sources. Flag uncertainty explicitly.",
+  );
+  const rules = persona.voice.written?.rules ?? [];
+  assert.deepEqual(rules, [
+    "Embodies: rigorous, curious.",
+    "Draws on skills: literature-review, citation-check.",
+    "Cite sources. Flag uncertainty explicitly.",
+  ]);
   // Traits + resolved skills flow into posts_about (deduped).
-  assert.deepEqual(persona.posts_about, ["rigorous", "curious", "literature-review", "citation-check"]);
+  assert.deepEqual(persona.posts_about, [
+    "rigorous",
+    "curious",
+    "literature-review",
+    "citation-check",
+  ]);
 });
 
 test("slugifyPersonaId always yields a schema-valid id", () => {
   assert.equal(slugifyPersonaId("Nova Prime!"), "nova-prime");
   assert.equal(slugifyPersonaId("阿特拉斯"), "agent");
   assert.match(slugifyPersonaId("  --Weird__Name-- "), /^[a-z0-9-]+$/);
-});
-
-test("employeeToPersona without --sign carries no provenance", () => {
-  const { persona, didKey } = employeeToPersona(employee, skills, { sign: false });
-  assert.equal(persona.provenance, undefined);
-  assert.equal(didKey, undefined);
-});
-
-test("signed export mints a did:key and a self-verifying provenance block", () => {
-  const keyPair = generateKeyPairSync("ed25519");
-  const { persona, didKey } = employeeToPersona(employee, skills, {
-    sign: true,
-    now: "2026-07-03T00:00:00.000Z",
-    keyPair,
-  });
-
-  assert.ok(persona.provenance);
-  assert.equal(persona.provenance?.signed_at, "2026-07-03T00:00:00.000Z");
-  assert.ok(persona.provenance?.created_by.key.includes("BEGIN PUBLIC KEY"));
-  assert.ok(persona.provenance?.signature);
-
-  assert.equal(didKey, didKeyFromPublicKey(keyPair.publicKey));
-  assert.match(didKey ?? "", /^did:key:z6Mk/);
-
-  // The signature verifies against created_by.key, exactly as @5dive/openagent does.
-  assert.equal(verifyPersonaSignature(persona), true);
-});
-
-test("tampering with a signed persona breaks verification", () => {
-  const { persona } = employeeToPersona(employee, skills, { sign: true });
-  persona.behavior = `${persona.behavior} (tampered)`;
-  assert.equal(verifyPersonaSignature(persona), false);
 });

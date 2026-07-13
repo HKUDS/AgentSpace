@@ -8,6 +8,7 @@ import {
   unbindEmployeeRuntimeSync,
 } from "@agent-space/services";
 import { employeeToPersona } from "@agent-space/domain";
+import { signPersona } from "../lib/openagent-persona-sign.ts";
 import { parseArgs, getStringFlag } from "../lib/args.ts";
 import { writeData, type OutputFormat } from "../lib/format.ts";
 
@@ -120,7 +121,7 @@ export function runEmployeeCommand(
 
     if (!name) {
       console.error(
-        "Usage: agent-space employee export-persona --name <employee> [--sign] [--out <path>] [--json]",
+        "Usage: agent-space employee export-persona --name <employee> [--sign] [--include-sensitive] [--out <path>] [--json]",
       );
       return 1;
     }
@@ -133,7 +134,14 @@ export function runEmployeeCommand(
 
     const skills = listEmployeeSkillIdsSync(name);
     const sign = flags.sign === true || getStringFlag(flags, "sign") !== undefined;
-    const { persona, didKey } = employeeToPersona(employee, skills, { sign });
+    // Private operator config (instructions, skills, owner identity) is redacted
+    // by default; --include-sensitive opts it back into the exported card.
+    const includeSensitive =
+      flags["include-sensitive"] === true || getStringFlag(flags, "include-sensitive") !== undefined;
+
+    // Map (pure, runtime-agnostic domain) then sign (node layer) — the two compose.
+    const persona = employeeToPersona(employee, skills, { includeSensitive });
+    const didKey = sign ? signPersona(persona).didKey : null;
     const serialized = JSON.stringify(persona, null, 2);
 
     const out = getStringFlag(flags, "out");
@@ -142,9 +150,17 @@ export function runEmployeeCommand(
     }
 
     if (format === "json") {
-      writeData(format, { ok: true, employee: name, signed: sign, didKey: didKey ?? null, out: out ?? null, persona });
+      writeData(format, {
+        ok: true,
+        employee: name,
+        signed: sign,
+        includeSensitive,
+        didKey: didKey ?? null,
+        out: out ?? null,
+        persona,
+      });
     } else if (out) {
-      writeData(format, { ok: true, employee: name, signed: sign, didKey: didKey ?? "", out });
+      writeData(format, { ok: true, employee: name, signed: sign, includeSensitive, didKey: didKey ?? "", out });
     } else {
       console.log(serialized);
     }
@@ -160,7 +176,7 @@ export function runEmployeeCommand(
   );
   console.error("   or: agent-space employee unbind-runtime --name <employee> [--json]");
   console.error(
-    "   or: agent-space employee export-persona --name <employee> [--sign] [--out <path>] [--json]",
+    "   or: agent-space employee export-persona --name <employee> [--sign] [--include-sensitive] [--out <path>] [--json]",
   );
   return 1;
 }

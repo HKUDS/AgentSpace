@@ -1,24 +1,22 @@
-import {
-  createPublicKey,
-  generateKeyPairSync,
-  sign as edSign,
-  verify as edVerify,
-  type KeyObject,
-} from "node:crypto";
 import type { ActiveEmployee } from "./workspace.ts";
 
 /**
- * Map an AgentSpace Digital Employee onto an OpenAgent persona-card and
- * optionally sign it. OpenAgent (spec at github.com/5dive-ai/openagent) is an
- * identity/persona layer: it describes who an agent IS (name, role, face, voice,
- * behavior) and carries a self-verifying ed25519 provenance block. AgentSpace
- * already models the "who" as an ActiveEmployee, so the two compose — this is a
- * pure, dependency-free mapper plus a self-contained signer built on node:crypto.
+ * Map an AgentSpace Digital Employee onto an OpenAgent persona-card. OpenAgent
+ * (spec at github.com/5dive-ai/openagent) is an identity/persona layer: it
+ * describes who an agent IS (name, role, face, voice, behavior) and can carry a
+ * self-verifying ed25519 provenance block. AgentSpace already models the "who"
+ * as an ActiveEmployee, so the two compose.
  *
- * The emitted document validates against the OpenAgent v0.2 persona schema and
- * verifies with `npx @5dive/openagent validate` / provenance verify: the
- * canonicalisation, ed25519 signature and did:key derivation below mirror that
- * tool exactly, so no dependency on the (CommonJS CLI) package is required.
+ * This module is the PURE, runtime-agnostic half: the persona TYPES and the
+ * `employeeToPersona()` mapper. It has no Node dependency (no node:crypto, no
+ * Buffer) so it type-checks under the domain package's runtime-agnostic build.
+ * Signing (ed25519 provenance + did:key derivation) lives in a Node layer that
+ * composes on top of this mapper — see apps/cli's openagent-persona-sign.
+ *
+ * PRIVACY: by default the mapper REDACTS the employee's operator instructions,
+ * resolved skills, and owner identity — a persona-card is a shareable identity
+ * artifact, not an export of the operator's private configuration. Callers pass
+ * `includeSensitive: true` to opt those fields back in.
  */
 
 export interface OpenAgentPersonaOrg {
@@ -73,19 +71,13 @@ export interface OpenAgentPersona {
   provenance?: OpenAgentPersonaProvenance;
 }
 
-export interface ExportPersonaOptions {
-  /** Mint an ed25519 key at export and attach a signed provenance block. */
-  sign?: boolean;
-  /** Fixed timestamp (ISO 8601) for the provenance block; defaults to now. */
-  now?: string;
-  /** Deterministic keypair injection for tests. */
-  keyPair?: { publicKey: KeyObject; privateKey: KeyObject };
-}
-
-export interface ExportPersonaResult {
-  persona: OpenAgentPersona;
-  /** The agent's canonical public address, e.g. "did:key:z6Mk…". Present when signed. */
-  didKey?: string;
+export interface PersonaMappingOptions {
+  /**
+   * Include the employee's sensitive fields — operator instructions, resolved
+   * skills, and owner identity — in the persona. Defaults to false: these are
+   * redacted so a shared card never leaks private operator configuration.
+   */
+  includeSensitive?: boolean;
 }
 
 // ---- id slug ---------------------------------------------------------------
@@ -113,82 +105,6 @@ function anchorColor(seed: string): string {
   return `#${hex}`;
 }
 
-// ---- canonicalisation (mirrors @5dive/openagent lib/provenance.js) ----------
-
-// Deterministic JSON: object keys sorted recursively, primitives via JSON.stringify.
-function stableStringify(value: unknown): string {
-  if (Array.isArray(value)) {
-    return `[${value.map(stableStringify).join(",")}]`;
-  }
-  if (value && typeof value === "object") {
-    const record = value as Record<string, unknown>;
-    return `{${Object.keys(record)
-      .sort()
-      .map((key) => `${JSON.stringify(key)}:${stableStringify(record[key])}`)
-      .join(",")}}`;
-  }
-  return JSON.stringify(value);
-}
-
-// The exact bytes a signature covers: the whole persona with
-// provenance.signature removed. Round-trips through JSON to drop undefined.
-function canonicalBytes(persona: OpenAgentPersona): Buffer {
-  const clone = JSON.parse(JSON.stringify(persona)) as OpenAgentPersona;
-  if (clone.provenance) {
-    delete clone.provenance.signature;
-  }
-  return Buffer.from(stableStringify(clone), "utf8");
-}
-
-// ---- did:key address (multicodec ed25519-pub + base58btc) -------------------
-
-const BASE58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
-
-function base58btcEncode(bytes: Buffer): string {
-  let zeros = 0;
-  while (zeros < bytes.length && bytes[zeros] === 0) {
-    zeros += 1;
-  }
-  const digits: number[] = [];
-  for (let index = zeros; index < bytes.length; index += 1) {
-    let carry = bytes[index];
-    for (let digitIndex = 0; digitIndex < digits.length; digitIndex += 1) {
-      carry += digits[digitIndex] << 8;
-      digits[digitIndex] = carry % 58;
-      carry = Math.floor(carry / 58);
-    }
-    while (carry > 0) {
-      digits.push(carry % 58);
-      carry = Math.floor(carry / 58);
-    }
-  }
-  let out = "1".repeat(zeros);
-  for (let index = digits.length - 1; index >= 0; index -= 1) {
-    out += BASE58_ALPHABET[digits[index]];
-  }
-  return out;
-}
-
-// Raw 32-byte ed25519 public key via JWK export (no hand-parsed SPKI offsets).
-function rawEd25519PublicKey(publicKey: KeyObject): Buffer {
-  const jwk = publicKey.export({ format: "jwk" }) as { crv?: string; x?: string };
-  if (jwk.crv !== "Ed25519" || !jwk.x) {
-    throw new Error("did:key needs an Ed25519 public key");
-  }
-  const raw = Buffer.from(jwk.x, "base64url");
-  if (raw.length !== 32) {
-    throw new Error(`unexpected ed25519 key length: ${raw.length}`);
-  }
-  return raw;
-}
-
-/** Derive the did:key public address for an ed25519 public key. */
-export function didKeyFromPublicKey(publicKey: KeyObject): string {
-  const raw = rawEd25519PublicKey(publicKey);
-  const prefixed = Buffer.concat([Buffer.from([0xed, 0x01]), raw]); // 0xed01 = ed25519-pub
-  return `did:key:z${base58btcEncode(prefixed)}`;
-}
-
 // ---- mapping ----------------------------------------------------------------
 
 function personaRole(employee: ActiveEmployee): string {
@@ -196,17 +112,21 @@ function personaRole(employee: ActiveEmployee): string {
   return remark ? `${employee.role} (${remark})` : employee.role;
 }
 
-function personaBehavior(employee: ActiveEmployee): string {
-  // summary is the primary "who they are"; instructions refine how they operate.
-  // `fit` is a readiness note, not behavior — appending it produced dangling
-  // fragments, so it is intentionally left out here.
-  const parts = [employee.summary, employee.instructions]
+function personaBehavior(employee: ActiveEmployee, instructions: string | undefined): string {
+  // summary is the primary "who they are"; instructions refine how they operate
+  // and are only present when sensitive fields are opted in. `fit` is a readiness
+  // note, not behavior — appending it produced dangling fragments, so it is left out.
+  const parts = [employee.summary, instructions]
     .map((part) => part?.trim())
     .filter((part): part is string => Boolean(part));
   return parts.join(" ") || `${employee.name}, ${employee.role}.`;
 }
 
-function voiceRules(employee: ActiveEmployee, skills: string[]): string[] {
+function voiceRules(
+  employee: ActiveEmployee,
+  skills: string[],
+  instructions: string | undefined,
+): string[] {
   const rules: string[] = [];
   if (employee.traits.length > 0) {
     rules.push(`Embodies: ${employee.traits.join(", ")}.`);
@@ -214,8 +134,8 @@ function voiceRules(employee: ActiveEmployee, skills: string[]): string[] {
   if (skills.length > 0) {
     rules.push(`Draws on skills: ${skills.join(", ")}.`);
   }
-  if (employee.instructions?.trim()) {
-    rules.push(employee.instructions.trim());
+  if (instructions?.trim()) {
+    rules.push(instructions.trim());
   }
   if (rules.length === 0) {
     rules.push(`Speaks as ${employee.role}.`);
@@ -229,25 +149,33 @@ function facePrompt(employee: ActiveEmployee): string {
 }
 
 /**
- * Map an ActiveEmployee onto an OpenAgent persona-card. Pure and deterministic
- * (given `opts.now`/`opts.keyPair`); `sign` mints an ed25519 identity and
- * attaches a self-verifying provenance block.
+ * Map an ActiveEmployee onto an OpenAgent persona-card. Pure and deterministic.
+ * By default the employee's instructions, skills, and owner identity are redacted;
+ * pass `opts.includeSensitive` to include them. The result is UNSIGNED — attach a
+ * provenance block with the Node-layer signer (apps/cli's signPersona).
  */
 export function employeeToPersona(
   employee: ActiveEmployee,
   skills: string[],
-  opts: ExportPersonaOptions = {},
-): ExportPersonaResult {
+  opts: PersonaMappingOptions = {},
+): OpenAgentPersona {
+  const includeSensitive = opts.includeSensitive ?? false;
+  // Redaction is applied by gating the sensitive INPUTS, so the mapping helpers
+  // below stay purely presentational and never see redacted data.
+  const exposedSkills = includeSensitive ? skills : [];
+  const exposedInstructions = includeSensitive ? employee.instructions : undefined;
+  const exposedOwner = includeSensitive ? employee.ownerUserId : undefined;
+
   const id = slugifyPersonaId(employee.name);
-  const postsAbout = Array.from(new Set([...employee.traits, ...skills])).filter(Boolean);
+  const postsAbout = Array.from(new Set([...employee.traits, ...exposedSkills])).filter(Boolean);
 
   const persona: OpenAgentPersona = {
     openagent: "0.2",
     id,
     name: employee.name,
     role: personaRole(employee),
-    org: { name: employee.ownerUserId ? `AgentSpace (${employee.ownerUserId})` : "AgentSpace" },
-    behavior: personaBehavior(employee),
+    org: { name: exposedOwner ? `AgentSpace (${exposedOwner})` : "AgentSpace" },
+    behavior: personaBehavior(employee, exposedInstructions),
     face: {
       ref: `agentspace:${id}`,
       anchor: anchorColor(employee.name),
@@ -255,7 +183,7 @@ export function employeeToPersona(
     },
     voice: {
       written: {
-        rules: voiceRules(employee, skills),
+        rules: voiceRules(employee, exposedSkills, exposedInstructions),
         sample: employee.summary?.trim() || `I am ${employee.name}, ${employee.role}.`,
       },
     },
@@ -265,36 +193,5 @@ export function employeeToPersona(
     persona.posts_about = postsAbout;
   }
 
-  if (!opts.sign) {
-    return { persona };
-  }
-
-  const { publicKey, privateKey } =
-    opts.keyPair ?? generateKeyPairSync("ed25519");
-  const publicPem = publicKey.export({ type: "spki", format: "pem" }).toString().trim();
-
-  persona.provenance = {
-    created_by: { name: employee.name, key: publicPem, url: "https://github.com/HKUDS/AgentSpace" },
-    signed_at: opts.now ?? new Date().toISOString(),
-  };
-
-  const signature = edSign(null, canonicalBytes(persona), privateKey).toString("base64");
-  persona.provenance.signature = signature;
-
-  return { persona, didKey: didKeyFromPublicKey(publicKey) };
-}
-
-/**
- * Verify a signed persona's provenance block the same way `@5dive/openagent`
- * does: recompute the canonical bytes (signature removed) and check the ed25519
- * signature against created_by.key. Exposed for tests and round-trip checks.
- */
-export function verifyPersonaSignature(persona: OpenAgentPersona): boolean {
-  const sig = persona.provenance?.signature;
-  const key = persona.provenance?.created_by?.key;
-  if (!sig || !key) {
-    return false;
-  }
-  const publicKey = createPublicKey(key);
-  return edVerify(null, canonicalBytes(persona), publicKey, Buffer.from(sig, "base64"));
+  return persona;
 }
