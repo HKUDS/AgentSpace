@@ -42,7 +42,10 @@ export function registerDaemonRuntimesSync(input: {
         WHERE daemon_key = ?`,
       )
       .get(daemonKey) as Record<string, unknown> | undefined;
-    const daemonId =
+    if (typeof existingDaemon?.workspaceId === "string" && existingDaemon.workspaceId !== workspaceId) {
+      throw new Error("daemon.workspace_mismatch");
+    }
+    const candidateDaemonId =
       existingDaemon && typeof existingDaemon.id === "string" ? existingDaemon.id : `daemon-${randomLikeId()}`;
     const daemonMetadataJson = JSON.stringify(input.metadata ?? {});
 
@@ -59,14 +62,13 @@ export function registerDaemonRuntimesSync(input: {
         updated_at
       ) VALUES (?, ?, ?, ?, 'online', ?, ?, ?, ?)
       ON CONFLICT(daemon_key) DO UPDATE SET
-        workspace_id = excluded.workspace_id,
         device_name = excluded.device_name,
         status = 'online',
         metadata_json = excluded.metadata_json,
         last_heartbeat_at = excluded.last_heartbeat_at,
         updated_at = excluded.updated_at`,
     ).run(
-      daemonId,
+      candidateDaemonId,
       workspaceId,
       daemonKey,
       deviceName,
@@ -75,6 +77,21 @@ export function registerDaemonRuntimesSync(input: {
       existingDaemon && typeof existingDaemon.createdAt === "string" ? existingDaemon.createdAt : now,
       now,
     );
+
+    const persistedDaemon = db
+      .prepare(
+        `SELECT id, workspace_id AS workspaceId
+         FROM daemon_connection
+         WHERE daemon_key = ?`,
+      )
+      .get(daemonKey) as Record<string, unknown> | undefined;
+    if (typeof persistedDaemon?.workspaceId === "string" && persistedDaemon.workspaceId !== workspaceId) {
+      throw new Error("daemon.workspace_mismatch");
+    }
+    if (typeof persistedDaemon?.id !== "string") {
+      throw new Error("daemon.registration_read_failed");
+    }
+    const daemonId = persistedDaemon.id;
 
     const seenProviders = new Set<string>();
     for (const runtime of input.runtimes) {

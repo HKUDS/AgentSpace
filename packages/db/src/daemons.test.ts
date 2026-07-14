@@ -114,6 +114,20 @@ test("heartbeat can refresh runtime provider health metadata", () => {
   assert.equal(metadata.providerHealth?.error?.code, "provider.profile_missing");
 });
 
+test("does not move a daemon connection between workspaces", () => {
+  registerDaemon("shared-daemon", "default");
+
+  assert.throws(
+    () => registerDaemon("shared-daemon", "workspace-mars"),
+    /daemon\.workspace_mismatch/,
+  );
+
+  const snapshot = readDaemonSnapshotSync("shared-daemon");
+  assert.equal(snapshot.daemon.workspaceId, "default");
+  assert.equal(snapshot.runtimes.length, 1);
+  assert.deepEqual(listDaemonSnapshotsSync("workspace-mars"), []);
+});
+
 test.after(() => {
   process.chdir(originalCwd);
 });

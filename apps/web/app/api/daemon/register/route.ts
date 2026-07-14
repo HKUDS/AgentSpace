@@ -1,5 +1,6 @@
 import {
   grantRuntimeUseToUserSync,
+  readDaemonConnectionSync,
   readWorkspaceMembershipSync,
   registerDaemonRuntimesSync,
 } from "@agent-space/db";
@@ -40,19 +41,41 @@ export async function POST(request: Request): Promise<Response> {
     return Response.json({ error: "workspaceId does not match the daemon token." }, { status: 403 });
   }
 
-  const snapshot = registerDaemonRuntimesSync({
-    daemonKey: body.daemonKey.trim(),
-    deviceName: body.deviceName.trim(),
-    workspaceId: auth.workspaceId,
-    metadata: body.metadata,
-    runtimes: body.runtimes.map((runtime) => ({
-      provider: runtime.provider,
-      name: runtime.name.trim(),
-      version: runtime.version?.trim(),
-      deviceInfo: runtime.deviceInfo?.trim(),
-      metadata: runtime.metadata,
-    })),
-  });
+  const daemonKey = body.daemonKey.trim();
+  const existingDaemon = readDaemonConnectionSync(daemonKey);
+  if (existingDaemon && existingDaemon.workspaceId !== auth.workspaceId) {
+    return denyCrossWorkspaceRegistration({
+      workspaceId: auth.workspaceId,
+      daemonKey,
+      targetWorkspaceId: existingDaemon.workspaceId,
+    });
+  }
+
+  let snapshot: ReturnType<typeof registerDaemonRuntimesSync>;
+  try {
+    snapshot = registerDaemonRuntimesSync({
+      daemonKey,
+      deviceName: body.deviceName.trim(),
+      workspaceId: auth.workspaceId,
+      metadata: body.metadata,
+      runtimes: body.runtimes.map((runtime) => ({
+        provider: runtime.provider,
+        name: runtime.name.trim(),
+        version: runtime.version?.trim(),
+        deviceInfo: runtime.deviceInfo?.trim(),
+        metadata: runtime.metadata,
+      })),
+    });
+  } catch (error) {
+    if (!(error instanceof Error) || error.message !== "daemon.workspace_mismatch") {
+      throw error;
+    }
+    return denyCrossWorkspaceRegistration({
+      workspaceId: auth.workspaceId,
+      daemonKey,
+      targetWorkspaceId: readDaemonConnectionSync(daemonKey)?.workspaceId,
+    });
+  }
   grantRegisteredRuntimesToTokenCreator({
     workspaceId: auth.workspaceId,
     createdBy: auth.token.createdBy,
@@ -74,6 +97,28 @@ export async function POST(request: Request): Promise<Response> {
   };
 
   return Response.json(response);
+}
+
+function denyCrossWorkspaceRegistration(input: {
+  workspaceId: string;
+  daemonKey: string;
+  targetWorkspaceId?: string;
+}): Response {
+  tryRecordWorkspaceAuditEventSync({
+    workspaceId: input.workspaceId,
+    title: "Cross-workspace daemon access denied",
+    note:
+      `Daemon token for workspace "${input.workspaceId}" was denied registration of daemon "${input.daemonKey}"`
+      + (input.targetWorkspaceId ? ` in workspace "${input.targetWorkspaceId}".` : "."),
+    code: "workspace.cross_workspace_access_denied",
+    data: {
+      actorType: "daemon_token",
+      resourceType: "daemon_registration",
+      resourceId: input.daemonKey,
+      requestedWorkspaceId: input.targetWorkspaceId,
+    },
+  });
+  return Response.json({ error: "Daemon does not belong to this workspace." }, { status: 403 });
 }
 
 function grantRegisteredRuntimesToTokenCreator(input: {
