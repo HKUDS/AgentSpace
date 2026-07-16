@@ -1,64 +1,69 @@
 # Contributing to AgentSpace
 
-Thank you for your interest in contributing to AgentSpace — the agent-native collaborative workspace where humans and agents work as one team. This is an actively developed project and community contributions are very welcome.
-
-## Table of Contents
-
-- [Before You Start](#before-you-start)
-- [Ways to Contribute](#ways-to-contribute)
-- [Development Setup](#development-setup)
-- [Project Structure](#project-structure)
-- [Making Changes](#making-changes)
-- [Adding a New AgentRouter Harness](#adding-a-new-agentrouter-harness)
-- [Submitting a Pull Request](#submitting-a-pull-request)
-- [Code Style](#code-style)
-- [Community](#community)
-
----
+Thank you for your interest in contributing to AgentSpace! We appreciate community contributions of all sizes, from documentation improvements to bug fixes and new features.
 
 ## Before You Start
 
-- Browse the [open issues](https://github.com/HKUDS/AgentSpace/issues) to find something to work on, or to check whether your idea is already tracked.
-- Issue creation is currently restricted — please comment on an existing issue to claim it before starting work, or open a PR directly with a clear description of what you changed and why.
-- For significant changes (new harnesses, new services, architectural changes), leave a comment first so maintainers can confirm direction before you invest time.
-
----
-
-## Ways to Contribute
-
-### Bug Fixes
-Found something broken? Open a PR with a clear description of the problem, the root cause, and how your fix addresses it. Include reproduction steps where possible.
-
-### New AgentRouter Harness
-AgentRouter currently supports Claude Code, Codex, OpenClaw, and Hermes as full harnesses. Adding a new provider as a first-class harness (with proper session handling, event normalization, and diagnostics) is one of the highest-impact contributions. See [Adding a New AgentRouter Harness](#adding-a-new-agentrouter-harness) below for a step-by-step guide.
-
-### Daemon & Provider Improvements
-The daemon package (`packages/daemon/`) handles remote execution, runtime sharing, and AgentRouter integration. Improvements to concurrency, session reliability, provider health checks, or timeout handling are all welcome.
-
-### Documentation
-Clear docs lower the barrier for the whole community. Good doc PRs include:
-- Improving setup or configuration instructions in `README.md`
-- Adding per-provider CLI notes to `packages/daemon/README.md`
-- Expanding deployment examples in `deploy/`
-- Translating or improving the Chinese README (`README_ZH.md`)
-
-### Tests & Quality
-Adding test coverage to `apps/web/` or `packages/` via the existing test setup is always welcome. Run `npm run test:web` and `npm run test:e2e:web` to see what's currently covered.
-
-### UI & Workspace Improvements
-The web workspace (`apps/web/`) is a Next.js App Router application. Improvements to the agent board, permission control plane, approval flows, task views, or general UX are all fair game.
-
----
+- Check the existing issues and pull requests before starting work.
+- For larger changes or new features, discuss your proposal with the maintainers first.
+- Keep contributions focused. Smaller pull requests are easier to review and merge.
 
 ## Development Setup
 
-### Requirements
+Please follow the setup instructions in the project's **README.md** and any additional guidance in **AGENTS.md** to prepare your local development environment.
 
-- **Node.js** 24+ recommended (daemon package requires `>=20.20.0`)
-- **npm** 11.x
-- **PostgreSQL** 16 recommended (local Docker Compose setup included)
-- Optional provider CLIs for local testing: `claude`, `codex`, `gemini`, `opencode`, `openclaw`, `nanobot`, `hermes`
+## Ways to Contribute
 
+You can contribute by:
+
+- Fixing bugs
+- Improving documentation
+- Adding tests
+- Improving the user interface and user experience
+- Enhancing existing features
+- Implementing new features that align with the project's goals
+
+When making changes:
+
+- Follow the existing project structure and coding style.
+- Keep changes limited to a single logical purpose whenever possible.
+- Update documentation if your changes affect user-facing behavior.
+
+## Pull Request Guidelines
+
+Before opening a pull request:
+
+- Create your branch from `main`.
+- Test your changes locally.
+- Run the project's formatting, linting, type checking, and test commands where applicable.
+- Write clear commit messages.
+- Keep your pull request focused on one logical change.
+
+Your pull request description should include:
+
+- A summary of the changes
+- Why the change is needed
+- Any relevant testing information
+- Links to related issues, if applicable
+
+## Code Style
+
+Please follow the coding patterns already used throughout the repository.
+
+- Keep code clean and readable.
+- Remove unused code and imports.
+- Use descriptive variable and function names.
+- Update documentation when necessary.
+
+## Documentation
+
+Documentation contributions are always welcome. If you modify workflows, commands, or features, please update the relevant documentation to keep it accurate.
+
+## Community
+
+Be respectful and constructive during discussions and code reviews. Respond to review feedback promptly and keep conversations focused on improving the project.
+
+Thank you for helping improve AgentSpace!
 ### Steps
 
 ```bash
