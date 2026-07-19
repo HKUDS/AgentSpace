@@ -1,6 +1,7 @@
 import { basename } from "node:path";
 import type { AgentSpaceState, KnowledgeAssignmentMode, KnowledgePage } from "@agent-space/domain/workspace";
 import { ensureWorkspaceStateSync, writeWorkspaceStateSync } from "../shared/state-io.ts";
+import { isDescendant } from "./knowledge-tree.ts";
 import { createOpaqueId, resolveAttachmentMediaType } from "../shared/helpers.ts";
 import { assertCanViewChannelDocument } from "../documents/access.ts";
 import { readChannelDocument } from "../documents/service.ts";
@@ -125,6 +126,9 @@ export function moveKnowledgePageSync(
   }
 
   if (input.parentId !== null) {
+    if (input.parentId === id) {
+      throw new Error("Cannot move a page under itself.");
+    }
     const parent = state.knowledgePages.find((p) => p.id === input.parentId);
     if (!parent) {
       throw new Error(`Target parent page "${input.parentId}" does not exist.`);
@@ -360,17 +364,6 @@ function hasInitialKnowledgeAssignments(
   assignedEmployeeNames: string[] | undefined,
 ): boolean {
   return Boolean(assignmentMode || (assignedEmployeeNames && assignedEmployeeNames.length > 0));
-}
-
-function isDescendant(pages: KnowledgePage[], ancestorId: string, candidateId: string): boolean {
-  let current = pages.find((p) => p.id === candidateId);
-  while (current) {
-    if (current.parentId === ancestorId) {
-      return true;
-    }
-    current = current.parentId ? pages.find((p) => p.id === current!.parentId) : undefined;
-  }
-  return false;
 }
 
 function collectDescendantIds(pages: KnowledgePage[], parentId: string): Set<string> {
