@@ -116,6 +116,14 @@ test("parseMentionPlan still treats standalone 先 as a sequential marker", () =
   assert.equal(plan.steps[1]?.agentId, "nova");
 });
 
+test("parseMentionPlan still splits on 然后 glued to prior clause text", () => {
+  const plan = parseMentionPlan("@Atlas 写完然后 @Nova 审阅", candidates);
+
+  assert.equal(plan.mode, "sequential");
+  assert.equal(plan.steps[0]?.agentId, "atlas");
+  assert.equal(plan.steps[1]?.agentId, "nova");
+});
+
 test("parseMentionPlan keeps similarly prefixed agent names distinct", () => {
   const plan = parseMentionPlan(
     "@Test-CC 你看一下采访，然后整理一份需要搜索的对象给 @Test",

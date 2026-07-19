@@ -220,27 +220,18 @@ function findNextSequentialMarker(input: string, fromIndex: number): { marker: s
       if (index < 0) {
         break;
       }
-      // Reject markers that continue a preceding CJK token (e.g. 先 inside 首先).
-      if (index > 0 && isCjkLetter(input[index - 1]!)) {
+      // "先" is a suffix of 首先 — do not split mid-word.
+      if (marker === "先" && index > 0 && input[index - 1] === "首") {
         searchFrom = index + marker.length;
         continue;
       }
-      if (!best || index < best.index || (index === best.index && marker.length > best.marker.length)) {
+      if (!best || index < best.index) {
         best = { marker, index };
       }
       break;
     }
   }
   return best;
-}
-
-function isCjkLetter(ch: string): boolean {
-  const code = ch.codePointAt(0) ?? 0;
-  return (
-    (code >= 0x4e00 && code <= 0x9fff)
-    || (code >= 0x3400 && code <= 0x4dbf)
-    || (code >= 0xf900 && code <= 0xfaff)
-  );
 }
 
 function inferHandoffKind(input: string, inheritedKind?: "document" | "attachment" | "message"): "document" | "attachment" | "message" {
