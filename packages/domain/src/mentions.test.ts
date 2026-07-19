@@ -101,6 +101,21 @@ test("parseMentionPlan treats direct handoff phrasing as sequential even without
   assert.equal(plan.steps[1]?.handoffKind, "document");
 });
 
+test("parseMentionPlan does not split on 先 inside 首先", () => {
+  const plan = parseMentionPlan("@Atlas 首先处理，@Nova 随后跟进", candidates);
+
+  assert.notEqual(plan.steps[0]?.instruction, "@Atlas 首");
+  assert.match(plan.steps[0]?.instruction ?? "", /首先处理/);
+});
+
+test("parseMentionPlan still treats standalone 先 as a sequential marker", () => {
+  const plan = parseMentionPlan("@Atlas 先起草，然后 @Nova 审阅", candidates);
+
+  assert.equal(plan.mode, "sequential");
+  assert.equal(plan.steps[0]?.agentId, "atlas");
+  assert.equal(plan.steps[1]?.agentId, "nova");
+});
+
 test("parseMentionPlan keeps similarly prefixed agent names distinct", () => {
   const plan = parseMentionPlan(
     "@Test-CC 你看一下采访，然后整理一份需要搜索的对象给 @Test",

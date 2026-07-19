@@ -214,15 +214,33 @@ function splitSequentialClauses(input: string): Array<{ text: string; start: num
 function findNextSequentialMarker(input: string, fromIndex: number): { marker: string; index: number } | null {
   let best: { marker: string; index: number } | null = null;
   for (const marker of SEQUENTIAL_MARKERS) {
-    const index = input.indexOf(marker, fromIndex);
-    if (index < 0) {
-      continue;
-    }
-    if (!best || index < best.index) {
-      best = { marker, index };
+    let searchFrom = fromIndex;
+    while (searchFrom <= input.length) {
+      const index = input.indexOf(marker, searchFrom);
+      if (index < 0) {
+        break;
+      }
+      // Reject markers that continue a preceding CJK token (e.g. 先 inside 首先).
+      if (index > 0 && isCjkLetter(input[index - 1]!)) {
+        searchFrom = index + marker.length;
+        continue;
+      }
+      if (!best || index < best.index || (index === best.index && marker.length > best.marker.length)) {
+        best = { marker, index };
+      }
+      break;
     }
   }
   return best;
+}
+
+function isCjkLetter(ch: string): boolean {
+  const code = ch.codePointAt(0) ?? 0;
+  return (
+    (code >= 0x4e00 && code <= 0x9fff)
+    || (code >= 0x3400 && code <= 0x4dbf)
+    || (code >= 0xf900 && code <= 0xfaff)
+  );
 }
 
 function inferHandoffKind(input: string, inheritedKind?: "document" | "attachment" | "message"): "document" | "attachment" | "message" {
