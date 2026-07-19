@@ -50,6 +50,7 @@ import {
   normalizeSkillIds,
   readSkillFileContent,
 } from "./helpers.ts";
+import { formatFrontmatterDescription } from "./skill-frontmatter.ts";
 
 const BUILTIN_RETURN_OUTPUT_FILES_SKILL_NAME = "return-output-files";
 const BUILTIN_RETURN_OUTPUT_FILES_SKILL_DESCRIPTION = "Return generated files to AgentSpace via agent-space output attach/text. Use when a task should deliver artifacts such as images, markdown, PDFs, or other files back into chat instead of only replying with plain text.";
@@ -1408,7 +1409,7 @@ function createDefaultSkillFileContent(name: string, description: string): strin
   const summary = description || `Use when Codex should apply the ${name} workflow.`;
   return `---
 name: ${skillName}
-description: ${summary}
+${formatFrontmatterDescription(summary)}
 ---
 
 # ${name}
@@ -1429,10 +1430,12 @@ function createLegacySkillFileContent(input: {
     input.level ? `- Legacy level: ${input.level}` : "",
     input.enabled ? "" : "- Legacy state: disabled",
   ].filter(Boolean);
+  const summary =
+    input.description || `Use when Codex should apply the ${input.name} workflow.`;
 
   return `---
 name: ${slugify(input.name)}
-description: ${input.description || `Use when Codex should apply the ${input.name} workflow.`}
+${formatFrontmatterDescription(summary)}
 ---
 
 # ${input.name}
