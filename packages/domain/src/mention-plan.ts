@@ -214,12 +214,21 @@ function splitSequentialClauses(input: string): Array<{ text: string; start: num
 function findNextSequentialMarker(input: string, fromIndex: number): { marker: string; index: number } | null {
   let best: { marker: string; index: number } | null = null;
   for (const marker of SEQUENTIAL_MARKERS) {
-    const index = input.indexOf(marker, fromIndex);
-    if (index < 0) {
-      continue;
-    }
-    if (!best || index < best.index) {
-      best = { marker, index };
+    let searchFrom = fromIndex;
+    while (searchFrom <= input.length) {
+      const index = input.indexOf(marker, searchFrom);
+      if (index < 0) {
+        break;
+      }
+      // "先" is a suffix of 首先 — do not split mid-word.
+      if (marker === "先" && index > 0 && input[index - 1] === "首") {
+        searchFrom = index + marker.length;
+        continue;
+      }
+      if (!best || index < best.index) {
+        best = { marker, index };
+      }
+      break;
     }
   }
   return best;
