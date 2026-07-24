@@ -451,6 +451,10 @@ AgentSpace/
 
 ## Documentation
 
+- [Sandbox current-state audit](docs/security/sandbox-current-state-audit.md)
+- [Sandbox threat model](docs/security/threat-model.md)
+- [Sandbox policy contract](docs/security/sandbox-policy.md)
+- [Security PR readiness](docs/security/pr-readiness.md)
 - [Remote daemon deployment test guide](deploy/REMOTE_DAEMON_TEST.md)
 - [Founder execution showcase](deploy/FOUNDER_EXECUTION_SHOWCASE.md)
 - [Remote daemon installer](deploy/install-remote-daemon.sh)

@@ -13,6 +13,22 @@ export type {
   SandboxProvider,
   SandboxStatus,
 } from "./types.ts";
+export {
+  createTrustedLocalSandboxPolicy,
+  isSensitiveEnvKey,
+} from "./policy.ts";
+export type {
+  SandboxAuditPolicy,
+  SandboxCredentialPolicy,
+  SandboxEnvironmentPolicy,
+  SandboxFilesystemPolicy,
+  SandboxNetworkPolicy,
+  SandboxOutputPolicy,
+  SandboxPolicy,
+  SandboxProcessPolicy,
+  SandboxTerminationReason,
+  SandboxTrustLevel,
+} from "./policy.ts";
 export { connectSandbox } from "./factory.ts";
 export {
   CUBE_API_KEY_ENV,

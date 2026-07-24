@@ -24,6 +24,8 @@
     "typecheck": "npm run typecheck:deps && npm run typecheck:web:only && npm run typecheck:cli && npm run typecheck:daemon",
     "lint:web": "npm --prefix apps/web run lint",
     "test:web": "npm --prefix apps/web run test",
+    "test:sandbox": "node --experimental-strip-types --test packages/sandbox/src/**/*.test.ts",
+    "test:security": "npm run test:sandbox",
     "test:e2e:web": "npm --prefix apps/web run test:e2e",
     "quality:web": "npm --prefix apps/web run typecheck && npm --prefix apps/web run typecheck:test && npm --prefix apps/web run lint && npm --prefix apps/web run test"
   }
