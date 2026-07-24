@@ -354,6 +354,77 @@ describe("daemon API routes", () => {
     expect(repeatedHeartbeatPayload.daemon.status).toBe("online");
   });
 
+  it("rejects registering a daemon that belongs to another workspace", async () => {
+    const defaultToken = createDaemonApiTokenSync({
+      label: "default-daemon",
+      createdBy: "Tianyu",
+    });
+    const initialResponse = await registerPOST(
+      new Request("http://localhost/api/daemon/register", {
+        method: "POST",
+        headers: daemonHeaders(defaultToken.token),
+        body: JSON.stringify({
+          daemonKey: "shared-box",
+          deviceName: "Default Box",
+          runtimes: [{ provider: "codex", name: "Default Codex" }],
+        }),
+      }),
+    );
+    expect(initialResponse.status).toBe(200);
+
+    if (!readWorkspaceSync("workspace-mars")) {
+      createWorkspaceSync({
+        id: "workspace-mars",
+        slug: "workspace-mars",
+        name: "Mars Workspace",
+        createdBy: "Tianyu",
+      });
+    }
+    const marsToken = createDaemonApiTokenSync({
+      workspaceId: "workspace-mars",
+      label: "mars-daemon",
+      createdBy: "Tianyu",
+    });
+    const response = await registerPOST(
+      new Request("http://localhost/api/daemon/register", {
+        method: "POST",
+        headers: daemonHeaders(marsToken.token),
+        body: JSON.stringify({
+          daemonKey: "shared-box",
+          deviceName: "Mars Box",
+          runtimes: [{ provider: "codex", name: "Mars Codex" }],
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toMatchObject({ error: "Daemon does not belong to this workspace." });
+    expect(readWorkspaceStateSync("workspace-mars").ledger[0]).toMatchObject({
+      code: "workspace.cross_workspace_access_denied",
+      data: expect.objectContaining({
+        actorType: "daemon_token",
+        resourceType: "daemon_registration",
+        resourceId: "shared-box",
+        requestedWorkspaceId: "default",
+      }),
+    });
+    expect(listDaemonSnapshotsSync("default")).toMatchObject([
+      {
+        daemon: {
+          daemonKey: "shared-box",
+          workspaceId: "default",
+        },
+        runtimes: [
+          {
+            provider: "codex",
+            workspaceId: "default",
+          },
+        ],
+      },
+    ]);
+    expect(listDaemonSnapshotsSync("workspace-mars")).toEqual([]);
+  });
+
   it("grants runtimes to the workspace member who created the daemon token", async () => {
     const member = createUserSync({
       primaryEmail: "member-runtime@example.com",
