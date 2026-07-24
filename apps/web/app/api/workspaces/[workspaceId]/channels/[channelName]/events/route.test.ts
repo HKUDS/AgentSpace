@@ -57,12 +57,13 @@ describe("channel realtime events route", () => {
 
   it("streams matching channel events without leaking other channels", async () => {
     let listener: ((event: {
-      type: "channel.message.created";
+      type: "channel.message.created" | "channel.message.updated";
       workspaceId: string;
       channelName: string;
       messageId: string;
       sequence: number;
-      createdAt: string;
+      createdAt?: string;
+      updatedAt?: string;
     }) => void) | null = null;
     mockSubscribeWorkspaceRealtimeEvents.mockImplementation((_workspaceId, nextListener) => {
       listener = nextListener;
@@ -104,6 +105,21 @@ describe("channel realtime events route", () => {
     expect(eventText).toContain("event: channel.message.created");
     expect(eventText).toContain("message-visible");
     expect(eventText).not.toContain("message-hidden");
+
+    emit({
+      type: "channel.message.updated",
+      workspaceId: "workspace-1",
+      channelName: "general",
+      messageId: "message-visible",
+      sequence: 3,
+      updatedAt: "2026-05-01T00:00:02.000Z",
+    });
+
+    const updateChunk = await reader.read();
+    const updateText = decoder.decode(updateChunk.value);
+    expect(updateText).toContain("event: channel.message.updated");
+    expect(updateText).toContain("message-visible");
+    expect(updateText).toContain("2026-05-01T00:00:02.000Z");
     await reader.cancel();
   });
 });

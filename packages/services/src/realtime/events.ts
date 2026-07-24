@@ -10,6 +10,14 @@ export type WorkspaceRealtimeEvent =
       createdAt: string;
     }
   | {
+      type: "channel.message.updated";
+      workspaceId: string;
+      channelName: string;
+      messageId: string;
+      sequence: number;
+      updatedAt: string;
+    }
+  | {
       type: "channel.thread.changed";
       workspaceId: string;
       channelName: string;
@@ -45,6 +53,24 @@ export function publishChannelMessageCreatedEvent(input: {
     messageId: input.messageId,
     sequence: nextSequence(),
     createdAt: input.createdAt,
+  };
+  emitter.emit(event.workspaceId, event);
+  return event;
+}
+
+export function publishChannelMessageUpdatedEvent(input: {
+  workspaceId: string;
+  channelName: string;
+  messageId: string;
+  updatedAt: string;
+}): WorkspaceRealtimeEvent {
+  const event: WorkspaceRealtimeEvent = {
+    type: "channel.message.updated",
+    workspaceId: input.workspaceId,
+    channelName: input.channelName,
+    messageId: input.messageId,
+    sequence: nextSequence(),
+    updatedAt: input.updatedAt,
   };
   emitter.emit(event.workspaceId, event);
   return event;

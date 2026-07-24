@@ -176,6 +176,37 @@ describe("remote daemon client integration", () => {
         ],
       });
 
+      await client.reportMessages(claimed.task.id, {
+        messages: [
+          {
+            type: "text",
+            content: "我先",
+          },
+        ],
+      });
+      await client.reportMessages(claimed.task.id, {
+        messages: [
+          {
+            type: "text",
+            content: "给你整理。",
+          },
+        ],
+      });
+
+      const streamingState = readWorkspaceStateSync();
+      const streamingDirectChannel = streamingState.channels.find(
+        (channel) => channel.kind === "direct" && channel.employeeNames.some((name) => name === "Atlas"),
+      );
+      const streamingPending = streamingState.messages.find(
+        (message) =>
+          message.channel === streamingDirectChannel?.name &&
+          message.role === "agent" &&
+          message.status === "pending" &&
+          message.speaker === "Atlas",
+      );
+      expect(streamingPending?.summary).toBe("我先给你整理。");
+      expect(streamingPending?.data?.stream_started).toBe("true");
+
       await client.uploadOutputBundle(claimed.task.id, {
         version: 1,
         format: "json-inline-v1",

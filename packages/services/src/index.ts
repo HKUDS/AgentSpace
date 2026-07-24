@@ -253,6 +253,7 @@ export {
   postMessageSync,
   sendChannelHumanMessageSync,
   replacePendingChannelMessageSync,
+  streamAgentChannelReplyDeltaSync,
   pinMessageSync,
   unpinMessageSync,
   acknowledgeMessageSync,
@@ -261,6 +262,7 @@ export {
 // Realtime
 export {
   publishChannelMessageCreatedEvent,
+  publishChannelMessageUpdatedEvent,
   publishChannelThreadChangedEvent,
   subscribeWorkspaceRealtimeEvents,
   type WorkspaceRealtimeEvent,

@@ -411,10 +411,15 @@ describe("ChannelsPageClient", () => {
       messageId: "message-2",
       sequence: 1,
     });
+    activeSource?.emit("channel.message.updated", {
+      channelName: "tour visit",
+      messageId: "message-2",
+      sequence: 2,
+    });
     activeSource?.emit("channel.message.created", {
       channelName: "tour visit",
       messageId: "message-3",
-      sequence: 2,
+      sequence: 3,
     });
 
     expect(routerRefreshMock).not.toHaveBeenCalled();

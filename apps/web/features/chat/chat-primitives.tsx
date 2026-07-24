@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useState } from "react";
+import { memo, useEffect, useState } from "react";
 import Link from "next/link";
 import type { MessageAttachment, MessageMention } from "@/shared/types/workspace";
 import { useLanguage } from "@/features/i18n/language-provider";
@@ -127,6 +127,22 @@ export const ConversationMessageBubble = memo(function ConversationMessageBubble
   const isPendingMessage = message.status === "pending";
   const isError = message.status === "error";
   const isProcessMessage = message.kind === "process";
+  const isStreamedAgentReply = message.role === "agent" && message.data?.stream_started === "true";
+  const shouldRevealStreamedContent = isStreamedAgentReply && !isError;
+  const renderedContent = isStreamedAgentReply
+    ? message.content
+    : translateWorkspaceMessageSummary(message, tx);
+  const visibleContent = useTypewriterContent({
+    content: renderedContent,
+    enabled: shouldRevealStreamedContent,
+    speedMs: 16,
+    step: 1,
+  });
+  const isStreamedContentRevealed =
+    !shouldRevealStreamedContent || visibleContent.length >= renderedContent.length;
+  const shouldShowPendingDots =
+    isPendingMessage &&
+    (!isStreamedAgentReply || !renderedContent.trim() || !isStreamedContentRevealed);
   const speakerLabel = translateSystemSpeaker(message.speaker, tx);
   const replyToSpeakerLabel = replyToMessage ? translateSystemSpeaker(replyToMessage.speaker, tx) : "";
   const approvalAction = buildRuntimeApprovalAction(message, tx);
@@ -196,13 +212,26 @@ export const ConversationMessageBubble = memo(function ConversationMessageBubble
           <span>{isPendingMessage ? tx("思考中", "Thinking") : renderMessageTimestamp(message.timestamp)}</span>
         </div>
         {isPendingMessage ? (
-          <div className="contacts-pending-dots">
-            <span />
-            <span />
-            <span />
-          </div>
+          isStreamedAgentReply && renderedContent.trim() ? (
+            <>
+              <p>{renderMessageContent(visibleContent, message.mentions)}</p>
+              {shouldShowPendingDots ? (
+                <div className="contacts-pending-dots">
+                  <span />
+                  <span />
+                  <span />
+                </div>
+              ) : null}
+            </>
+          ) : (
+            <div className="contacts-pending-dots">
+              <span />
+              <span />
+              <span />
+            </div>
+          )
         ) : (
-          <p>{renderMessageContent(translateWorkspaceMessageSummary(message, tx), message.mentions)}</p>
+          <p>{renderMessageContent(visibleContent, message.mentions)}</p>
         )}
         {approvalAction ? (
           <div className={`runtime-approval-card runtime-approval-card--${approvalAction.status}`}>
@@ -294,6 +323,39 @@ export const ConversationMessageBubble = memo(function ConversationMessageBubble
       .catch(() => {});
   }
 });
+
+function useTypewriterContent(input: {
+  content: string;
+  enabled: boolean;
+  speedMs: number;
+  step: number;
+}): string {
+  const { content, enabled, speedMs, step } = input;
+  const [visibleLength, setVisibleLength] = useState(() => (enabled ? 0 : content.length));
+
+  useEffect(() => {
+    if (!enabled || content.length === 0) {
+      setVisibleLength(content.length);
+      return;
+    }
+
+    setVisibleLength((current) => Math.min(current, content.length));
+    const timer = window.setInterval(() => {
+      setVisibleLength((current) => {
+        const next = Math.min(content.length, current + step);
+        if (next >= content.length) {
+          window.clearInterval(timer);
+        }
+        return next;
+      });
+    }, speedMs);
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [content, enabled, speedMs, step]);
+
+  return enabled ? content.slice(0, visibleLength) : content;
+}
 
 function renderMessageTimestamp(value: string): string {
   return formatCompactTimestamp(value, { emptyFallback: value });

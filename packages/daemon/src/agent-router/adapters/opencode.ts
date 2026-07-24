@@ -83,10 +83,38 @@ async function runOpenCode(
   observer: AgentRouterObserver,
   request: AgentRouterRunRequest,
 ): Promise<AgentRouterRunResult> {
+  let stdoutBuffer = "";
+  let streamedEventCount = 0;
+  const streamNativeEvent = (event: Record<string, unknown>, runObserver: AgentRouterObserver): void => {
+    streamedEventCount += 1;
+    for (const mapped of mapOpenCodeNativeEvent(event)) {
+      runObserver.emit(mapped);
+    }
+  };
+
   return runNativeHarness("opencode", plan, observer, request, {
     emptyMessage: "OpenCode returned an empty response.",
     nonZeroMessage: (exitCode) => `OpenCode exited with code ${exitCode}.`,
     timeoutMessage: (timeoutMs) => `OpenCode timed out after ${timeoutMs}ms.`,
+    onStdout: (chunk, runObserver) => {
+      stdoutBuffer += chunk;
+      const lines = stdoutBuffer.split(/\r?\n/);
+      stdoutBuffer = lines.pop() ?? "";
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed.startsWith("{")) {
+          continue;
+        }
+        try {
+          const parsed = JSON.parse(trimmed);
+          if (parsed && typeof parsed === "object") {
+            streamNativeEvent(parsed as Record<string, unknown>, runObserver);
+          }
+        } catch {
+          // Final stdout parsing emits protocol diagnostics for invalid JSON.
+        }
+      }
+    },
     parseEvents: (stdout, stderr, runObserver) => {
       const parsed = parseJsonEventOutput(stdout);
       const diagnostics = [...parsed.diagnostics];
@@ -99,10 +127,13 @@ async function runOpenCode(
         }));
       }
 
-      for (const event of parsed.events) {
+      for (const event of parsed.events.slice(streamedEventCount)) {
         for (const mapped of mapOpenCodeNativeEvent(event)) {
           runObserver.emit(mapped);
         }
+      }
+
+      for (const event of parsed.events) {
         const finalText = extractOpenCodeFinalText(event);
         if (finalText) {
           outputText = appendLine(outputText, finalText);

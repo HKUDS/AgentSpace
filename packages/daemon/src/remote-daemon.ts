@@ -3,7 +3,14 @@ import { spawn } from "node:child_process";
 import { join, resolve } from "node:path";
 import { getDaemonChannelWorkDirPath, getDaemonTaskWorkDirPath } from "@agent-space/db";
 import { getStringFlag, parseArgs } from "./args.ts";
-import type { ClaimedDaemonTask, ClaimedRuntimeAppOperation, DaemonTaskInputBundle, HeartbeatDaemonResponse, RegisterDaemonResponse } from "./daemon-api.ts";
+import type {
+  ClaimedDaemonTask,
+  ClaimedRuntimeAppOperation,
+  DaemonTaskInputBundle,
+  DaemonTaskMessageInput,
+  HeartbeatDaemonResponse,
+  RegisterDaemonResponse,
+} from "./daemon-api.ts";
 import { collectRuntimeOutputBundle, clearTaskOutputArtifacts, materializeInputBundle } from "./bundle.ts";
 import { HttpDaemonClient } from "./daemon-client.ts";
 import { prepareSkillImportOperationArtifacts } from "./skill-imports.ts";
@@ -60,6 +67,10 @@ interface DaemonStatusSummary {
   logFile: string;
   stateDir: string;
 }
+
+type OrderedTaskMessageReporter = ((messages: DaemonTaskMessageInput[]) => Promise<void>) & {
+  flush: () => Promise<void>;
+};
 
 export async function runRemoteDaemonCommand(subcommand: string | undefined, args: string[]): Promise<number> {
   if (subcommand === "start") {
@@ -555,6 +566,7 @@ async function executeRemoteTask(
     await client.startTask(task.id);
     const bundle = await client.getInputBundle(task.id);
     materializeInputBundle(workDir, bundle);
+    const reportTaskMessages = createOrderedTaskMessageReporter(client, task.id);
 
     const result = await runProviderTask(
       runtime,
@@ -571,21 +583,16 @@ async function executeRemoteTask(
         runtimeApps: bundle.metadata.runtimeApps?.apps ?? [],
         runtimeToolCapabilities: bundle.metadata.runtimeToolCapabilities?.capabilities ?? [],
         onEvent: (event) => {
-          void client.reportMessages(task.id, { messages: [event] }).catch((error) => {
-            const message = error instanceof Error ? error.message : String(error);
-            console.error(`Failed to report remote task message for ${task.id}: ${message}`);
-          });
+          reportTaskMessages([event]);
         },
         onApprovalRequest: (request) => waitForRuntimeApproval(client, task.id, request),
       },
     );
+    await reportTaskMessages.flush();
 
     const preparedSkillImports = prepareSkillImportOperationArtifacts(workDir);
     for (const warning of preparedSkillImports.warnings) {
-      await client.reportMessages(task.id, { messages: [{ type: "status", content: warning }] }).catch((error) => {
-        const message = error instanceof Error ? error.message : String(error);
-        console.error(`Failed to report skill import warning for ${task.id}: ${message}`);
-      });
+      await reportTaskMessages([{ type: "status", content: warning }]);
     }
 
     const outputBundle = collectRuntimeOutputBundle(workDir);
@@ -617,6 +624,22 @@ async function executeRemoteTask(
       rmSync(workDir, { recursive: true, force: true });
     }
   }
+}
+
+function createOrderedTaskMessageReporter(client: HttpDaemonClient, taskId: string): OrderedTaskMessageReporter {
+  let chain = Promise.resolve();
+
+  const report = ((messages: DaemonTaskMessageInput[]) => {
+    chain = chain
+      .then(() => client.reportMessages(taskId, { messages }))
+      .catch((error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        console.error(`Failed to report remote task message for ${taskId}: ${message}`);
+      });
+    return chain;
+  }) as OrderedTaskMessageReporter;
+  report.flush = () => chain;
+  return report;
 }
 
 function buildRuntimeContextEnv(

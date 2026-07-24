@@ -1064,6 +1064,7 @@ test("runProviderTask routes OpenCode through AgentRouter with model, session, a
   const fakeCliPath = join(toolBinDir, "fake-cli");
   const argsPath = join(workDir, "opencode-args.txt");
   const seenPathFile = join(workDir, "seen-path.txt");
+  const continueFile = join(workDir, "continue");
   const originalOpenCodeModel = process.env.OPENCODE_MODEL;
   const originalDaemonBin = process.env.AGENT_SPACE_DAEMON_BIN;
   mkdirSync(providerBinDir, { recursive: true });
@@ -1078,6 +1079,7 @@ test("runProviderTask routes OpenCode through AgentRouter with model, session, a
       "if command -v fake-cli >/dev/null 2>&1 && command -v agent-space-daemon >/dev/null 2>&1; then",
       "  printf '%s\\n' '{\"type\":\"step_start\",\"sessionID\":\"opencode-session\",\"part\":{\"text\":\"working\"}}'",
       "  printf '%s\\n' '{\"type\":\"text\",\"sessionID\":\"opencode-session\",\"part\":{\"text\":\"opencode provider output\"}}'",
+      "  while [ ! -f \"$OPENCODE_CONTINUE_FILE\" ]; do sleep 0.05; done",
       "  printf '%s\\n' '{\"type\":\"step_finish\",\"sessionID\":\"opencode-session\",\"part\":{\"tokens\":{\"input\":3,\"output\":4}}}'",
       "else",
       "  printf '%s\\n' 'missing runtime path'",
@@ -1108,11 +1110,16 @@ test("runProviderTask routes OpenCode through AgentRouter with model, session, a
     process.env.AGENT_SPACE_DAEMON_BIN = daemonBinPath;
     process.env.OPENCODE_MODEL = "openrouter/openai/gpt-4.1";
     const events: Array<{ type: string; content?: string }> = [];
-    const result = await runProviderTask(runtime, "write a short reply", workDir, {
+    let resolveStreamedText: (() => void) | undefined;
+    const streamedText = new Promise<void>((resolve) => {
+      resolveStreamedText = resolve;
+    });
+    const resultPromise = runProviderTask(runtime, "write a short reply", workDir, {
       sessionId: "previous-opencode-session",
       contextEnv: {
         OPENCODE_ARGS_PATH: argsPath,
         SEEN_PATH_FILE: seenPathFile,
+        OPENCODE_CONTINUE_FILE: continueFile,
       },
       runtimeToolCapabilities: [{
         id: "fake-cli",
@@ -1122,9 +1129,26 @@ test("runProviderTask routes OpenCode through AgentRouter with model, session, a
         allowedShellPatterns: ["fake-cli *"],
         source: "runtime",
       }],
-      onEvent: (event) => events.push(event),
+      onEvent: (event) => {
+        events.push(event);
+        if (event.type === "text" && event.content === "opencode provider output") {
+          resolveStreamedText?.();
+        }
+      },
       taskTimeoutMs: 1_000,
     });
+    let streamError: unknown;
+    try {
+      await waitForPromise(streamedText, 500, "OpenCode text event was not streamed before the process exited.");
+    } catch (error) {
+      streamError = error;
+    } finally {
+      writeFileSync(continueFile, "ok\n", "utf8");
+    }
+    const result = await resultPromise;
+    if (streamError) {
+      throw streamError;
+    }
     const args = readFileSync(argsPath, "utf8").trim().split(/\r?\n/);
     const seenPath = readFileSync(seenPathFile, "utf8").split(delimiter);
 
@@ -1143,6 +1167,10 @@ test("runProviderTask routes OpenCode through AgentRouter with model, session, a
     assert.equal(seenPath.includes(daemonBinDir), true);
     assert.equal(seenPath.includes(toolBinDir), true);
     assert.equal(events.some((event) => event.type === "usage"), true);
+    assert.equal(
+      events.filter((event) => event.type === "text" && event.content === "opencode provider output").length,
+      1,
+    );
   } finally {
     if (originalOpenCodeModel === undefined) {
       delete process.env.OPENCODE_MODEL;
@@ -1157,6 +1185,22 @@ test("runProviderTask routes OpenCode through AgentRouter with model, session, a
     rmSync(workDir, { recursive: true, force: true });
   }
 });
+
+function waitForPromise<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error(message)), timeoutMs);
+    promise.then(
+      (value) => {
+        clearTimeout(timeout);
+        resolve(value);
+      },
+      (error: unknown) => {
+        clearTimeout(timeout);
+        reject(error);
+      },
+    );
+  });
+}
 
 test("runProviderTask maps Hermes capability and empty-response diagnostics to provider errors", async () => {
   const workDir = mkdtempSync(join(tmpdir(), "agent-space-hermes-diagnostics-"));

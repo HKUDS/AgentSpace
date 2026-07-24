@@ -1,6 +1,6 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ChatAttachmentRow, ConversationMessageBubble } from "@/features/chat/chat-primitives";
 import { LanguageProvider } from "@/features/i18n/language-provider";
 import type { MessageAttachment } from "@/shared/types/workspace";
@@ -51,6 +51,10 @@ describe("ChatAttachmentRow", () => {
 describe("ConversationMessageBubble", () => {
   beforeEach(() => {
     window.localStorage.clear();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it("translates the system speaker label in English", () => {
@@ -116,7 +120,7 @@ describe("ConversationMessageBubble", () => {
     const onReviewApproval = vi.fn(async () => {});
 
     render(
-      <LanguageProvider>
+      <LanguageProvider initialLanguage="zh">
         <ConversationMessageBubble
           message={{
             id: "message-approval",
@@ -146,5 +150,77 @@ describe("ConversationMessageBubble", () => {
     await user.click(screen.getByRole("button", { name: "批准" }));
 
     expect(onReviewApproval).toHaveBeenCalledWith("approval-1", "approved");
+  });
+
+  it("reveals streamed pending agent reply content instead of hiding it behind dots", () => {
+    vi.useFakeTimers();
+
+    const { container } = render(
+      <LanguageProvider>
+        <ConversationMessageBubble
+          message={{
+            id: "message-stream-pending",
+            speaker: "Atlas",
+            role: "agent",
+            content: "我正在整理第一版。",
+            code: "agent.pending",
+            data: { stream_started: "true", source_task_queue_id: "queue-1" },
+            timestamp: "10:00",
+            status: "pending",
+          }}
+        />
+      </LanguageProvider>,
+    );
+
+    expect(screen.queryByText("我正在整理第一版。")).not.toBeInTheDocument();
+
+    act(() => {
+      vi.advanceTimersByTime(16);
+    });
+    expect(screen.getByText("我")).toBeInTheDocument();
+    expect(container.querySelector(".contacts-pending-dots")).toBeInTheDocument();
+
+    act(() => {
+      vi.advanceTimersByTime(16 * 8);
+    });
+    expect(screen.getByText("我正在整理第一版。")).toBeInTheDocument();
+    expect(container.querySelector(".contacts-pending-dots")).not.toBeInTheDocument();
+  });
+
+  it("reveals completed streamed agent replies progressively", () => {
+    vi.useFakeTimers();
+
+    render(
+      <LanguageProvider>
+        <ConversationMessageBubble
+          message={{
+            id: "message-stream-complete",
+            speaker: "Atlas",
+            role: "agent",
+            content: "abcdef",
+            data: { stream_started: "true", source_task_queue_id: "queue-1" },
+            timestamp: "10:00",
+            status: "completed",
+          }}
+        />
+      </LanguageProvider>,
+    );
+
+    expect(screen.queryByText("abcdef")).not.toBeInTheDocument();
+
+    act(() => {
+      vi.advanceTimersByTime(16);
+    });
+    expect(screen.getByText("a")).toBeInTheDocument();
+
+    act(() => {
+      vi.advanceTimersByTime(16 * 2);
+    });
+    expect(screen.getByText("abc")).toBeInTheDocument();
+
+    act(() => {
+      vi.advanceTimersByTime(16 * 3);
+    });
+    expect(screen.getByText("abcdef")).toBeInTheDocument();
   });
 });
