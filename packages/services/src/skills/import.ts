@@ -17,6 +17,7 @@ import {
   updateWorkspaceSkillSync,
   upsertWorkspaceSkillFileSync,
 } from "./skills.ts";
+import { parseSkillMetadata } from "./skill-metadata.ts";
 
 export type SkillImportConflict = "reject" | "rename" | "replace" | "skip";
 export type SkillImportSourceType = "github" | "skills.sh" | "clawhub" | "local";
@@ -738,30 +739,6 @@ function buildGitHubContentsApiUrl(owner: string, repo: string, path: string, re
 function extractClawHubDownloadUrl(html: string): string | null {
   const match = html.match(/https:\/\/[^"']+convex\.site\/api\/v1\/download\?slug=[^"'<\s]+/i);
   return match ? match[0] : null;
-}
-
-function parseSkillMetadata(skillMarkdown: string, fallbackName: string): { name: string; description: string } {
-  const frontmatterMatch = skillMarkdown.match(/^---\s*\n([\s\S]*?)\n---\s*/);
-  if (!frontmatterMatch) {
-    return { name: fallbackName, description: "" };
-  }
-
-  let name = fallbackName;
-  let description = "";
-  for (const rawLine of frontmatterMatch[1].split(/\r?\n/)) {
-    const line = rawLine.trim();
-    if (line.startsWith("name:")) {
-      name = line.slice("name:".length).trim() || fallbackName;
-    }
-    if (line.startsWith("description:")) {
-      description = line.slice("description:".length).trim();
-    }
-  }
-
-  return {
-    name,
-    description,
-  };
 }
 
 function deriveSkillNameFromPath(path: string): string {
