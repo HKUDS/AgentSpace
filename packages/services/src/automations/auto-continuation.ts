@@ -2,6 +2,7 @@ import {
   cancelQueuedTaskSync,
   DEFAULT_WORKSPACE_ID,
   enqueueNativeTaskSync,
+  listQueuedTasksSync,
   readQueuedTaskSync,
   type QueuedTaskRecord,
 } from "@agent-space/db";
@@ -154,6 +155,12 @@ export function continueAutoContinuationAfterTaskSync(input: {
   const channel = state.channels.find((item) => sameValue(item.name, channelName));
   if (!agent || !channel) {
     return { queued: false, reason: "missing_target", until: autoContinuation.until };
+  }
+
+  const agentHasActiveTask = listQueuedTasksSync({ workspaceId })
+    .some((t) => t.agentId === agentId && (t.status === "claimed" || t.status === "running"));
+  if (agentHasActiveTask) {
+    return { queued: false, reason: "agent_busy", until: autoContinuation.until };
   }
 
   const nextContinuation: ConversationAutoContinuationState = {

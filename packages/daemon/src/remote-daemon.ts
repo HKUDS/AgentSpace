@@ -44,6 +44,7 @@ export interface RemoteDaemonConfig {
   heartbeatIntervalMs: number;
   taskPollIntervalMs: number;
   taskTimeoutMs: number;
+  providerConcurrency: number;
   serverUrl?: string;
   daemonToken?: string;
 }
@@ -105,19 +106,24 @@ export async function runRemoteDaemonForeground(config: RemoteDaemonConfig): Pro
     daemonKey: config.daemonKey,
     deviceName: config.deviceName,
     metadata: readNodeMetadata(config.serverUrl, config.runtimeName),
-    runtimes: detected.map((provider) => ({
-      provider: provider.provider,
-      name: `${config.runtimeName} · ${provider.label}`,
-      version: provider.version,
-      deviceInfo: config.deviceName,
-      metadata: buildProviderRuntimeMetadata({
+    runtimes: detected.flatMap((provider) =>
+      Array.from({ length: config.providerConcurrency }, (_, i) => ({
         provider: provider.provider,
-        metadata: {
-          executablePath: provider.executablePath,
-          mode: "remote",
-        },
-      }),
-    })),
+        name: config.providerConcurrency > 1
+          ? `${config.runtimeName} · ${provider.label} #${i + 1}`
+          : `${config.runtimeName} · ${provider.label}`,
+        version: provider.version,
+        deviceInfo: config.deviceName,
+        metadata: buildProviderRuntimeMetadata({
+          provider: provider.provider,
+          metadata: {
+            executablePath: provider.executablePath,
+            mode: "remote",
+            concurrencyIndex: i,
+          },
+        }),
+      })),
+    ),
   });
 
   let runtimes = buildRemoteRuntimeRecords(config, registered, detected);
@@ -238,6 +244,16 @@ export function buildRemoteDaemonConfig(
           ?? 12 * 60 * 60 * 1000,
       ),
     ),
+    providerConcurrency: Math.max(
+      1,
+      Math.floor(
+        Number(
+          getStringFlag(flags, "provider-concurrency")
+            ?? environment.AGENT_SPACE_PROVIDER_CONCURRENCY
+            ?? 1,
+        ),
+      ) || 1,
+    ),
     serverUrl: getStringFlag(flags, "server-url")?.trim() || environment.AGENT_SPACE_SERVER_URL?.trim(),
     daemonToken: getStringFlag(flags, "daemon-token")?.trim() || environment.AGENT_SPACE_DAEMON_TOKEN?.trim(),
   };
@@ -247,7 +263,7 @@ export function printRemoteDaemonHelp(): void {
   console.log(`agent-space-daemon
 
 Usage:
-  agent-space-daemon start [--foreground] [--server-url <url>] [--daemon-token <token>] [--daemon-id <id>] [--device-name <name>] [--runtime-name <label>] [--heartbeat-interval <ms>] [--poll-interval <ms>] [--task-timeout <ms>] [--state-dir <dir>]
+  agent-space-daemon start [--foreground] [--server-url <url>] [--daemon-token <token>] [--daemon-id <id>] [--device-name <name>] [--runtime-name <label>] [--heartbeat-interval <ms>] [--poll-interval <ms>] [--task-timeout <ms>] [--provider-concurrency <n>] [--state-dir <dir>]
   agent-space-daemon stop [--state-dir <dir>]
   agent-space-daemon status [--json] [--state-dir <dir>]
   agent-space-daemon logs [--lines <n>] [--follow] [--state-dir <dir>]
@@ -262,9 +278,11 @@ Environment:
   AGENT_SPACE_HEARTBEAT_INTERVAL
   AGENT_SPACE_TASK_POLL_INTERVAL
   AGENT_SPACE_TASK_TIMEOUT_MS
+  AGENT_SPACE_PROVIDER_CONCURRENCY
 
 Examples:
   agent-space-daemon start --foreground --server-url https://agentspace.example --daemon-token adt_xxx
+  agent-space-daemon start --foreground --provider-concurrency 4
   agent-space-daemon status --json
   agent-space-daemon logs --follow`);
 }
@@ -342,6 +360,8 @@ export function buildRemoteDaemonRelaunchCommand(
     String(config.taskPollIntervalMs),
     "--task-timeout",
     String(config.taskTimeoutMs),
+    "--provider-concurrency",
+    String(config.providerConcurrency),
   ];
 
   if (config.serverUrl) {
@@ -544,7 +564,7 @@ async function executeRemoteTask(
   runtime: RemoteRuntimeRecord,
   task: ClaimedDaemonTask,
 ): Promise<void> {
-  const workDir = resolveRemoteTaskWorkDir(config, task);
+  const workDir = resolveRemoteTaskWorkDir(config, task, runtime);
   const isPersistentConversationWorkspace = isConversationScopedRemoteTask(task);
   if (!isPersistentConversationWorkspace) {
     rmSync(workDir, { recursive: true, force: true });
@@ -637,11 +657,13 @@ function buildRemoteRuntimeRecords(
   registered: RegisterDaemonResponse,
   detected: DetectedProvider[],
 ): RemoteRuntimeRecord[] {
-  return registered.runtimes.flatMap((runtime) => {
+  return registered.runtimes.flatMap((runtime, i) => {
     const detectedProvider = detected.find((provider) => provider.provider === runtime.provider);
     if (!detectedProvider) {
       return [];
     }
+
+    const concurrencyIndex = countRunTimesOfSameProvider(registered.runtimes.slice(0, i), runtime.provider);
 
     return [{
       id: runtime.id,
@@ -651,19 +673,29 @@ function buildRemoteRuntimeRecords(
       version: detectedProvider.version,
       status: runtime.status,
       deviceInfo: config.deviceName,
+      concurrencyIndex,
       metadata: {
         executablePath: detectedProvider.executablePath,
         mode: "remote",
+        concurrencyIndex,
         ...buildProviderRuntimeMetadata({
           provider: detectedProvider.provider,
           metadata: {
             executablePath: detectedProvider.executablePath,
             mode: "remote",
+            concurrencyIndex,
           },
         }),
       },
     } satisfies RemoteRuntimeRecord];
   });
+}
+
+function countRunTimesOfSameProvider(
+  precedingRuntimes: RegisterDaemonResponse["runtimes"],
+  provider: string,
+): number {
+  return precedingRuntimes.filter((r) => r.provider === provider).length;
 }
 
 function reconcileRemoteRuntimesWithHeartbeat(
@@ -770,7 +802,11 @@ function readErrorTail(error: unknown, key: "stdout" | "stderr"): string | undef
   return typeof value === "string" ? tailAndRedact(value) : undefined;
 }
 
-function resolveRemoteTaskWorkDir(config: RemoteDaemonConfig, task: ClaimedDaemonTask): string {
+function resolveRemoteTaskWorkDir(
+  config: RemoteDaemonConfig,
+  task: ClaimedDaemonTask,
+  runtime: RemoteRuntimeRecord,
+): string {
   const payload = parseTaskInputJson(task.inputJson);
   const channelThreadId = resolveConversationThreadId({
     triggerType: task.triggerType,
@@ -781,6 +817,7 @@ function resolveRemoteTaskWorkDir(config: RemoteDaemonConfig, task: ClaimedDaemo
       workspaceId: task.workspaceId,
       threadId: channelThreadId,
       agentId: task.agentId,
+      runtimeIdSuffix: config.providerConcurrency > 1 ? runtime.id : undefined,
     });
   }
 
