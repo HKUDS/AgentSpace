@@ -38,10 +38,18 @@ export function parseSkillMetadata(
 }
 
 function stripYamlScalar(value: string): string {
-  if (
-    (value.startsWith('"') && value.endsWith('"'))
-    || (value.startsWith("'") && value.endsWith("'"))
-  ) {
+  if (value.startsWith('"') && value.endsWith('"')) {
+    try {
+      const decoded = JSON.parse(value) as unknown;
+      if (typeof decoded === "string") {
+        return decoded;
+      }
+    } catch {
+      // Preserve the previous best-effort behavior for unsupported YAML escapes.
+    }
+    return value.slice(1, -1);
+  }
+  if (value.startsWith("'") && value.endsWith("'")) {
     return value.slice(1, -1);
   }
   return value;
