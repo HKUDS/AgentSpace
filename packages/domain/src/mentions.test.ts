@@ -160,3 +160,25 @@ test("parseMentionPlan warns when collaboration looks sequential but order is un
   assert.equal(plan.mode, "parallel");
   assert.ok(plan.warnings.some((warning) => warning.includes("无法可靠识别顺序依赖")));
 });
+
+test("parseMentionPlan warns instead of dropping agents in mixed parallel and sequential clauses", () => {
+  const plan = parseMentionPlan("@Atlas 和 @Nova 各自写文档，然后 @Lyra 审阅", [
+    ...candidates,
+    { agentId: "lyra", label: "Lyra", aliases: ["Lyra"], inChannel: true },
+  ]);
+
+  assert.equal(plan.mode, "parallel");
+  assert.deepEqual(plan.steps.map((step) => step.agentId), ["atlas", "nova", "lyra"]);
+  assert.ok(plan.warnings.some((warning) => warning.includes("无法可靠识别顺序依赖")));
+});
+
+test("parseMentionPlan warns instead of dropping a third direct handoff participant", () => {
+  const plan = parseMentionPlan("@Atlas 写文档交给 @Nova 和 @Lyra 审阅", [
+    ...candidates,
+    { agentId: "lyra", label: "Lyra", aliases: ["Lyra"], inChannel: true },
+  ]);
+
+  assert.equal(plan.mode, "parallel");
+  assert.deepEqual(plan.steps.map((step) => step.agentId), ["atlas", "nova", "lyra"]);
+  assert.ok(plan.warnings.some((warning) => warning.includes("无法可靠识别顺序依赖")));
+});

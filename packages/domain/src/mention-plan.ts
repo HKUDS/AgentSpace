@@ -52,6 +52,24 @@ export function parseMentionPlan(input: string, candidates: MentionCandidate[]):
   const warnings: string[] = [];
   const mentionsWithOffsets = collectMentionsWithOffsets(input, candidates);
 
+  const ambiguousPlan = (): MentionPlan => ({
+    mode: "parallel",
+    steps: mentionResult.mentions.map((mention, index) => ({
+      id: `step-${index + 1}`,
+      agentId: mention.agentId,
+      agentLabel: mention.label,
+      instruction: input.trim(),
+      dependsOnStepIds: [],
+      handoffKind: inferHandoffKind(input),
+    })),
+    warnings: ["无法可靠识别顺序依赖，请明确写出先后顺序。"],
+    unknownMentions: mentionResult.unknownMentions,
+  });
+
+  if (clauses.length === 1 && mentionResult.mentions.length > 2 && hasDirectHandoff(input)) {
+    return ambiguousPlan();
+  }
+
   if (clauses.length === 1 && mentionResult.mentions.length >= 2 && hasDirectHandoff(input)) {
     const primary = mentionResult.mentions[0]!;
     const secondary = mentionResult.mentions[1]!;
@@ -138,6 +156,10 @@ export function parseMentionPlan(input: string, candidates: MentionCandidate[]):
       warnings,
       unknownMentions: mentionResult.unknownMentions,
     };
+  }
+
+  if (mentionResult.mentions.some((mention) => !steps.some((step) => step.agentId === mention.agentId))) {
+    return ambiguousPlan();
   }
 
   return {

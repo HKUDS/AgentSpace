@@ -174,6 +174,26 @@ function addHumanToTourVisit(name: string): void {
   });
 }
 
+for (const summary of [
+  "@Atlas 和 @Nova 各自写文档，然后 @Lyra 审阅",
+  "@Atlas 写文档交给 @Nova 和 @Lyra 审阅",
+]) {
+  test(`channel handoff requests clarification instead of dropping a participant: ${summary}`, () => {
+    seedWorkspace();
+    addAgentToTourVisit("Nova");
+    addAgentToTourVisit("Lyra");
+    for (const name of ["Atlas", "Nova", "Lyra"]) {
+      bindRuntimeForAgent(name);
+    }
+
+    const state = sendChannelHumanMessageSync("tour visit", "Tianyu", summary);
+    assert.equal(state.channelDocumentRuns.length, 0);
+    assert.equal(listQueuedTasksSync({ workspaceId: DEFAULT_WORKSPACE_ID }).length, 0);
+    assert.ok(state.messages.some((message) => message.code === "channel_document.plan_ambiguous_notice"));
+    assert.equal(state.messages.find((message) => message.summary === summary)?.mentions?.length, 3);
+  });
+}
+
 test("failure summaries hide provider diagnostics in user-visible chat text", () => {
   const rootClaudeError = 'claude exited with code 1. (code=provider.runtime_generic_failure; exitCode=1; timedOut=false; events=none; resultEvent=false; textEvent=false; toolEvent=false; parseErrors=0; nonJsonLines=0; stderrTail="--dangerously-skip-permissions cannot be used with root/sudo privileges for security reasons")';
   const directSummary = formatConversationFailureSummary({
