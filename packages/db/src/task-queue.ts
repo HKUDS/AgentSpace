@@ -266,14 +266,16 @@ export function claimNextQueuedTaskForRuntimeSync(runtimeId: string, workspaceId
     }
 
     if (row && typeof row.id === "string") {
-      db.prepare(
+      const claim = db.prepare(
         `UPDATE agent_task_queue
          SET status = 'claimed',
              claimed_at = ?,
              updated_at = ?
          WHERE id = ? AND status = 'queued'`,
       ).run(now, now, row.id);
-      claimedId = row.id;
+      if (claim.changes > 0) {
+        claimedId = row.id;
+      }
     }
     db.exec("COMMIT");
   } catch (error) {

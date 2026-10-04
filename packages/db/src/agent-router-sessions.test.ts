@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { createRequire } from "node:module";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { before, beforeEach } from "node:test";
+import { resolvePostgresDatabaseUrl } from "./postgres-config.ts";
 import {
   bindEmployeeRuntimeSync,
   chooseProviderSessionForTaskSync,
@@ -216,6 +219,61 @@ test("records attempts, events, and context snapshots for router sessions", () =
   );
   assert.ok(listAgentRouterEventsSync({ routerSessionId: task.routerSessionId })
     .some((event) => event.type === "task.completed"));
+});
+
+test("does not return a task claimed by another connection after selection", () => {
+  const { workspaceId, runtimeId } = seedWorkspaceRuntime("router-claim-race");
+  const task = enqueueNativeTaskSync({
+    workspaceId,
+    assignee: "Atlas",
+    title: "Claim exactly once",
+    channel: "ops",
+    priority: "high",
+    triggerType: "channel_chat",
+  });
+  assert.ok(task?.routerSessionId);
+  const db = getDatabase();
+  const originalPrepare = db.prepare;
+  let competingClaim = false;
+  db.prepare = function (sql) {
+    const statement = originalPrepare.call(db, sql);
+    if (!competingClaim && /SELECT id\s+FROM agent_task_queue/.test(sql)) {
+      const originalGet = statement.get;
+      statement.get = function (...params) {
+        const selected = originalGet.apply(statement, params);
+        assert.ok(selected);
+        competingClaim = true;
+        const competitor = spawnSync(process.execPath, ["-e", `
+          const { Client } = require(process.argv[1]);
+          const client = new Client({ connectionString: process.env.AGENT_SPACE_TEST_DATABASE_URL });
+          (async () => {
+            await client.connect();
+            const result = await client.query(
+              "UPDATE agent_task_queue SET status = 'claimed' WHERE id = $1 AND status = 'queued'",
+              [process.argv[2]],
+            );
+            if (result.rowCount !== 1) throw new Error("Competing claim did not win.");
+            await client.end();
+          })().catch(error => { console.error(error); process.exitCode = 1; });
+        `, createRequire(import.meta.url).resolve("pg"), task.id], {
+          env: { ...process.env, AGENT_SPACE_TEST_DATABASE_URL: resolvePostgresDatabaseUrl() },
+          encoding: "utf8",
+          timeout: 15_000,
+        });
+        assert.equal(competitor.status, 0, competitor.stderr);
+        return selected;
+      };
+    }
+    return statement;
+  };
+  try {
+    assert.equal(claimNextQueuedTaskForRuntimeSync(runtimeId, workspaceId), null);
+  } finally {
+    db.prepare = originalPrepare;
+  }
+  assert.equal(competingClaim, true);
+  assert.equal(readQueuedTaskSync(task.id)?.status, "claimed");
+  assert.deepEqual(listAgentTaskAttemptsSync({ routerSessionId: task.routerSessionId }), []);
 });
 
 test("resetWorkspaceExecutionStateSync clears router execution rows", () => {
