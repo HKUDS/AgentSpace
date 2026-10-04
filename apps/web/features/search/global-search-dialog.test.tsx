@@ -15,6 +15,37 @@ vi.mock("next/navigation", () => ({
 }));
 
 describe("GlobalSearchDialog", () => {
+  it("keeps newer search results when an older response arrives last", async () => {
+    let finishOlder!: (value: unknown) => void;
+    const fetchMock = vi.fn()
+      .mockImplementationOnce(() => new Promise((resolve) => { finishOlder = resolve; }))
+      .mockResolvedValueOnce({ json: async () => ({ results: [{ type: "task", id: "new", title: "Newer result", snippet: "", score: 1 }] }) });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<LanguageProvider><GlobalSearchDialog open onClose={vi.fn()} /></LanguageProvider>);
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "older" } });
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "newer" } });
+    expect(await screen.findByRole("link", { name: /Newer result/ })).toBeInTheDocument();
+    await act(async () => {
+      finishOlder({ json: async () => ({ results: [{ type: "task", id: "old", title: "Older result", snippet: "", score: 1 }] }) });
+    });
+    expect(screen.getByRole("link", { name: /Newer result/ })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /Older result/ })).not.toBeInTheDocument();
+  });
+
+  it("does not restore results after the query is cleared", async () => {
+    let finishSearch!: (value: unknown) => void;
+    vi.stubGlobal("fetch", vi.fn(() => new Promise((resolve) => { finishSearch = resolve; })));
+    render(<LanguageProvider><GlobalSearchDialog open onClose={vi.fn()} /></LanguageProvider>);
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "older" } });
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "" } });
+    await act(async () => {
+      finishSearch({ json: async () => ({ results: [{ type: "task", id: "old", title: "Older result", snippet: "", score: 1 }] }) });
+    });
+    expect(screen.queryByRole("link", { name: /Older result/ })).not.toBeInTheDocument();
+  });
+
   beforeEach(() => {
     routerPushMock.mockReset();
     vi.useFakeTimers({ toFake: ["Date"] });

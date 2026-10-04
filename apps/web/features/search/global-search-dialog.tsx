@@ -100,8 +100,11 @@ export function GlobalSearchDialog({
   const [results, setResults] = useState<SearchResult[]>([]);
   const [activeIndex, setActiveIndex] = useState(0);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const searchRevisionRef = useRef(0);
 
   useEffect(() => {
+    searchRevisionRef.current += 1;
+    clearTimeout(debounceRef.current);
     if (open) {
       setQuery("");
       setAssignedAgentName("all");
@@ -109,9 +112,14 @@ export function GlobalSearchDialog({
       setActiveIndex(0);
       window.requestAnimationFrame(() => inputRef.current?.focus());
     }
+    return () => {
+      searchRevisionRef.current += 1;
+      clearTimeout(debounceRef.current);
+    };
   }, [open]);
 
   const doSearch = useCallback((q: string, agentName = assignedAgentName) => {
+    const revision = searchRevisionRef.current;
     if (!q.trim()) {
       setResults([]);
       return;
@@ -123,20 +131,33 @@ export function GlobalSearchDialog({
     fetch(`/api/search?${params.toString()}`)
       .then((res) => res.json())
       .then((data) => {
+        if (revision !== searchRevisionRef.current) {
+          return;
+        }
         setResults(data.results ?? []);
         setActiveIndex(0);
       })
-      .catch(() => setResults([]));
+      .catch(() => {
+        if (revision === searchRevisionRef.current) {
+          setResults([]);
+        }
+      });
   }, [assignedAgentName]);
 
   function handleQueryChange(value: string): void {
+    searchRevisionRef.current += 1;
     setQuery(value);
+    setResults([]);
+    setActiveIndex(0);
     clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => doSearch(value), 200);
   }
 
   function handleAssignedAgentChange(value: string): void {
+    searchRevisionRef.current += 1;
     setAssignedAgentName(value);
+    setResults([]);
+    setActiveIndex(0);
     clearTimeout(debounceRef.current);
     if (query.trim()) {
       doSearch(query, value);
