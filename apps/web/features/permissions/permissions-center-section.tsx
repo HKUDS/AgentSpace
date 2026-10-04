@@ -208,6 +208,7 @@ export function PermissionsCenterSection({
           <div className="permissions-inspector">
             {viewMode === "resources" && selectedNode ? (
               <ResourceInspector
+                key={selectedNode.id}
                 canManageWorkspace={canManageWorkspace}
                 currentMembershipRole={currentMembershipRole}
                 currentUserDisplayName={currentUserDisplayName}
