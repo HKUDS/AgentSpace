@@ -411,6 +411,36 @@ test("agent bot first messages auto-provision a channel and route @bot to the ag
   assert.equal(mappingMetadata.agentSpaceCommandUsed, false);
 });
 
+test("native nested bot mentions auto-provision a channel and enqueue the intended agent", databaseTestOptions, () => {
+  const fixtures = seedBoundFeishuWorkspace({ agentBot: true, bindChannel: false });
+  const result = processFeishuInboundEventSync({
+    context: {
+      workspaceId: DEFAULT_WORKSPACE_ID,
+      integrationId: fixtures.integration.id,
+      provider: FEISHU_PROVIDER_ID,
+    },
+    payload: buildFeishuMessagePayload({
+      eventId: "evt-native-nested-mention",
+      messageId: "om-native-nested-mention",
+      chatId: "oc_native_mention",
+      chatName: "Native Mention Room",
+      text: "@_user_1 summarize launch notes",
+      mentions: [{ key: "@_user_1", id: { open_id: "ou_bot_atlas" }, name: "Atlas Bot" }],
+    }),
+  });
+  assert.equal(result.dispatchStatus, "sent");
+  assert.ok(result.mappedChannelName);
+  const [task] = listQueuedTasksSync({ workspaceId: DEFAULT_WORKSPACE_ID });
+  assert.equal(task?.agentId, "Atlas");
+  const mapping = readExternalMessageMappingByExternalMessageSync({
+    workspaceId: DEFAULT_WORKSPACE_ID,
+    integrationId: fixtures.integration.id,
+    externalMessageId: "om-native-nested-mention",
+  });
+  assert.equal(mapping?.taskQueueId, task?.id);
+  assert.equal(JSON.parse(mapping!.metadataJson).agentBotMentioned, true);
+});
+
 test("agent bot inbound mapping records slash-agent command usage without storing message text", databaseTestOptions, () => {
   const fixtures = seedBoundFeishuWorkspace({ agentBot: true, bindChannel: false });
 
@@ -2229,6 +2259,7 @@ function buildFeishuMessagePayload(input: {
   text?: string;
   content?: Record<string, unknown>;
   messageType?: string;
+  mentions?: Record<string, unknown>[];
 }): Record<string, unknown> {
   return {
     schema: "2.0",
@@ -2255,6 +2286,7 @@ function buildFeishuMessagePayload(input: {
         thread_id: input.threadId,
         sender_type: input.senderType,
         message_type: input.messageType ?? "text",
+        mentions: input.mentions,
         content: JSON.stringify(input.content ?? { text: input.text }),
       },
     },

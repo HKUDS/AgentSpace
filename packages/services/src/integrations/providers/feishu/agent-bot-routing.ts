@@ -233,8 +233,11 @@ export function isFeishuAgentBotMentioned(
     if (!record) {
       continue;
     }
+    const mentionId = asRecord(record.id);
     const mentionOpenId = asString(record.open_id)
       ?? asString(record.openId)
+      ?? asString(mentionId?.open_id)
+      ?? asString(mentionId?.openId)
       ?? asString(record.user_id)
       ?? asString(record.userId)
       ?? asString(record.id);

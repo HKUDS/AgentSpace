@@ -26,6 +26,20 @@ test("normalizes Feishu text messages and removes bot at tags", () => {
   assert.equal(message?.externalSenderId, "ou_mina");
 });
 
+test("removes declared native mention placeholders without removing literal user text", () => {
+  const payload = buildPayload({
+    messageId: "om-native-mentions",
+    content: { text: "@_user_1 @_user_10 help @_user_2" },
+  });
+  const event = payload.event as Record<string, unknown>;
+  const rawMessage = event.message as Record<string, unknown>;
+  rawMessage.mentions = [
+    { key: "@_user_1", id: { open_id: "ou_atlas" }, name: "Atlas Bot" },
+    { key: "@_user_10", id: { open_id: "ou_hermes" }, name: "Hermes Bot" },
+  ];
+  assert.equal(normalizeFeishuInboundMessage({ context, payload })?.text, "help @_user_2");
+});
+
 test("downgrades Feishu markdown message content to text", () => {
   const message = normalizeFeishuInboundMessage({
     context,

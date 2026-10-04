@@ -129,17 +129,18 @@ function resolveFeishuSenderId(event: Record<string, unknown>): string | undefin
 
 function resolveFeishuMessageText(message: Record<string, unknown>): string | undefined {
   const content = asString(message.content);
+  const mentions = Array.isArray(message.mentions) ? message.mentions : undefined;
   if (!content) {
     return undefined;
   }
   try {
     const parsed = asRecord(JSON.parse(content));
     if (!parsed) {
-      return normalizeFeishuText(content);
+      return normalizeFeishuText(content, mentions);
     }
-    return normalizeFeishuText(resolveFeishuParsedMessageText(parsed) ?? content);
+    return normalizeFeishuText(resolveFeishuParsedMessageText(parsed) ?? content, mentions);
   } catch {
-    return normalizeFeishuText(content);
+    return normalizeFeishuText(content, mentions);
   }
 }
 
@@ -227,7 +228,7 @@ function defaultFeishuAttachmentFileName(input: {
 
 function resolveFeishuChannelSdkText(message: FeishuChannelSdkNormalizedMessage): string | undefined {
   const content = asString(message.content);
-  return content ? normalizeFeishuText(content) : undefined;
+  return content ? normalizeFeishuText(content, message.mentions) : undefined;
 }
 
 function resolveFeishuChannelSdkAttachments(
@@ -440,8 +441,10 @@ function joinTextParts(parts: Array<string | undefined>): string | undefined {
   return text || undefined;
 }
 
-function normalizeFeishuText(value: string): string {
+function normalizeFeishuText(value: string, mentions?: readonly unknown[]): string {
+  const mentionKeys = new Set((mentions ?? []).map((mention) => asString(asRecord(mention)?.key)));
   return value
+    .replace(/@_user_\d+\b/g, (key) => mentionKeys.has(key) ? "" : key)
     .replace(/<at\b[^>]*>.*?<\/at>/g, "")
     .replace(/\s+/g, " ")
     .trim();

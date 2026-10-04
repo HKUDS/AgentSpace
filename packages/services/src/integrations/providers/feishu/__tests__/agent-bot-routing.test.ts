@@ -94,6 +94,20 @@ test("routes only mentions of the current Feishu agent bot", () => {
   }), binding), true);
 });
 
+test("recognizes nested mention ids in native message receive events", () => {
+  const binding = buildAgentBotBinding({ botOpenId: "ou_bot_atlas" });
+  const payload = buildPayload({
+    content: { text: "@_user_1 help" },
+    mentions: [{
+      key: "@_user_1",
+      id: { open_id: "ou_bot_atlas", user_id: "atlas", union_id: "on_atlas" },
+      name: "Atlas Bot",
+    }],
+  });
+  assert.equal(isFeishuAgentBotMentioned(payload, binding), true);
+  assert.equal(isFeishuAgentBotMentioned(payload, buildAgentBotBinding({ botOpenId: "ou_bot_hermes" })), false);
+});
+
 test("resolves Feishu chat descriptors from bot-added payload variants", () => {
   assert.deepEqual(resolveFeishuChatDescriptor({
     event: {
