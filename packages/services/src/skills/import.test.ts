@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import test, { after, before, beforeEach } from "node:test";
 import { zipSync } from "fflate";
 import { listStoredAgentSkillAssignmentsSync, listStoredSkillImportEventsSync } from "@agent-space/db";
@@ -163,6 +164,15 @@ test("importWorkspaceSkillFromUrl can skip an existing conflict", async () => {
 
   assert.equal(result.skipped, true);
   assert.equal(result.skillId, existing.id);
+});
+
+test("importWorkspaceSkillFromUrl decodes local file URLs through the native path", async () => {
+  const localSkillDir = join(tempRoot, "local url skill");
+  mkdirSync(localSkillDir, { recursive: true });
+  writeFileSync(join(localSkillDir, "SKILL.md"), "---\nname: local-url-skill\ndescription: Local URL skill\n---\n# Local URL skill\n");
+  const result = await importWorkspaceSkillFromUrl({ url: pathToFileURL(localSkillDir).href });
+  assert.equal(result.sourceType, "local");
+  assert.equal(listWorkspaceSkillsSync().find((skill) => skill.id === result.skillId)?.name, "local-url-skill");
 });
 
 function createGitHubFetchMock(): typeof fetch {

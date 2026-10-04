@@ -1,5 +1,6 @@
 import { readdir, readFile, stat } from "node:fs/promises";
-import { basename, extname, resolve } from "node:path";
+import { basename, extname, isAbsolute, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { WorkspaceSkill } from "@agent-space/domain/workspace";
 import { recordStoredSkillImportEventSync } from "@agent-space/db";
 import { strFromU8, unzipSync } from "fflate";
@@ -219,6 +220,9 @@ async function replaceImportedSkill(
 }
 
 async function importSkillDefinition(sourceUrl: string): Promise<ImportedSkillDefinition> {
+  if (isAbsolute(sourceUrl)) {
+    return importLocalSkillDefinition(sourceUrl);
+  }
   const parsed = parseUrl(sourceUrl);
   if (!parsed) {
     return importLocalSkillDefinition(sourceUrl);
@@ -231,7 +235,7 @@ async function importSkillDefinition(sourceUrl: string): Promise<ImportedSkillDe
     return importClawHubSkillDefinition(sourceUrl);
   }
   if (parsed.protocol === "file:") {
-    return importLocalSkillDefinition(decodeURIComponent(parsed.pathname));
+    return importLocalSkillDefinition(fileURLToPath(parsed));
   }
   return importGitHubSkillDefinition(sourceUrl);
 }

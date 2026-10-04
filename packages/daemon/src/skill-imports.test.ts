@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import test, { after, beforeEach } from "node:test";
 import { listStoredAgentSkillAssignmentsSync } from "@agent-space/db";
 import {
@@ -170,6 +171,31 @@ test("prepareSkillImportOperationArtifacts packages local skill directories into
     const importedSkill = listWorkspaceSkillsSync().find((skill) => skill.id === result.imports[0]?.skillId);
     assert.ok(importedSkill);
     assert.equal(importedSkill?.files.some((file) => file.path === "references/usage.md"), true);
+  } finally {
+    rmSync(workDir, { recursive: true, force: true });
+    rmSync(localSkillDir, { recursive: true, force: true });
+  }
+});
+
+test("prepareSkillImportOperationArtifacts packages file URLs containing spaces", () => {
+  const workDir = mkdtempSync(join(tmpdir(), "agent-space-skill-imports-"));
+  const localSkillDir = mkdtempSync(join(tmpdir(), "agent-space-local skill-"));
+  try {
+    const content = "---\nname: file-url-skill\ndescription: File URL import\n---\n# Local skill\n";
+    writeFileSync(join(localSkillDir, "SKILL.md"), content);
+    mkdirSync(join(workDir, "runtime-output"), { recursive: true });
+    const manifestPath = join(workDir, "runtime-output", "skill-imports.json");
+    writeFileSync(manifestPath, JSON.stringify({
+      imports: [{ url: pathToFileURL(localSkillDir).href }],
+    }));
+
+    const prepared = prepareSkillImportOperationArtifacts(workDir);
+    const rewritten = JSON.parse(readFileSync(manifestPath, "utf8"));
+
+    assert.deepEqual(prepared.warnings, []);
+    assert.equal(prepared.packaged, 1);
+    assert.equal(rewritten.imports[0].url, undefined);
+    assert.equal(readFileSync(join(workDir, rewritten.imports[0].path, "SKILL.md"), "utf8"), content);
   } finally {
     rmSync(workDir, { recursive: true, force: true });
     rmSync(localSkillDir, { recursive: true, force: true });

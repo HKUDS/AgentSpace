@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   importWorkspaceSkillFromUrl,
   listEmployeeSkillIdsSync,
@@ -337,6 +338,10 @@ function resolvePackableLocalSkillSource(
     return null;
   }
 
+  if (isAbsolute(value)) {
+    return value;
+  }
+
   if (field === "url") {
     let parsed: URL | null = null;
     try {
@@ -350,14 +355,10 @@ function resolvePackableLocalSkillSource(
         return null;
       }
       if (parsed.protocol === "file:") {
-        return decodeURIComponent(parsed.pathname);
+        return fileURLToPath(parsed);
       }
       return null;
     }
-  }
-
-  if (isAbsolute(value)) {
-    return value;
   }
 
   return resolve(workDir, value);
