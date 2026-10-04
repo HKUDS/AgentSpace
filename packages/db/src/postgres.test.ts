@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
-import { collectSqliteMigrationSnapshotSync, redactPostgresDatabaseUrl, renderPostgresCutoverPlan } from "./postgres.ts";
+import { Client } from "pg";
+import { collectSqliteMigrationSnapshotSync, migrateSqliteToPostgres, ensurePostgresSchema, redactPostgresDatabaseUrl, renderPostgresCutoverPlan } from "./postgres.ts";
 import { getPostgresSchemaStatements, POSTGRES_TABLE_NAMES } from "./postgres-schema.ts";
 
 test("postgres schema includes the expected core and derived tables", () => {
@@ -737,4 +738,51 @@ test("redactPostgresDatabaseUrl hides passwords and cutover plan references the 
   );
   assert.match(renderPostgresCutoverPlan(), /npm run db:pg:init/);
   assert.match(renderPostgresCutoverPlan(), /npm run db:pg:migrate/);
+});
+
+test("SQLite migration dry run preserves target data even when reset is requested", {
+  skip: !process.env.AGENT_SPACE_TEST_DATABASE_URL,
+}, async () => {
+  const databaseUrl = process.env.AGENT_SPACE_TEST_DATABASE_URL!;
+  const tempRoot = mkdtempSync(join(tmpdir(), "agent-space-pg-dry-run-"));
+  const sqlitePath = join(tempRoot, "source.sqlite");
+  const source = new DatabaseSync(sqlitePath);
+  source.exec("CREATE TABLE app_metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL)");
+  source.close();
+  const sentinelKey = `dry-run-sentinel-${Date.now()}`;
+  const workspaceId = `${sentinelKey}-workspace`;
+  const client = new Client({ connectionString: databaseUrl });
+
+  try {
+    await ensurePostgresSchema({ databaseUrl });
+    await client.connect();
+    await client.query("INSERT INTO app_metadata (key, value) VALUES ($1, $2)", [sentinelKey, "preserve-me"]);
+    const report = await migrateSqliteToPostgres({ databaseUrl, sqlitePath, dryRun: true, reset: true });
+    assert.equal(report.dryRun, true);
+    assert.equal(report.reset, true);
+    const result = await client.query("SELECT value FROM app_metadata WHERE key = $1", [sentinelKey]);
+    assert.equal(result.rows[0]?.value, "preserve-me");
+
+    const populatedSource = new DatabaseSync(sqlitePath);
+    try {
+      populatedSource.exec(`CREATE TABLE workspace (
+        id TEXT PRIMARY KEY, slug TEXT NOT NULL, name TEXT NOT NULL,
+        created_by TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, archived_at TEXT
+      )`);
+      const now = new Date().toISOString();
+      populatedSource.prepare("INSERT INTO workspace VALUES (?, ?, ?, ?, ?, ?, NULL)")
+        .run(workspaceId, workspaceId, "Migration fixture", "test", now, now);
+    } finally {
+      populatedSource.close();
+    }
+    const migration = await migrateSqliteToPostgres({ databaseUrl, sqlitePath });
+    assert.equal(migration.tables.find((table) => table.tableName === "workspace")?.insertedCount, 1);
+    const migrated = await client.query("SELECT name FROM workspace WHERE id = $1", [workspaceId]);
+    assert.equal(migrated.rows[0]?.name, "Migration fixture");
+  } finally {
+    await client.query("DELETE FROM app_metadata WHERE key = $1", [sentinelKey]).catch(() => undefined);
+    await client.query("DELETE FROM workspace WHERE id = $1", [workspaceId]).catch(() => undefined);
+    await client.end();
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
 });

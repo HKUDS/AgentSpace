@@ -347,7 +347,7 @@ export async function migrateSqliteToPostgres(
         );
       }
 
-      await client.query("COMMIT");
+      await client.query(dryRun ? "ROLLBACK" : "COMMIT");
     } catch (error) {
       await client.query("ROLLBACK");
       throw error;
