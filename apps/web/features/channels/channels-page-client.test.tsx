@@ -312,6 +312,29 @@ describe("ChannelsPageClient", () => {
     updateDigitalContactRemarkActionMock.mockClear();
   });
 
+  it("retries a failed channel detail request from the retry button", async () => {
+    getChannelDetailDataActionMock
+      .mockRejectedValueOnce(new Error("Temporary detail failure"))
+      .mockResolvedValueOnce({
+        threads: data.threads,
+        documents: [],
+        documentRuns: [],
+        documentConflicts: [],
+        channelFiles: [],
+        detailScope: ["tour visit"],
+      });
+    render(
+      <TestProviders>
+        <WorkspaceModuleCacheProvider>
+          <ChannelsPageClient currentUserDisplayName="Tianyu" data={{ ...data, threads: [], documents: [], detailScope: [] }} />
+        </WorkspaceModuleCacheProvider>
+      </TestProviders>,
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "重试" }));
+    await waitFor(() => expect(getChannelDetailDataActionMock).toHaveBeenCalledTimes(2));
+    expect(await screen.findByRole("link", { name: /summary.pdf/ })).toBeInTheDocument();
+  });
+
   it("renders image previews and file links for channel attachments", () => {
     render(
       <TestProviders>

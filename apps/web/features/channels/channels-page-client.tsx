@@ -567,6 +567,7 @@ export function ChannelsPageClient({
   );
   const [loadingDetailChannelName, setLoadingDetailChannelName] = useState<string | null>(null);
   const [detailLoadError, setDetailLoadError] = useState<string | null>(null);
+  const [detailLoadAttempt, setDetailLoadAttempt] = useState(0);
   const [isPending, startTransition] = useTransition();
   const fileUploadInputRef = useRef<HTMLInputElement>(null);
   const fileSearchInputRef = useRef<HTMLInputElement>(null);
@@ -1023,6 +1024,7 @@ export function ChannelsPageClient({
     };
   }, [
     data.workspaceId,
+    detailLoadAttempt,
     buildChannelDetailCacheKey,
     moduleCache,
     selectedChannelRequiresAccess,
@@ -2016,6 +2018,7 @@ export function ChannelsPageClient({
                             return next;
                           });
                           setDetailLoadError(null);
+                          setDetailLoadAttempt((current) => current + 1);
                         }}
                         tx={tx}
                       />
