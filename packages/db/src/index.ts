@@ -590,6 +590,7 @@ export {
   deleteStoredChannelSync,
   replaceStoredChannelsSync,
 } from "./workspace-channels.ts";
+export { renameStoredChannelReferencesSync } from "./channel-rename.ts";
 export {
   listStoredEmployeesSync,
   readStoredEmployeeSync,

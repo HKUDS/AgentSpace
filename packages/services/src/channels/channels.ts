@@ -1,4 +1,5 @@
 import { type AgentSpaceState, type ChannelRecord } from "@agent-space/domain/workspace";
+import { existsSync, renameSync, rmSync } from "node:fs";
 import {
   createStoredChannelSync,
   DEFAULT_WORKSPACE_ID,
@@ -6,13 +7,15 @@ import {
   deleteStoredTasksForChannelSync,
   listWorkspaceMemberUsersSync,
   readStoredChannelSync,
-  renameStoredTasksChannelSync,
+  renameStoredChannelReferencesSync,
+  getDatabase,
+  withTransaction,
   updateStoredChannelSync,
 } from "@agent-space/db";
 import { pruneOrphanWorkspaceAttachmentsSync } from "../attachments/attachments.ts";
 import { ensureWorkspaceStateSync, writeWorkspaceStateSync } from "../shared/state-io.ts";
 import { createOpaqueId, sameValue, uniqueNames } from "../shared/helpers.ts";
-import { pushWorkspaceMessageIfChannel, renameChannelHistoryFile, removeChannelHistoryFile } from "../shared/messaging.ts";
+import { getChannelHistoryFilePath, pushWorkspaceMessageIfChannel, renameChannelHistoryFile, removeChannelHistoryFile } from "../shared/messaging.ts";
 
 const SYSTEM_NOTICE = "System";
 
@@ -392,6 +395,10 @@ export function deleteChannelSync(channelName: string, workspaceId?: string): Ag
 }
 
 export function renameChannelSync(channelName: string, nextName: string, workspaceId?: string): AgentSpaceState {
+  return withTransaction(getDatabase(), () => renameChannelInTransaction(channelName, nextName, workspaceId));
+}
+
+function renameChannelInTransaction(channelName: string, nextName: string, workspaceId?: string): AgentSpaceState {
   const state = ensureWorkspaceStateSync(workspaceId);
   const trimmedNextName = nextName.trim();
   const channel = state.channels.find((item) => sameValue(item.name, channelName));
@@ -408,6 +415,11 @@ export function renameChannelSync(channelName: string, nextName: string, workspa
   if (state.channels.some((item) => !sameValue(item.name, channelName) && sameValue(item.name, trimmedNextName))) {
     throw new Error(`Channel "${trimmedNextName}" already exists.`);
   }
+
+  // Resolve the stored spelling before updating relational references.
+  channelName = channel.name;
+  renameStoredChannelReferencesSync(channelName, trimmedNextName,
+    getChannelHistoryFilePath(channelName, workspaceId), getChannelHistoryFilePath(trimmedNextName, workspaceId), workspaceId);
 
   state.channels = state.channels.map((item) =>
     sameValue(item.name, channelName)
@@ -446,25 +458,56 @@ export function renameChannelSync(channelName: string, nextName: string, workspa
     ...employee,
     channels: employee.channels.map((name) => (sameValue(name, channelName) ? trimmedNextName : name)),
   }));
+  state.channelDocuments = state.channelDocuments.map((document) =>
+    sameValue(document.channelName, channelName) ? { ...document, channelName: trimmedNextName } : document);
+  state.channelDocumentRuns = state.channelDocumentRuns.map((run) =>
+    sameValue(run.channelName, channelName) ? { ...run, channelName: trimmedNextName } : run);
+  state.approvals = state.approvals.map((approval) => {
+    if (!sameValue(approval.channelName, channelName)) return approval;
+    const metadata = { ...approval.metadata };
+    if (metadata.channelName === channelName) metadata.channelName = trimmedNextName;
+    const governance = metadata.governanceContext as Record<string, unknown> | undefined;
+    if (governance?.channelName === channelName) {
+      metadata.governanceContext = { ...governance, channelName: trimmedNextName };
+    }
+    return { ...approval, channelName: trimmedNextName, metadata };
+  });
+  state.dataTables = state.dataTables.map((table) =>
+    sameValue(table.channelName ?? "", channelName) ? { ...table, channelName: trimmedNextName } : table);
+  state.scheduledTasks = state.scheduledTasks.map((task) =>
+    sameValue(task.channelName ?? "", channelName) ? { ...task, channelName: trimmedNextName } : task);
   const renamedChannel = state.channels.find((item) => sameValue(item.name, trimmedNextName));
   if (renamedChannel) {
     updateStoredChannelSync(channelName, renamedChannel, workspaceId);
   }
-  renameStoredTasksChannelSync(channelName, trimmedNextName, workspaceId);
-  renameChannelHistoryFile(channelName, trimmedNextName, workspaceId);
   state.ledger.unshift({
     title: "Channel renamed",
     note: `Channel ${channelName} was renamed to ${trimmedNextName}.`,
   });
-  pushWorkspaceMessageIfChannel(state, trimmedNextName, {
-    speaker: SYSTEM_NOTICE,
-    role: "agent",
-    summary: `Channel ${channelName} was renamed to ${trimmedNextName}.`,
-    code: "channel.renamed_notice",
-    data: { previous_name: channelName, next_name: trimmedNextName },
-  }, workspaceId);
-
-  return writeWorkspaceStateSync(state, workspaceId);
+  const previousHistoryPath = getChannelHistoryFilePath(channelName, workspaceId);
+  const nextHistoryPath = getChannelHistoryFilePath(trimmedNextName, workspaceId);
+  const previousHistoryExists = existsSync(previousHistoryPath);
+  if (previousHistoryPath !== nextHistoryPath && existsSync(nextHistoryPath)) {
+    throw new Error("A history file already exists for the new channel name.");
+  }
+  const written = writeWorkspaceStateSync(state, workspaceId);
+  try {
+    renameChannelHistoryFile(channelName, trimmedNextName, workspaceId);
+    pushWorkspaceMessageIfChannel(written, trimmedNextName, {
+      speaker: SYSTEM_NOTICE,
+      role: "agent",
+      summary: `Channel ${channelName} was renamed to ${trimmedNextName}.`,
+      code: "channel.renamed_notice",
+      data: { previous_name: channelName, next_name: trimmedNextName },
+    }, workspaceId);
+    return writeWorkspaceStateSync(written, workspaceId);
+  } catch (error) {
+    if (previousHistoryPath !== nextHistoryPath && existsSync(nextHistoryPath)) {
+      if (previousHistoryExists && !existsSync(previousHistoryPath)) renameSync(nextHistoryPath, previousHistoryPath);
+      else if (!previousHistoryExists) rmSync(nextHistoryPath);
+    }
+    throw error;
+  }
 }
 
 function upsertStoredChannelRecordSync(channel: ChannelRecord, workspaceId?: string): void {
