@@ -2110,9 +2110,10 @@ export function ChannelsPageClient({
         hidden
         multiple
         onChange={(event) => {
+          const fileInput = event.currentTarget;
           startTransition(async () => {
-            await uploadChannelFiles(event.currentTarget.files);
-            event.currentTarget.value = "";
+            await uploadChannelFiles(fileInput.files);
+            fileInput.value = "";
             refreshChannelModule(selectedConversationChannelName);
           });
         }}

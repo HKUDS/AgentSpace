@@ -539,6 +539,21 @@ describe("SettingsPageClient", () => {
     expect(screen.queryByRole("button", { name: "转移所有权" })).toBeNull();
   });
 
+  it("restores the member role and shows an asynchronous update failure", async () => {
+    const user = userEvent.setup();
+    mockUpdateWorkspaceMemberRoleAction.mockRejectedValue(new Error("Role update failed"));
+    renderSettingsPage({
+      currentMembershipRole: "admin",
+      currentUserId: "user-1",
+      initialSection: "members",
+      members: [{ userId: "user-2", displayName: "Alex", role: "member" }],
+    });
+    const roleSelect = screen.getAllByRole("combobox", { name: "角色" })[1]!;
+    await user.selectOptions(roleSelect, "admin");
+    await waitFor(() => expect(roleSelect).toHaveValue("member"));
+    expect(screen.getByRole("status")).toHaveTextContent("Role update failed");
+  });
+
   it("hides workspace management navigation for plain members", () => {
     renderSettingsPage({
       currentMembershipRole: "member",

@@ -422,6 +422,21 @@ describe("ChannelsPageClient", () => {
     expect(composer).toHaveValue("草稿");
   });
 
+  it("resets the channel file input after an asynchronous upload", async () => {
+    const user = userEvent.setup();
+    render(
+      <TestProviders>
+        <ChannelsPageClient currentUserDisplayName="Tianyu" data={data} />
+      </TestProviders>,
+    );
+    const input = Array.from(document.querySelectorAll<HTMLInputElement>("input[type='file'][hidden][multiple]")).at(-1)!;
+    expect(input).not.toBeNull();
+    await user.upload(input, new File(["draft"], "draft.txt", { type: "text/plain" }));
+    await waitFor(() => expect(sendChannelMessageActionMock).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(input).toHaveValue(""));
+    expect(screen.getByPlaceholderText("发送到 tour visit")).toBeInTheDocument();
+  });
+
   it("keeps the composer draft when switching between messages and files", async () => {
     const user = userEvent.setup();
 

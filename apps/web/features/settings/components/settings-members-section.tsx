@@ -311,7 +311,8 @@ function MemberCard({
               disabled={isPending || !canChangeRole}
               id={roleSelectId}
               onChange={(event) => {
-                const nextRole = event.currentTarget.value as WorkspaceRole;
+                const roleSelect = event.currentTarget;
+                const nextRole = roleSelect.value as WorkspaceRole;
                 startTransition(async () => {
                   try {
                     await updateWorkspaceMemberRoleAction({
@@ -321,7 +322,7 @@ function MemberCard({
                     setMemberFeedback(tx("成员角色已更新。", "Member role updated."));
                     refreshSettingsData();
                   } catch (error) {
-                    event.currentTarget.value = member.role;
+                    roleSelect.value = member.role;
                     setMemberFeedback(translateSettingsActionError(error, tx));
                   }
                 });
