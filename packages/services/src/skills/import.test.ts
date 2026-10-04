@@ -75,6 +75,19 @@ test("importWorkspaceSkillFromUrl resolves quoted skills.sh skill names", async 
   assert.equal(skill?.files.some((file) => file.path === "templates/prd.template.md"), true);
 });
 
+test("builtin skill conflicts can be skipped but cannot be replaced", async () => {
+  const url = "https://skills.sh/aj-geddes/claude-code-bmad-skills/product-manager";
+  const existing = listWorkspaceSkillsSync().find((skill) => skill.name === "product-manager")!;
+  const skipped = await importWorkspaceSkillFromUrl({ url, conflict: "skip" });
+  assert.equal(skipped.skipped, true);
+  assert.equal(skipped.skillId, existing.id);
+  await assert.rejects(importWorkspaceSkillFromUrl({ url, conflict: "replace" }), /Builtin skill.*cannot be replaced/);
+  const retained = listWorkspaceSkillsSync().find((skill) => skill.id === existing.id)!;
+  assert.equal(retained.name, existing.name);
+  assert.equal(retained.description, existing.description);
+  assert.deepEqual(retained.files, existing.files);
+});
+
 test("importWorkspaceSkillFromUrl can rename on conflict", async () => {
   createWorkspaceSkillSync({
     name: "research-pack",

@@ -85,11 +85,11 @@ export async function importWorkspaceSkillFromUrl(input: {
   const imported = await importSkillDefinition(sourceUrl);
   const existingSkills = listWorkspaceSkillsSync(workspaceId);
   const existing = existingSkills.find((skill) => sameValue(skill.name, imported.name));
-  if (existing && isBuiltinSkill(existing.name)) {
+  const conflict = input.conflict ?? "reject";
+  if (existing && isBuiltinSkill(existing.name) && conflict === "replace") {
     throw new Error(`Builtin skill "${existing.name}" cannot be replaced by an import.`);
   }
 
-  const conflict = input.conflict ?? "reject";
   if (existing && conflict === "reject") {
     throw new Error(`Skill "${existing.name}" already exists. Use --conflict rename or --conflict replace.`);
   }
