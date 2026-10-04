@@ -105,10 +105,15 @@ export function applyChannelDocumentBlockOperations(input: {
     }
 
     if (operation.op === "insert_after") {
-      const insertIndex = operation.afterBlockId
-        ? blocks.findIndex((block) => block.id === operation.afterBlockId) + 1
-        : 0;
-      const nextIndex = insertIndex < 0 ? blocks.length : insertIndex;
+      const anchorIndex = operation.afterBlockId
+        ? blocks.findIndex((block) => block.id === operation.afterBlockId)
+        : -1;
+      if (operation.afterBlockId && anchorIndex < 0) {
+        conflictCount += 1;
+        createConflict(state, document.id, operation.afterBlockId, changeSet.id);
+        continue;
+      }
+      const nextIndex = anchorIndex + 1;
       blocks.splice(nextIndex, 0, {
         id: `channel-doc-block-${createOpaqueId()}`,
         documentId: document.id,

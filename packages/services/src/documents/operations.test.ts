@@ -137,3 +137,30 @@ test("applyChannelDocumentBlockOperations rejects non-markdown documents", () =>
     /only supported for markdown/,
   );
 });
+
+test("insert_after retains document content when its anchor block was removed", () => {
+  const state = createStateWithChannel();
+  const { document, version } = createChannelDocument({
+    state,
+    channelName: "tour visit",
+    title: "Plan",
+    contentMarkdown: "## First\nOriginal",
+    createdBy: "Mina",
+    createdByType: "human",
+  });
+  rebuildChannelDocumentBlocksForVersion({ state, document, version, actorName: "Mina" });
+  const originalBlocks = structuredClone(state.channelDocumentBlocks);
+  const result = applyChannelDocumentBlockOperations({
+    state,
+    document,
+    baseVersionId: version.id,
+    actorId: "Planner",
+    actorType: "agent",
+    operations: [{ op: "insert_after", afterBlockId: "removed-block", contentMarkdown: "## New\nAdded" }],
+  });
+  assert.equal(result.appliedOperationCount, 0);
+  assert.equal(result.conflictCount, 1);
+  assert.equal(document.currentVersionId, version.id);
+  assert.deepEqual(state.channelDocumentBlocks, originalBlocks);
+  assert.equal(state.channelDocumentConflicts[0]?.blockId, "removed-block");
+});
