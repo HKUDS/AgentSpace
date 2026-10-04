@@ -476,15 +476,29 @@ export function resetDatabaseForTests(): void {
   closeDatabase();
 }
 
+const transactionDepths = new WeakMap<PostgresSyncDatabase, number>();
+
 export function withTransaction<T>(db: PostgresSyncDatabase, work: () => T): T {
-  db.exec("BEGIN");
+  const depth = transactionDepths.get(db) ?? 0;
+  const savepoint = `agent_space_transaction_${depth}`;
+  db.exec(depth === 0 ? "BEGIN" : `SAVEPOINT ${savepoint}`);
+  transactionDepths.set(db, depth + 1);
   try {
     const result = work();
-    db.exec("COMMIT");
+    db.exec(depth === 0 ? "COMMIT" : `RELEASE SAVEPOINT ${savepoint}`);
     return result;
   } catch (error) {
-    db.exec("ROLLBACK");
+    db.exec(depth === 0 ? "ROLLBACK" : `ROLLBACK TO SAVEPOINT ${savepoint}`);
+    if (depth > 0) {
+      db.exec(`RELEASE SAVEPOINT ${savepoint}`);
+    }
     throw error;
+  } finally {
+    if (depth === 0) {
+      transactionDepths.delete(db);
+    } else {
+      transactionDepths.set(db, depth);
+    }
   }
 }
 

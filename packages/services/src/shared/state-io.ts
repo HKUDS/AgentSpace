@@ -7,6 +7,8 @@ import {
   getDaemonWorkspaceExecutionRootDir,
   getDataDirPath,
   getDatabaseConnectionLabel,
+  getDatabase,
+  withTransaction,
   getLocalDaemonStateDirPath,
   getWorkspaceAttachmentsDirPath as getWorkspaceAttachmentsDirPathFromDb,
   getWorkspaceDataDirPath,
@@ -79,13 +81,15 @@ export function writeWorkspaceStateSync(
   ensureWorkspaceRecordForStateSync(workspaceId);
   const normalized = normalizeWorkspaceState(state);
   ensureChannelDocumentAccessSeeds(normalized);
-  persistCoreWorkspaceStorage(normalized, workspaceId);
-  const written = writeWorkspaceStateRecordSync(normalized, workspaceId, {
-    expectedVersion: readWorkspaceStateVersion(state),
-    skipVersionCheck: options?.skipVersionCheck,
+  return withTransaction(getDatabase(), () => {
+    const written = writeWorkspaceStateRecordSync(normalized, workspaceId, {
+      expectedVersion: readWorkspaceStateVersion(state),
+      skipVersionCheck: options?.skipVersionCheck,
+    });
+    persistCoreWorkspaceStorage(normalized, workspaceId);
+    initializeWorkspaceSkillStorageIfEmpty(written, workspaceId);
+    return written;
   });
-  initializeWorkspaceSkillStorageIfEmpty(written, workspaceId);
-  return written;
 }
 
 function persistCoreWorkspaceStorage(

@@ -4,6 +4,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { before, beforeEach } from "node:test";
 import {
+  listStoredChannelsSync,
+  getDatabase,
+  readWorkspaceStateRecordSync,
+  WorkspaceStateConflictError,
   listStoredAgentKnowledgePageAssignmentsSync,
   listStoredAgentSkillAssignmentsSync,
   listStoredKnowledgeAssignmentPoliciesSync,
@@ -50,6 +54,39 @@ beforeEach(() => {
   rmSync(join(tempRoot, "data", "workspaces"), { recursive: true, force: true });
   seedWorkspace("default", "Northstar Labs", "north-ops");
   seedWorkspace(WORKSPACE_ID, "Mars Labs", "mars-ops");
+});
+
+test("a stale workspace write cannot replace relational rows before its version check", () => {
+  const stale = readWorkspaceStateSync(WORKSPACE_ID);
+  const current = readWorkspaceStateSync(WORKSPACE_ID);
+  current.channels.push({ name: "new-channel", humanMembers: 1, employeeNames: [] });
+  writeWorkspaceStateSync(current, WORKSPACE_ID);
+
+  assert.throws(() => writeWorkspaceStateSync(stale, WORKSPACE_ID), WorkspaceStateConflictError);
+  assert.ok(listStoredChannelsSync(WORKSPACE_ID).some((channel) => channel.name === "new-channel"));
+  assert.ok(readWorkspaceStateSync(WORKSPACE_ID).channels.some((channel) => channel.name === "new-channel"));
+});
+
+test("a failed relational write rolls back the snapshot and earlier table changes", () => {
+  const state = readWorkspaceStateSync(WORKSPACE_ID);
+  state.organizationName = "Pending update";
+  state.channels.push({ name: "pending-channel", humanMembers: 1, employeeNames: [] });
+  const db = getDatabase();
+  const originalPrepare = db.prepare;
+  db.prepare = (sql) => {
+    if (sql.startsWith("DELETE FROM attachment")) {
+      throw new Error("simulated attachment write failure");
+    }
+    return originalPrepare(sql);
+  };
+  try {
+    assert.throws(() => writeWorkspaceStateSync(state, WORKSPACE_ID), /simulated attachment write failure/);
+  } finally {
+    db.prepare = originalPrepare;
+  }
+  assert.equal(readWorkspaceStateRecordSync(WORKSPACE_ID)?.organizationName, "Mars Labs");
+  assert.equal(listStoredChannelsSync(WORKSPACE_ID).some((channel) => channel.name === "pending-channel"), false);
+  assert.equal(writeWorkspaceStateSync(state, WORKSPACE_ID).organizationName, "Pending update");
 });
 
 test("channel, contact, and task writes stay inside the target workspace", () => {
