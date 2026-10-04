@@ -1265,6 +1265,65 @@ describe("daemon API routes", () => {
     expect(timelineTypes).toContain("completed");
   });
 
+  it("completes remote output with a missing attachment and retains its text and valid files", async () => {
+    const daemonToken = createDaemonApiTokenSync({ label: "missing-output", createdBy: "Tianyu" });
+    const registerResponse = await registerPOST(new Request("http://localhost/api/daemon/register", {
+      method: "POST",
+      headers: daemonHeaders(daemonToken.token),
+      body: JSON.stringify({
+        daemonKey: "missing-output-box",
+        deviceName: "Missing Output Box",
+        runtimes: [{ provider: "codex", name: "Remote Codex", version: "test" }],
+      }),
+    }));
+    expect(registerResponse.status).toBe(200);
+    const runtimeId = (await registerResponse.json()).runtimes[0].id as string;
+    createEmployeeSync({ name: "Atlas", role: "Planner" });
+    addChannelEmployeesSync({ channelName: "tour visit", employeeNames: ["Atlas"] });
+    bindEmployeeRuntimeSync("Atlas", runtimeId);
+    const queued = enqueueNativeTaskSync({
+      assignee: "Atlas",
+      title: "Partial artifacts",
+      priority: "medium",
+      triggerType: "manual",
+      metadata: { title: "Partial artifacts", channel: "tour visit" },
+    });
+    const response = await completePOST(new Request(`http://localhost/api/daemon/tasks/${queued!.id}/complete`, {
+      method: "POST",
+      headers: daemonHeaders(daemonToken.token),
+      body: JSON.stringify({
+        outputText: "Fallback text",
+        outputBundle: {
+          version: 1,
+          format: "json-inline-v1",
+          files: [
+            {
+              path: "runtime-output/agent-output.json",
+              contentBase64: Buffer.from(JSON.stringify({
+                text: "Retained output",
+                attachments: [
+                  { path: "runtime-output/missing/chart.png", name: "chart.png", mediaType: "image/png" },
+                  { path: "runtime-output/notes.txt", name: "notes.txt", mediaType: "text/plain" },
+                ],
+              })).toString("base64"),
+            },
+            { path: "runtime-output/notes.txt", contentBase64: Buffer.from("Retained notes").toString("base64") },
+          ],
+        },
+      }),
+    }), { params: Promise.resolve({ taskId: queued!.id }) });
+    const result = await response.json();
+    expect(response.status).toBe(200);
+    expect(result.task.status).toBe("completed");
+    expect(result.task.output).toBe("Retained output");
+    const message = readWorkspaceStateSync().messages[0];
+    expect(message?.summary).toBe("Retained output");
+    expect(message?.attachments?.map((attachment) => attachment.fileName)).toEqual(["notes.txt"]);
+    const taskResult = JSON.parse(readQueuedTaskSync(queued!.id)!.resultJson!);
+    expect(taskResult.output).toBe("Retained output");
+    expect(taskResult.attachments.map((attachment: { fileName: string }) => attachment.fileName)).toEqual(["notes.txt"]);
+  });
+
   it("processes external sheet result manifests into operation runs", async () => {
     const daemonToken = createDaemonApiTokenSync({
       label: "remote-daemon",

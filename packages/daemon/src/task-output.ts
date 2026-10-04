@@ -146,14 +146,13 @@ function normalizeOutputAttachmentEntry(
   }
 
   const absolutePath = resolve(workDir, relativePath);
+  if (!existsSync(absolutePath)) {
+    return { error: `附件文件不存在：${relativePath}` };
+  }
   const realWorkDir = realpathSync(workDir);
   if (containsSymlinkBetween(workDir, absolutePath)) {
     return { error: `附件路径不允许经过符号链接：${relativePath}` };
   }
-  if (!existsSync(absolutePath)) {
-    return { error: `附件文件不存在：${relativePath}` };
-  }
-
   const fileStat = statSync(absolutePath);
   if (!fileStat.isFile()) {
     return { error: `附件路径不是文件：${relativePath}` };
