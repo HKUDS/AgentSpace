@@ -126,13 +126,14 @@ test("install script readiness hook warns but passes when bwrap does not support
   }
 });
 
-test("install script prints installed daemon version in bootstrap summary", () => {
+for (const useBaseDefaults of [false, true]) {
+test(`install script prints installed daemon version${useBaseDefaults ? " using base-dir defaults" : " with explicit paths"}`, () => {
   const tempRoot = mkdtempSync(join(tmpdir(), "agent-space-install-version-"));
   const packagePath = join(tempRoot, "agent-space-daemon-test.tgz");
   const npmDir = join(tempRoot, "npm-bin");
   const providerBinDir = join(tempRoot, "provider-bin");
   const baseDir = join(tempRoot, "state");
-  const installRoot = join(tempRoot, "runtime");
+  const installRoot = useBaseDefaults ? join(baseDir, "runtime") : join(tempRoot, "runtime");
   const envFile = join(baseDir, "daemon.env");
   const launcherPath = join(baseDir, "start-daemon.sh");
 
@@ -181,13 +182,17 @@ test("install script prints installed daemon version in bootstrap summary", () =
       "--daemon-token", "adt_test",
       "--daemon-id", "daemon-test",
       "--base-dir", baseDir,
-      "--env-file", envFile,
-      "--launcher", launcherPath,
-      "--install-root", installRoot,
+      ...(useBaseDefaults ? [] : ["--env-file", envFile, "--launcher", launcherPath, "--install-root", installRoot]),
       "--path", `${providerBinDir}:${process.env.PATH ?? ""}`,
     ], {
       env: {
         ...process.env,
+        HOME: join(tempRoot, "home"),
+        AGENT_SPACE_DAEMON_HOME: "",
+        AGENT_SPACE_DAEMON_STATE_DIR: "",
+        AGENT_SPACE_DAEMON_INSTALL_ROOT: "",
+        AGENT_SPACE_DAEMON_ENV_FILE: "",
+        AGENT_SPACE_DAEMON_LAUNCHER: "",
         PATH: `${npmDir}:${process.env.PATH ?? ""}`,
       },
       encoding: "utf8",
@@ -196,10 +201,14 @@ test("install script prints installed daemon version in bootstrap summary", () =
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.stdout, /Installed agent-space-daemon version: 9\.8\.7-test/);
     assert.match(result.stdout, /Version:\n  9\.8\.7-test/);
+    assert.equal(existsSync(envFile), true);
+    assert.equal(existsSync(launcherPath), true);
+    assert.match(readFileSync(envFile, "utf8"), new RegExp(`AGENT_SPACE_DAEMON_STATE_DIR=${escapeRegExp(baseDir)}`));
   } finally {
     rmSync(tempRoot, { recursive: true, force: true });
   }
 });
+}
 
 test("install script installs gws into the daemon runtime when it is missing", () => {
   const tempRoot = mkdtempSync(join(tmpdir(), "agent-space-install-gws-"));

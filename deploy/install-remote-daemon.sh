@@ -27,6 +27,8 @@ DEVICE_NAME_SET="false"
 RUNTIME_NAME_SET="false"
 STATE_DIR_SET="false"
 INSTALL_ROOT_SET="false"
+ENV_FILE_SET="false"
+LAUNCHER_PATH_SET="false"
 PATH_SET="false"
 
 print_help() {
@@ -313,10 +315,12 @@ while [[ $# -gt 0 ]]; do
       ;;
     --env-file)
       ENV_FILE="${2:-}"
+      ENV_FILE_SET="true"
       shift 2
       ;;
     --launcher)
       LAUNCHER_PATH="${2:-}"
+      LAUNCHER_PATH_SET="true"
       shift 2
       ;;
     --path)
@@ -341,6 +345,19 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+if [[ "$STATE_DIR_SET" != "true" ]]; then
+  STATE_DIR="${AGENT_SPACE_DAEMON_STATE_DIR:-$BASE_DIR}"
+fi
+if [[ "$INSTALL_ROOT_SET" != "true" ]]; then
+  INSTALL_ROOT="${AGENT_SPACE_DAEMON_INSTALL_ROOT:-$BASE_DIR/runtime}"
+fi
+if [[ "$ENV_FILE_SET" != "true" ]]; then
+  ENV_FILE="${AGENT_SPACE_DAEMON_ENV_FILE:-$BASE_DIR/daemon.env}"
+fi
+if [[ "$LAUNCHER_PATH_SET" != "true" ]]; then
+  LAUNCHER_PATH="${AGENT_SPACE_DAEMON_LAUNCHER:-$BASE_DIR/start-daemon.sh}"
+fi
 
 START_NOW="${START_NOW:-true}"
 
