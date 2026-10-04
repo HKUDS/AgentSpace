@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { LanguageProvider } from "@/features/i18n/language-provider";
 import { WorkspaceModuleCacheProvider } from "@/features/dashboard/workspace-module-cache";
@@ -29,6 +29,23 @@ function renderHost(input: {
 describe("WorkspaceModuleHost", () => {
   beforeEach(() => {
     vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>(() => {})));
+  });
+
+  it.each([503, 403])("waits for an explicit retry after HTTP %s", async (status) => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response("Unavailable", { status }))
+      .mockImplementation(() => new Promise<Response>(() => {}));
+    vi.stubGlobal("fetch", fetchMock);
+    render(renderHost({
+      routePath: "/w/workspace-alpha/inbox",
+      routeStateSource: "client",
+      children: null,
+    }));
+
+    await act(async () => {});
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button", { name: /重试|Retry/ }));
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it("restores the preserved route children snapshot when returning to its client route", () => {

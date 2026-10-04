@@ -193,7 +193,10 @@ export function WorkspaceModuleHost({
     if (!moduleId || !cacheKey) {
       return;
     }
-    if (cachedEntry?.status === "loading" || cachedEntry?.status === "refreshing") {
+    if (
+      cachedEntry?.status === "loading" || cachedEntry?.status === "refreshing" ||
+      cachedEntry?.status === "error" || cachedEntry?.status === "forbidden"
+    ) {
       return;
     }
     if (cachedEntry?.status === "ready" && !cachedEntry.metadata.stale) {
