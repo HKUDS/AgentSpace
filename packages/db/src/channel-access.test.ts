@@ -13,6 +13,7 @@ import {
   getDatabase,
   listChannelParticipantsForUserSync,
   listChannelParticipantsSync,
+  readChannelInvitationSync,
   readChannelParticipantSync,
 } from "./index.ts";
 
@@ -85,6 +86,26 @@ test("channel access request and invitation records map response timestamps", ()
   assert.equal(invitation.inviteeUserId, userId);
   assert.match(invitation.createdAt, /T/);
   assert.match(invitation.expiresAt ?? "", /T/);
+});
+
+test("an expired pending invitation does not prevent reinviting the recipient", () => {
+  const { workspaceId, userId } = seedChannelAccessRecords();
+  const input = {
+    workspaceId,
+    channelName: "Launch Room",
+    inviteeUserId: userId,
+    invitedBy: "owner-user",
+  };
+  const original = createChannelInvitationSync(input);
+  getDatabase().prepare("UPDATE channel_invitation SET expires_at = ? WHERE id = ?")
+    .run("2000-01-01T00:00:00.000Z", original.id);
+
+  const replacement = createChannelInvitationSync(input);
+
+  assert.notEqual(replacement.id, original.id);
+  assert.equal(replacement.status, "pending");
+  assert.ok(new Date(replacement.expiresAt!).getTime() > Date.now());
+  assert.equal(readChannelInvitationSync(original.id, workspaceId)?.status, "expired");
 });
 
 function seedChannelAccessRecords(): { workspaceId: string; userId: string } {

@@ -493,7 +493,8 @@ function readPendingChannelInvitationSync(
      ORDER BY created_at DESC, id DESC
      LIMIT 1`,
   ).get(...params) as Record<string, unknown> | undefined;
-  return row ? mapChannelInvitationRecord(row) : null;
+  const record = expireInvitationIfNeeded(row ? mapChannelInvitationRecord(row) : null);
+  return record?.status === "pending" ? record : null;
 }
 
 function resolveChannelAccessRequestSync(
