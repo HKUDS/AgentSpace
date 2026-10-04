@@ -11,6 +11,7 @@ import {
   registerDaemonRuntimesSync,
   startRuntimeAppOperationSync,
   upsertRuntimeAppCatalogItemsSync,
+  readRuntimeAppCatalogHealthSync,
 } from "./index.ts";
 import { getDatabase } from "./database.ts";
 
@@ -36,6 +37,20 @@ beforeEach(() => {
   db.exec("DELETE FROM runtime_app_catalog_item");
   db.exec("DELETE FROM agent_runtime");
   db.exec("DELETE FROM daemon_connection");
+});
+
+test("runtime app catalog health includes the stored count and sync timestamp", () => {
+  const syncedAt = new Date().toISOString();
+  upsertRuntimeAppCatalogItemsSync([{
+    source: "clihub_harness",
+    name: "mermaid",
+    displayName: "Mermaid",
+    syncedAt,
+  }]);
+  const health = readRuntimeAppCatalogHealthSync();
+  assert.equal(health.itemCount, 1);
+  assert.equal(health.lastSyncedAt, syncedAt);
+  assert.equal(health.stale, false);
 });
 
 test("runtime app operation lifecycle updates installed app state", () => {
