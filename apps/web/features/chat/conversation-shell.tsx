@@ -393,7 +393,7 @@ export function ConversationShell({
   }
 
   function submitMessage(): void {
-    if (!selectedHeader || (draft.trim().length === 0 && pendingFiles.length === 0)) {
+    if (isPending || !selectedHeader || (draft.trim().length === 0 && pendingFiles.length === 0)) {
       return;
     }
 

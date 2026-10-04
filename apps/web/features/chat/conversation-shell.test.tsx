@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ConversationShell } from "@/features/chat/conversation-shell";
@@ -30,6 +30,34 @@ describe("ConversationShell", () => {
   beforeEach(() => {
     mockMatchMedia(false);
     window.sessionStorage.clear();
+  });
+
+  it("does not submit again on Enter while a message is pending", async () => {
+    let finish!: () => void;
+    const onSubmit = vi.fn(() => new Promise<void>((resolve) => { finish = resolve; }));
+    render(
+      <LanguageProvider>
+        <ConversationShell
+          emptyListBody="empty" emptyListTitle="empty"
+          emptyThreadBody="empty" emptyThreadTitle="empty"
+          items={[]} listCount={0} listKicker="Channels" listTitle="Channels"
+          messages={[]} onSelectItem={vi.fn()} onSubmit={onSubmit}
+          placeholder="Send a message" selectedItemId="tour-visit"
+          selectedHeader={{ title: "tour visit", subtitle: "Group", avatar: "#" }}
+        />
+      </LanguageProvider>,
+    );
+    const composer = screen.getByRole("textbox");
+    fireEvent.change(composer, { target: { value: "Please review" } });
+    fireEvent.keyDown(composer, { key: "Enter" });
+    expect(screen.getByRole("button", { name: /发送消息|Send message/ })).toBeDisabled();
+    fireEvent.keyDown(composer, { key: "Enter" });
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    await act(async () => { finish(); });
+    fireEvent.change(composer, { target: { value: "Next message" } });
+    fireEvent.keyDown(composer, { key: "Enter" });
+    expect(onSubmit).toHaveBeenCalledTimes(2);
+    await act(async () => { finish(); });
   });
 
   it("prepends an agent mention when replying to an agent message in channel chat", async () => {
