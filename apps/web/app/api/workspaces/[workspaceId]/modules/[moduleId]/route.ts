@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getWorkspaceContextForIdentifier } from "@/features/auth/server-workspace";
+import { getCurrentSession } from "@/features/auth/server-auth";
 import {
   isWorkspaceModuleLoaderId,
   loadWorkspaceModuleDataWithMeta,
@@ -48,6 +49,7 @@ export async function GET(
         displayName: workspaceContext.currentUser.displayName,
         email: workspaceContext.currentUser.email,
         role: workspaceContext.currentMembership.role,
+        ...(rawModuleId === "settings" ? { sessionId: (await getCurrentSession())?.id } : {}),
       },
       {
         accessScope: workspaceContext.accessScope ?? "workspace",

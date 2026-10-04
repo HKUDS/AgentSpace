@@ -3,9 +3,15 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const {
   mockGetWorkspaceContextForIdentifier,
   mockLoadWorkspaceModuleDataWithMeta,
+  mockGetCurrentSession,
 } = vi.hoisted(() => ({
   mockGetWorkspaceContextForIdentifier: vi.fn(),
   mockLoadWorkspaceModuleDataWithMeta: vi.fn(),
+  mockGetCurrentSession: vi.fn(),
+}));
+
+vi.mock("@/features/auth/server-auth", () => ({
+  getCurrentSession: mockGetCurrentSession,
 }));
 
 vi.mock("@/features/auth/server-workspace", () => ({
@@ -28,6 +34,8 @@ describe("workspace module route", () => {
   beforeEach(() => {
     mockGetWorkspaceContextForIdentifier.mockReset();
     mockLoadWorkspaceModuleDataWithMeta.mockReset();
+    mockGetCurrentSession.mockReset();
+    mockGetCurrentSession.mockResolvedValue({ id: "current-session" });
     mockGetWorkspaceContextForIdentifier.mockResolvedValue(buildWorkspaceContext());
     mockLoadWorkspaceModuleDataWithMeta.mockResolvedValue({
       data: {
@@ -147,6 +155,7 @@ describe("workspace module route", () => {
       displayName: "Tianyu",
       email: "tianyu@example.com",
       role: "owner",
+      sessionId: "current-session",
     }, {
       accessScope: "workspace",
       channelNames: undefined,
