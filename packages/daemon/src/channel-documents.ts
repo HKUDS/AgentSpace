@@ -13,6 +13,7 @@ import {
   recordChannelDocumentConflictSync,
   readWorkspaceStateSync,
   updateChannelDocumentSync,
+  writeWorkspaceStateSync,
 } from "@agent-space/services";
 import type { AgentDocumentContext } from "@agent-space/services";
 import type { ChannelDocument } from "@agent-space/domain/workspace";
@@ -271,7 +272,12 @@ export function applyChannelDocumentOperations(
           sourceMessageId: context.sourceMessageId,
           sourceTaskQueueId: context.sourceTaskQueueId,
         });
+        writeWorkspaceStateSync(result.state, context.workspaceId);
         if (result.document && result.version) {
+          const index = existingDocuments.findIndex((document) => document.id === result.document!.id);
+          if (index >= 0) {
+            existingDocuments[index] = result.document;
+          }
           documentUpdates.push({
             documentId: result.document.id,
             documentVersionId: result.document.currentVersionId,
