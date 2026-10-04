@@ -498,6 +498,24 @@ describe("ChannelsPageClient", () => {
     expect(screen.getByLabelText("Markdown 内容")).toHaveValue("## Local draft");
   });
 
+  it("preserves a recoverable draft when a newer document version arrives", async () => {
+    searchParams.set("tab", "documents");
+    searchParams.set("doc", "doc-1");
+    const { rerender } = render(<TestProviders><ChannelsPageClient currentUserDisplayName="Tianyu" data={data} /></TestProviders>);
+    fireEvent.change(await screen.findByLabelText("Markdown 内容"), { target: { value: "## Unsaved local draft" } });
+    rerender(
+      <TestProviders>
+        <ChannelsPageClient currentUserDisplayName="Tianyu" data={{
+          ...data,
+          documents: data.documents.map((document) => ({ ...document, currentVersionId: "ver-2", contentMarkdown: "## Remote update" })),
+        }} />
+      </TestProviders>,
+    );
+    expect(await screen.findByLabelText("Markdown 内容")).toHaveValue("## Remote update");
+    fireEvent.click(screen.getByRole("button", { name: "恢复刚才的草稿" }));
+    expect(screen.getByLabelText("Markdown 内容")).toHaveValue("## Unsaved local draft");
+  });
+
   it("does not render cached thread content for channels without read access", () => {
     render(
       <TestProviders>

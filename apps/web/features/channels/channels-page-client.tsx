@@ -580,6 +580,7 @@ export function ChannelsPageClient({
   const refreshResetTimerRef = useRef<number | null>(null);
   const transitionPendingRef = useRef(false);
   const documentDraftSourceRef = useRef<string | null>(null);
+  const documentDraftBaselineRef = useRef<RecoverableDocumentDraft | null>(null);
   const markImChannelDetailCacheStale = useCallback((channelName?: string | null) => {
     if (!moduleCache) {
       return;
@@ -1044,6 +1045,7 @@ export function ChannelsPageClient({
     if (!selectedDocument) {
       if (!isCreatingDocument) {
         documentDraftSourceRef.current = null;
+        documentDraftBaselineRef.current = null;
         setDraftTitle("");
         setDraftSummary("");
         setDraftContent("");
@@ -1053,12 +1055,33 @@ export function ChannelsPageClient({
     if (documentDraftSourceRef.current === selectedDocumentDraftSource) {
       return;
     }
+    const baseline = documentDraftBaselineRef.current;
+    if (
+      baseline?.documentId === selectedDocument.id &&
+      (draftTitle !== baseline.title || draftSummary !== baseline.summary || draftContent !== baseline.content) &&
+      (draftTitle !== selectedDocument.title || draftSummary !== selectedDocument.summary || draftContent !== selectedDocument.contentMarkdown)
+    ) {
+      setRecoverableDraft({ documentId: selectedDocument.id, title: draftTitle, summary: draftSummary, content: draftContent });
+      setDocumentFeedback(tx(
+        "文档已有新版本。你的未保存草稿已保留，可恢复后手动合并。",
+        "A newer document version arrived. Your unsaved draft was preserved; restore it to merge manually.",
+      ));
+    }
     documentDraftSourceRef.current = selectedDocumentDraftSource;
+    documentDraftBaselineRef.current = {
+      documentId: selectedDocument.id,
+      title: selectedDocument.title,
+      summary: selectedDocument.summary,
+      content: selectedDocument.contentMarkdown,
+    };
     setIsCreatingDocument(false);
     setDraftTitle(selectedDocument.title);
     setDraftSummary(selectedDocument.summary);
     setDraftContent(selectedDocument.contentMarkdown);
   }, [
+    draftContent,
+    draftSummary,
+    draftTitle,
     isCreatingDocument,
     selectedDocument?.contentMarkdown,
     selectedDocument?.currentVersionId,
@@ -1066,6 +1089,7 @@ export function ChannelsPageClient({
     selectedDocument?.summary,
     selectedDocument?.title,
     selectedDocumentDraftSource,
+    tx,
   ]);
 
   useEffect(() => {
