@@ -24,13 +24,14 @@ export default async function InvitationPage({
 
   const currentUser = await getCurrentUser();
   if (currentUser && invitation.status === "active") {
+    let workspaceSlug: string;
     try {
       const accepted = await acceptWorkspaceInvitationForUser({
         token,
         userId: currentUser.id,
         actorDisplayName: currentUser.displayName,
       });
-      redirect(buildWorkspacePath(accepted.workspaceSlug, "/im"));
+      workspaceSlug = accepted.workspaceSlug;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return (
@@ -42,6 +43,7 @@ export default async function InvitationPage({
         />
       );
     }
+    redirect(buildWorkspacePath(workspaceSlug, "/im"));
   }
 
   if (invitation.status !== "active") {
